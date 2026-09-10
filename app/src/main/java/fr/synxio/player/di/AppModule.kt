@@ -16,6 +16,7 @@ import fr.synxio.player.data.db.PlayHistoryDao
 import fr.synxio.player.data.db.PlayStatDao
 import fr.synxio.player.data.db.PlaylistDao
 import fr.synxio.player.data.db.QueueDao
+import fr.synxio.player.data.db.SmartPlaylistDao
 import fr.synxio.player.data.db.SynxioDatabase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -44,7 +45,7 @@ object AppModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): SynxioDatabase =
         Room.databaseBuilder(context, SynxioDatabase::class.java, SynxioDatabase.NAME)
-            .fallbackToDestructiveMigration()
+            .addMigrations(SynxioDatabase.MIGRATION_3_4)
             .build()
 
     @Provides fun providePlaylistDao(db: SynxioDatabase): PlaylistDao = db.playlistDao()
@@ -58,6 +59,8 @@ object AppModule {
     @Provides fun provideArtworkColorDao(db: SynxioDatabase): ArtworkColorDao = db.artworkColorDao()
     @Provides fun provideDeviceProfileDao(db: SynxioDatabase): DeviceProfileDao =
         db.deviceProfileDao()
+    @Provides fun provideSmartPlaylistDao(db: SynxioDatabase): SmartPlaylistDao =
+        db.smartPlaylistDao()
 
     @Provides
     @Singleton

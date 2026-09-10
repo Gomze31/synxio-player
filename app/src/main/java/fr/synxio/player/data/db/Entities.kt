@@ -126,3 +126,17 @@ data class ArtworkColorEntity(
     val onSecondaryColor: Int,
     val onBackgroundColor: Int,
 )
+
+/**
+ * Une playlist intelligente de l'utilisateur. Les règles sont sérialisées en JSON
+ * plutôt qu'éclatées en colonnes : leur nombre est variable et elles ne sont jamais
+ * interrogées en SQL, l'évaluation se faisant en mémoire.
+ */
+@Entity(tableName = "smart_playlists")
+data class SmartPlaylistEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val rulesJson: String,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
