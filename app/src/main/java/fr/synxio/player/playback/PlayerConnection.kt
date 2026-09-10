@@ -64,6 +64,19 @@ class PlayerConnection @Inject constructor(
 
     private var controller: MediaController? = null
 
+    /**
+     * Commande émise avant que le MediaController ne soit connecté.
+     *
+     * Cas concret : un raccourci d'écran d'accueil déclenche « Tout mélanger » dès le
+     * démarrage à froid, alors que la connexion au service prend encore quelques
+     * centaines de millisecondes. Sans mise en attente, la commande était perdue.
+     */
+    private var pendingCommand: (() -> Unit)? = null
+
+    private inline fun whenConnected(crossinline block: () -> Unit) {
+        if (controller != null) block() else pendingCommand = { block() }
+    }
+
     init {
         scope.launch { connect() }
         scope.launch { tickPosition() }
@@ -78,6 +91,8 @@ class PlayerConnection @Inject constructor(
                     controller = mediaController
                     mediaController.addListener(ControllerListener())
                     syncState()
+                    pendingCommand?.invoke()
+                    pendingCommand = null
                 }
             },
             androidx.core.content.ContextCompat.getMainExecutor(context),
@@ -133,11 +148,13 @@ class PlayerConnection @Inject constructor(
 
     /** Remplace la file par [songs] et démarre à [startIndex]. */
     fun play(songs: List<Song>, startIndex: Int = 0) {
-        val c = controller ?: return
         if (songs.isEmpty()) return
-        c.setMediaItems(songs.toMediaItems(), startIndex.coerceIn(songs.indices), 0L)
-        c.prepare()
-        c.play()
+        whenConnected {
+            val c = controller ?: return@whenConnected
+            c.setMediaItems(songs.toMediaItems(), startIndex.coerceIn(songs.indices), 0L)
+            c.prepare()
+            c.play()
+        }
     }
 
     fun playSong(song: Song, context: List<Song>? = null) {
@@ -148,9 +165,14 @@ class PlayerConnection @Inject constructor(
     /** Lance la sélection en aléatoire, en démarrant sur un titre au hasard. */
     fun shufflePlay(songs: List<Song>) {
         if (songs.isEmpty()) return
-        val c = controller ?: return
-        c.shuffleModeEnabled = true
-        play(songs, songs.indices.random())
+        whenConnected {
+            controller?.shuffleModeEnabled = true
+            val c = controller ?: return@whenConnected
+            val index = songs.indices.random()
+            c.setMediaItems(songs.toMediaItems(), index, 0L)
+            c.prepare()
+            c.play()
+        }
     }
 
     fun playNext(songs: List<Song>) {
@@ -167,8 +189,8 @@ class PlayerConnection @Inject constructor(
         c.addMediaItems(songs.toMediaItems())
     }
 
-    fun togglePlayPause() {
-        val c = controller ?: return
+    fun togglePlayPause() = whenConnected {
+        val c = controller ?: return@whenConnected
         if (c.isPlaying) c.pause() else {
             if (c.playbackState == Player.STATE_IDLE) c.prepare()
             c.play()

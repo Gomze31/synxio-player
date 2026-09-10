@@ -23,6 +23,13 @@
     <string name="notif_channel_playback">Lecture</string>
     <string name="notif_channel_playback_desc">Contrôles du lecteur en cours</string>
 
+    <string name="shortcut_shuffle_short">Mélanger</string>
+    <string name="shortcut_shuffle_long">Tout lire en aléatoire</string>
+    <string name="shortcut_favorites_short">Favoris</string>
+    <string name="shortcut_favorites_long">Lire mes favoris</string>
+    <string name="shortcut_resume_short">Reprendre</string>
+    <string name="shortcut_resume_long">Reprendre la lecture</string>
+
     <string name="empty_library">Aucune musique trouvée</string>
     <string name="empty_library_hint">Ajoute des fichiers audio sur ton appareil puis relance un scan.</string>
 </resources>

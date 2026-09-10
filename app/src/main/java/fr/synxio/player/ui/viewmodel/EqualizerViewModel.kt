@@ -5,7 +5,14 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import fr.synxio.player.core.prefs.Settings
 import fr.synxio.player.core.prefs.SettingsRepository
+import android.content.Context
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
+import dagger.hilt.android.qualifiers.ApplicationContext
+import fr.synxio.player.data.db.DeviceProfileDao
+import fr.synxio.player.data.db.DeviceProfileEntity
 import fr.synxio.player.data.model.EqCurve
+import kotlinx.coroutines.flow.map
 import fr.synxio.player.playback.EqualizerCapabilities
 import fr.synxio.player.playback.EqualizerController
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,6 +27,8 @@ import javax.inject.Inject
 class EqualizerViewModel @Inject constructor(
     private val controller: EqualizerController,
     private val settingsRepository: SettingsRepository,
+    private val deviceProfileDao: DeviceProfileDao,
+    @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
     val settings: StateFlow<Settings> = settingsRepository.settings
@@ -55,6 +64,43 @@ class EqualizerViewModel @Inject constructor(
         val updated = controller.currentBandLevels()
         _bandLevels.value = updated
         viewModelScope.launch { settingsRepository.setEqualizerBands(updated) }
+    }
+
+    /** Nom de la sortie audio courante (casque, écouteurs), vide si haut-parleur. */
+    private val _connectedDevice = MutableStateFlow("")
+    val connectedDevice: StateFlow<String> = _connectedDevice.asStateFlow()
+
+    /** Associations mémorisées périphérique → profil. */
+    val deviceProfiles: StateFlow<Map<String, String>> = deviceProfileDao.observeAll()
+        .map { list -> list.associate { it.deviceName to it.curveId } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    /** Relit la sortie audio active : appelé à l'ouverture de l'écran. */
+    fun refreshConnectedDevice() {
+        val audioManager = context.getSystemService(AudioManager::class.java) ?: return
+        val outputs = runCatching {
+            audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+        }.getOrNull().orEmpty()
+
+        _connectedDevice.value = outputs
+            .firstOrNull { it.type in HEADSET_TYPES }
+            ?.productName?.toString()
+            .orEmpty()
+    }
+
+    /** Mémorise le profil courant pour le casque connecté. */
+    fun rememberProfileForDevice() {
+        val device = _connectedDevice.value
+        val curveId = _activeCurveId.value
+        if (device.isBlank() || curveId == null) return
+        viewModelScope.launch {
+            deviceProfileDao.put(DeviceProfileEntity(device, curveId, System.currentTimeMillis()))
+        }
+    }
+
+    fun forgetProfileForDevice() {
+        val device = _connectedDevice.value.takeIf { it.isNotBlank() } ?: return
+        viewModelScope.launch { deviceProfileDao.remove(device) }
     }
 
     /** Profil actuellement appliqué, pour cocher la puce correspondante. */
@@ -129,5 +175,15 @@ class EqualizerViewModel @Inject constructor(
     fun setLoudness(value: Int) {
         controller.setLoudnessGain(value)
         viewModelScope.launch { settingsRepository.setLoudnessGain(value) }
+    }
+
+    private companion object {
+        val HEADSET_TYPES = setOf(
+            AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+            AudioDeviceInfo.TYPE_WIRED_HEADSET,
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+            AudioDeviceInfo.TYPE_USB_HEADSET,
+            AudioDeviceInfo.TYPE_BLE_HEADSET,
+        )
     }
 }

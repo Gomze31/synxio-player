@@ -90,6 +90,23 @@ class MainActivity : ComponentActivity() {
                 }
             }
             
+            // Raccourci d'écran d'accueil : on attend que la bibliothèque soit chargée,
+            // sinon « Tout mélanger » démarrerait sur une liste vide. L'action est
+            // consommée une seule fois pour ne pas se rejouer à chaque recomposition.
+            val library by viewModel.library.collectAsStateWithLifecycle()
+            var shortcutHandled by remember { mutableStateOf(false) }
+
+            LaunchedEffect(library.hasScanned, shortcutHandled) {
+                if (shortcutHandled || !library.hasScanned) return@LaunchedEffect
+                when (intent?.action) {
+                    ACTION_SHUFFLE_ALL -> viewModel.shufflePlay(library.songs)
+                    ACTION_PLAY_FAVORITES -> viewModel.play(viewModel.favoriteSongs.value)
+                    ACTION_RESUME -> viewModel.togglePlayPause()
+                    else -> Unit
+                }
+                shortcutHandled = true
+            }
+
             SynxioTheme(
                 themeMode = settings.themeMode,
                 accentSource = settings.accentSource,
@@ -125,6 +142,9 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val ACTION_SHOW_PLAYER = "fr.synxio.player.SHOW_PLAYER"
+        const val ACTION_SHUFFLE_ALL = "fr.synxio.player.SHUFFLE_ALL"
+        const val ACTION_PLAY_FAVORITES = "fr.synxio.player.PLAY_FAVORITES"
+        const val ACTION_RESUME = "fr.synxio.player.RESUME"
     }
 }
 

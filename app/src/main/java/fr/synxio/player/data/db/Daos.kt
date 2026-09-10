@@ -181,6 +181,22 @@ interface LyricsDao {
 }
 
 @Dao
+interface DeviceProfileDao {
+
+    @Query("SELECT * FROM device_profiles ORDER BY updatedAt DESC")
+    fun observeAll(): Flow<List<DeviceProfileEntity>>
+
+    @Query("SELECT * FROM device_profiles WHERE deviceName = :name")
+    suspend fun forDevice(name: String): DeviceProfileEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun put(profile: DeviceProfileEntity)
+
+    @Query("DELETE FROM device_profiles WHERE deviceName = :name")
+    suspend fun remove(name: String)
+}
+
+@Dao
 interface ExcludedFolderDao {
 
     @Query("SELECT * FROM excluded_folders")

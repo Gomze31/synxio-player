@@ -29,7 +29,9 @@ import fr.synxio.player.R
 import fr.synxio.player.core.prefs.SettingsRepository
 import fr.synxio.player.core.prefs.toBandLevels
 import fr.synxio.player.data.db.PlaybackStateEntity
+import fr.synxio.player.data.db.DeviceProfileDao
 import fr.synxio.player.data.db.QueueDao
+import fr.synxio.player.data.model.EqCurves
 import fr.synxio.player.data.lastfm.LastFmScrobbler
 import fr.synxio.player.data.model.Song
 import fr.synxio.player.data.repo.MusicRepository
@@ -63,6 +65,7 @@ class PlaybackService : MediaLibraryService() {
     @Inject lateinit var sleepTimer: SleepTimer
     @Inject lateinit var scrobbler: LastFmScrobbler
     @Inject lateinit var queueDao: QueueDao
+    @Inject lateinit var deviceProfileDao: DeviceProfileDao
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -328,8 +331,12 @@ class PlaybackService : MediaLibraryService() {
 
         headsetCallback = object : AudioDeviceCallback() {
             override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) {
-                val isHeadset = addedDevices.orEmpty().any { it.type in HEADSET_TYPES }
-                if (!isHeadset) return
+                val headset = addedDevices.orEmpty().firstOrNull { it.type in HEADSET_TYPES }
+                    ?: return
+
+                // Chaque casque peut avoir sa propre correction : on l'applique dès
+                // qu'il se connecte, avant même de reprendre la lecture.
+                applyProfileForDevice(headset.productName?.toString().orEmpty())
 
                 serviceScope.launch {
                     if (!settingsRepository.settings.first().resumeOnHeadsetConnect) return@launch
@@ -346,6 +353,28 @@ class PlaybackService : MediaLibraryService() {
 
         runCatching { audioManager.registerAudioDeviceCallback(headsetCallback, null) }
             .onFailure { headsetCallback = null }
+    }
+
+    /** Applique la courbe mémorisée pour ce périphérique, s'il y en a une. */
+    private fun applyProfileForDevice(deviceName: String) {
+        if (deviceName.isBlank()) return
+        serviceScope.launch {
+            val mapping = deviceProfileDao.forDevice(deviceName) ?: return@launch
+            val curve = EqCurves.byId(mapping.curveId) ?: return@launch
+            val caps = equalizer.capabilities
+            if (!caps.available || caps.bands.isEmpty()) return@launch
+
+            equalizer.setEnabled(true)
+            equalizer.setBandLevels(
+                curve.toBandLevels(
+                    bandFrequenciesHz = caps.bands.map { it.centerFreqHz },
+                    minMb = caps.minLevel,
+                    maxMb = caps.maxLevel,
+                )
+            )
+            settingsRepository.setEqualizerEnabled(true)
+            settingsRepository.setEqualizerCurve(curve.id)
+        }
     }
 
     /**

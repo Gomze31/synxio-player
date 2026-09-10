@@ -15,8 +15,9 @@ import androidx.room.RoomDatabase
         ExcludedFolderEntity::class,
         PlayHistoryEntity::class,
         ArtworkColorEntity::class,
+        DeviceProfileEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class SynxioDatabase : RoomDatabase() {
@@ -28,6 +29,7 @@ abstract class SynxioDatabase : RoomDatabase() {
     abstract fun excludedFolderDao(): ExcludedFolderDao
     abstract fun playHistoryDao(): PlayHistoryDao
     abstract fun artworkColorDao(): ArtworkColorDao
+    abstract fun deviceProfileDao(): DeviceProfileDao
 
     companion object {
         const val NAME = "synxio.db"

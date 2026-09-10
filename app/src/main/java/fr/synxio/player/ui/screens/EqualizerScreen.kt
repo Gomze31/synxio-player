@@ -29,7 +29,10 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.Button
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,6 +53,10 @@ fun EqualizerScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
     val bandLevels by viewModel.bandLevels.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val activeCurveId by viewModel.activeCurveId.collectAsStateWithLifecycle()
+    val connectedDevice by viewModel.connectedDevice.collectAsStateWithLifecycle()
+    val deviceProfiles by viewModel.deviceProfiles.collectAsStateWithLifecycle()
+
+    LaunchedEffect(Unit) { viewModel.refreshConnectedDevice() }
 
     Scaffold(
         modifier = modifier,
@@ -111,6 +118,42 @@ fun EqualizerScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
 
             HorizontalDivider()
             Spacer(Modifier.height(16.dp))
+
+            // --- Association profil ↔ casque connecté ---------------------------------
+            if (connectedDevice.isNotBlank()) {
+                val memorised = deviceProfiles[connectedDevice]
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp),
+                    shape = MaterialTheme.shapes.medium,
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text(connectedDevice, style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            text = memorised
+                                ?.let { EqCurves.byId(it)?.name }
+                                ?.let { "Profil mémorisé : $it — appliqué automatiquement" }
+                                ?: "Aucun profil mémorisé pour ce casque",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = viewModel::rememberProfileForDevice,
+                                enabled = activeCurveId != null,
+                            ) { Text("Mémoriser le profil actuel") }
+                            if (memorised != null) {
+                                TextButton(onClick = viewModel::forgetProfileForDevice) {
+                                    Text("Oublier")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             // --- Profils d'écoute (courbes interpolées sur les bandes réelles) ---------
             EqCategory.entries.forEach { category ->

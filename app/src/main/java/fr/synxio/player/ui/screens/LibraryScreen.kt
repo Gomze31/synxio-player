@@ -1,5 +1,7 @@
 package fr.synxio.player.ui.screens
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,7 +19,15 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.PlaylistAdd
+import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Surface
+import fr.synxio.player.ui.components.AddToPlaylistSheet
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SortByAlpha
 import androidx.compose.material3.DropdownMenu
@@ -107,6 +117,16 @@ private fun SongsTab(
     val favorites by viewModel.favoriteIds.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     var menuSong by remember { mutableStateOf<Song?>(null) }
+    val playlists by viewModel.playlists.collectAsStateWithLifecycle()
+
+    // Sélection multiple : l'appui long bascule en mode sélection au lieu d'ouvrir
+    // le menu, et les appuis suivants cochent/décochent.
+    var selected by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var showPlaylistPicker by remember { mutableStateOf(false) }
+    val selectionMode = selected.isNotEmpty()
+    val selectedSongs = remember(selected, songs) { songs.filter { it.id in selected } }
+
+    BackHandler(enabled = selectionMode) { selected = emptySet() }
 
     if (songs.isEmpty()) {
         EmptyState("Aucun titre", "Ta bibliothèque est vide pour le moment.")
@@ -117,6 +137,25 @@ private fun SongsTab(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
     ) {
+        if (selectionMode) {
+            stickyHeader {
+                SelectionBar(
+                    count = selected.size,
+                    allSelected = selected.size == songs.size,
+                    onClear = { selected = emptySet() },
+                    onSelectAll = { selected = songs.map { it.id }.toSet() },
+                    onPlay = { viewModel.play(selectedSongs); selected = emptySet() },
+                    onPlayNext = { viewModel.playNext(selectedSongs); selected = emptySet() },
+                    onAddToQueue = { viewModel.addToQueue(selectedSongs); selected = emptySet() },
+                    onAddToPlaylist = { showPlaylistPicker = true },
+                    onFavorite = {
+                        selectedSongs.forEach(viewModel::toggleFavorite)
+                        selected = emptySet()
+                    },
+                )
+            }
+        }
+
         item {
             ListToolbar(
                 count = songs.size,
@@ -135,14 +174,29 @@ private fun SongsTab(
         }
 
         items(songs, key = { it.id }) { song ->
+            val isSelected = song.id in selected
             SongRow(
                 song = song,
-                onClick = { viewModel.playSong(song, songs) },
+                onClick = {
+                    if (selectionMode) {
+                        selected = if (isSelected) selected - song.id else selected + song.id
+                    } else {
+                        viewModel.playSong(song, songs)
+                    }
+                },
                 isCurrent = playerState.currentSong?.id == song.id,
                 isPlaying = playerState.isPlaying,
                 isFavorite = song.id in favorites,
-                onLongClick = { menuSong = song },
-                onMenuClick = { menuSong = song },
+                modifier = if (isSelected) {
+                    Modifier.background(
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
+                        MaterialTheme.shapes.medium,
+                    )
+                } else {
+                    Modifier
+                },
+                onLongClick = { selected = selected + song.id },
+                onMenuClick = { if (!selectionMode) menuSong = song },
             )
         }
     }
@@ -155,6 +209,72 @@ private fun SongsTab(
         onOpenArtist = onOpenArtist,
         onEditTags = onEditTags,
     )
+
+    if (showPlaylistPicker) {
+        AddToPlaylistSheet(
+            playlists = playlists,
+            onSelect = { viewModel.addToPlaylist(it.id, selectedSongs) },
+            onCreate = { viewModel.createPlaylist(it, selectedSongs) },
+            onDismiss = {
+                showPlaylistPicker = false
+                selected = emptySet()
+            },
+        )
+    }
+}
+
+/** Barre contextuelle affichée pendant une sélection multiple. */
+@Composable
+private fun SelectionBar(
+    count: Int,
+    allSelected: Boolean,
+    onClear: () -> Unit,
+    onSelectAll: () -> Unit,
+    onPlay: () -> Unit,
+    onPlayNext: () -> Unit,
+    onAddToQueue: () -> Unit,
+    onAddToPlaylist: () -> Unit,
+    onFavorite: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        shape = MaterialTheme.shapes.medium,
+        tonalElevation = 4.dp,
+    ) {
+        Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onClear) {
+                    Icon(Icons.Rounded.Close, contentDescription = "Annuler la sélection")
+                }
+                Text(
+                    text = "$count sélectionné${if (count > 1) "s" else ""}",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = if (allSelected) onClear else onSelectAll) {
+                    Text(if (allSelected) "Aucun" else "Tout")
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                IconButton(onClick = onPlay) {
+                    Icon(Icons.Rounded.PlayArrow, contentDescription = "Lire la sélection")
+                }
+                IconButton(onClick = onPlayNext) {
+                    Icon(Icons.Rounded.SkipNext, contentDescription = "Lire juste après")
+                }
+                IconButton(onClick = onAddToQueue) {
+                    Icon(Icons.Rounded.QueueMusic, contentDescription = "Ajouter à la file")
+                }
+                IconButton(onClick = onAddToPlaylist) {
+                    Icon(Icons.Rounded.PlaylistAdd, contentDescription = "Ajouter à une playlist")
+                }
+                IconButton(onClick = onFavorite) {
+                    Icon(Icons.Rounded.Favorite, contentDescription = "Basculer les favoris")
+                }
+            }
+        }
+    }
 }
 
 @Composable

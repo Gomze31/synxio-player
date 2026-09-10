@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Raccourcis d'appui long sur l'icône. Ils visent MainActivity avec une action
+  dédiée : l'activité la traite au démarrage puis la consomme, pour éviter de
+  relancer la lecture à chaque rotation.
+-->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <shortcut
+        android:shortcutId="shuffle_all"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_shuffle"
+        android:shortcutShortLabel="@string/shortcut_shuffle_short"
+        android:shortcutLongLabel="@string/shortcut_shuffle_long">
+        <intent
+            android:action="fr.synxio.player.SHUFFLE_ALL"
+            android:targetPackage="fr.synxio.player"
+            android:targetClass="fr.synxio.player.MainActivity" />
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="favorites"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_favorite"
+        android:shortcutShortLabel="@string/shortcut_favorites_short"
+        android:shortcutLongLabel="@string/shortcut_favorites_long">
+        <intent
+            android:action="fr.synxio.player.PLAY_FAVORITES"
+            android:targetPackage="fr.synxio.player"
+            android:targetClass="fr.synxio.player.MainActivity" />
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="resume"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_play"
+        android:shortcutShortLabel="@string/shortcut_resume_short"
+        android:shortcutLongLabel="@string/shortcut_resume_long">
+        <intent
+            android:action="fr.synxio.player.RESUME"
+            android:targetPackage="fr.synxio.player"
+            android:targetClass="fr.synxio.player.MainActivity" />
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+
+</shortcuts>

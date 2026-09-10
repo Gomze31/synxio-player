@@ -84,6 +84,20 @@ data class LyricsCacheEntity(
     val fetchedAt: Long,
 )
 
+/**
+ * Profil d'égaliseur associé à une sortie audio.
+ *
+ * On indexe par nom de périphérique (« HONOR Earbuds 3 Pro ») plutôt que par adresse
+ * MAC : l'adresse demanderait la permission BLUETOOTH_CONNECT, et le nom suffit très
+ * largement pour reconnaître un casque appairé.
+ */
+@Entity(tableName = "device_profiles")
+data class DeviceProfileEntity(
+    @PrimaryKey val deviceName: String,
+    val curveId: String,
+    val updatedAt: Long,
+)
+
 /** Dossiers exclus du scan (sonneries, enregistrements vocaux, podcasts...). */
 @Entity(tableName = "excluded_folders")
 data class ExcludedFolderEntity(

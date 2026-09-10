@@ -8,6 +8,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import fr.synxio.player.data.db.ArtworkColorDao
+import fr.synxio.player.data.db.DeviceProfileDao
 import fr.synxio.player.data.db.ExcludedFolderDao
 import fr.synxio.player.data.db.FavoriteDao
 import fr.synxio.player.data.db.LyricsDao
@@ -55,6 +56,8 @@ object AppModule {
         db.excludedFolderDao()
     @Provides fun providePlayHistoryDao(db: SynxioDatabase): PlayHistoryDao = db.playHistoryDao()
     @Provides fun provideArtworkColorDao(db: SynxioDatabase): ArtworkColorDao = db.artworkColorDao()
+    @Provides fun provideDeviceProfileDao(db: SynxioDatabase): DeviceProfileDao =
+        db.deviceProfileDao()
 
     @Provides
     @Singleton
