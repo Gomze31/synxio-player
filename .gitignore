@@ -1,0 +1,20 @@
+*.iml
+.gradle/
+local.properties
+.idea/
+.DS_Store
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.keystore
+!debug.keystore
+*.jks
+keystore.properties
+
+# JDK déposé dans le projet par l'IDE : n'a rien à faire dans le dépôt
+.jdk/
+
+release/

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Synxio</string>
+    <string name="widget_label">Synxio — Lecteur</string>
+
+    <string name="nav_home">Accueil</string>
+    <string name="nav_library">Bibliothèque</string>
+    <string name="nav_playlists">Playlists</string>
+    <string name="nav_search">Recherche</string>
+    <string name="nav_settings">Réglages</string>
+
+    <string name="tab_songs">Titres</string>
+    <string name="tab_albums">Albums</string>
+    <string name="tab_artists">Artistes</string>
+    <string name="tab_genres">Genres</string>
+    <string name="tab_folders">Dossiers</string>
+
+    <string name="permission_title">Accès à ta musique</string>
+    <string name="permission_body">Synxio a besoin de lire les fichiers audio de ton appareil pour construire ta bibliothèque. Rien ne quitte ton téléphone.</string>
+    <string name="permission_grant">Autoriser</string>
+    <string name="permission_settings">Ouvrir les réglages</string>
+
+    <string name="notif_channel_playback">Lecture</string>
+    <string name="notif_channel_playback_desc">Contrôles du lecteur en cours</string>
+
+    <string name="empty_library">Aucune musique trouvée</string>
+    <string name="empty_library_hint">Ajoute des fichiers audio sur ton appareil puis relance un scan.</string>
+</resources>
