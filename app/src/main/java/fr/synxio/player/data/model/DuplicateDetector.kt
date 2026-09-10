@@ -26,13 +26,17 @@ object DuplicateDetector {
     private val ACCENTS = "\\p{InCombiningDiacriticalMarks}+".toRegex()
 
     // Suffixes ajoutés par les sites de téléchargement et les rééditions.
+    // Frontière de mot (\b) après l'alternation : sans elle, « live » matchait le début de
+    // « Liverpool » et avalait toute la parenthèse.
     private val SUFFIXES = listOf(
         "\\((remaster|remastered|live|acoustic|radio edit|single version|album version|" +
-            "bonus track|explicit|clean|mono|stereo|version|edit)[^)]*\\)",
+            "bonus track|explicit|clean|mono|stereo|version|edit)\\b[^)]*\\)",
         "\\[(remaster|remastered|live|acoustic|radio edit|single version|album version|" +
-            "bonus track|explicit|clean|mono|stereo|version|edit)[^\\]]*\\]",
+            "bonus track|explicit|clean|mono|stereo|version|edit)\\b[^\\]]*\\]",
         "-\\s*(remaster|remastered|live|acoustic|radio edit|single version|album version)\\b.*$",
-        "\\b(feat|ft|featuring|avec)\\b\\.?.*$",
+        // « avec » n'y figure pas : c'est un mot français courant (« Vivre avec toi »),
+        // pas un marqueur de featuring comme feat/ft/featuring.
+        "\\b(feat|ft|featuring)\\b\\.?.*$",
     ).map { it.toRegex(RegexOption.IGNORE_CASE) }
 
     private val NON_ALNUM = "[^a-z0-9]".toRegex()
@@ -51,6 +55,12 @@ object DuplicateDetector {
 
     fun findGroups(songs: List<Song>, toleranceMs: Long = 3_000): List<DuplicateGroup> =
         songs
+            // Un titre normalisé vide (absent ou pure ponctuation) ne permet aucune
+            // identification fiable ; une durée nulle ou négative (métadonnées incomplètes)
+            // rend la tolérance de durée inopérante (0 - 0 <= toleranceMs laisserait tout
+            // passer). Dans les deux cas, on exclut le morceau plutôt que de risquer un
+            // faux positif.
+            .filter { normalize(it.title).isNotEmpty() && it.durationMs > 0 }
             .groupBy { normalize(it.title) to normalize(it.artist) }
             .values
             .filter { it.size > 1 }

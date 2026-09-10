@@ -111,4 +111,51 @@ class DuplicateDetectorTest {
     fun `une bibliotheque vide ne plante pas`() {
         assertTrue(DuplicateDetector.findGroups(emptyList()).isEmpty())
     }
+
+    @Test
+    fun `avec n'est pas traite comme un marqueur de featuring`() {
+        // « avec » est un mot français courant, pas un équivalent de feat/ft/featuring :
+        // deux titres différents ne doivent pas se retrouver normalisés à l'identique.
+        val songs = listOf(
+            song(id = 1, title = "Vivre avec toi", artist = "Stromae", durationMs = 210_000),
+            song(id = 2, title = "Vivre avec elle", artist = "Stromae", durationMs = 210_000),
+        )
+        assertTrue(DuplicateDetector.findGroups(songs).isEmpty())
+    }
+
+    @Test
+    fun `un titre reduit a de la ponctuation ne forme pas de groupe`() {
+        val songs = listOf(
+            song(id = 1, title = "...", artist = "Stromae"),
+            song(id = 2, title = "...", artist = "Stromae"),
+        )
+        assertTrue(DuplicateDetector.findGroups(songs).isEmpty())
+    }
+
+    @Test
+    fun `un titre vide ne forme pas de groupe`() {
+        val songs = listOf(
+            song(id = 1, title = "", artist = "Stromae"),
+            song(id = 2, title = "", artist = "Stromae"),
+        )
+        assertTrue(DuplicateDetector.findGroups(songs).isEmpty())
+    }
+
+    @Test
+    fun `une duree nulle empeche tout groupement`() {
+        // Sans le garde-fou, 0 - 0 <= toleranceMs laisserait passer n'importe quoi.
+        val songs = listOf(
+            song(id = 1, title = "Formidable", artist = "Stromae", durationMs = 0),
+            song(id = 2, title = "Formidable", artist = "Stromae", durationMs = 0),
+        )
+        assertTrue(DuplicateDetector.findGroups(songs).isEmpty())
+    }
+
+    @Test
+    fun `la normalisation ne tronque pas un mot plus long que le marqueur`() {
+        // « live » ne doit pas matcher le début de « Liverpool » : la frontière de mot
+        // empêche la parenthèse entière d'être avalée.
+        val normalized = DuplicateDetector.normalize("Chanson (Liverpool 1985)")
+        assertTrue(normalized.contains("liverpool"))
+    }
 }
