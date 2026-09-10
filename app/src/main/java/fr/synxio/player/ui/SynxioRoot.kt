@@ -60,6 +60,7 @@ import fr.synxio.player.ui.screens.LibraryScreen
 import fr.synxio.player.ui.screens.PermissionScreen
 import fr.synxio.player.ui.screens.PlaylistDetailScreen
 import fr.synxio.player.ui.screens.PlaylistsScreen
+import fr.synxio.player.ui.screens.RepairScreen
 import fr.synxio.player.ui.screens.SearchScreen
 import fr.synxio.player.ui.screens.SettingsScreen
 import fr.synxio.player.ui.screens.SongListScreen
@@ -88,6 +89,7 @@ object Routes {
     const val FOLDER = "folder/{folderPath}"
     const val PLAYLIST = "playlist/{playlistId}"
     const val EQUALIZER = "equalizer"
+    const val REPAIR = "repair"
     const val TAGS = "tags/{songId}"
     const val STATS = "stats"
     const val HISTORY = "history"
@@ -313,6 +315,7 @@ private fun AppNavHost(
             SettingsScreen(
                 viewModel = viewModel,
                 onOpenEqualizer = { navController.navigate(Routes.EQUALIZER) },
+                onOpenRepair = { navController.navigate(Routes.REPAIR) },
                 onNavigateToStats = { navController.navigate(Routes.STATS) },
                 onNavigateToHistory = { navController.navigate(Routes.HISTORY) },
                 onNavigateToBackup = { navController.navigate(Routes.BACKUP) },
@@ -382,6 +385,10 @@ private fun AppNavHost(
 
         composable(Routes.EQUALIZER) {
             EqualizerScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.REPAIR) {
+            RepairScreen(onBack = { navController.popBackStack() })
         }
 
         composable(Routes.TAGS) { entry ->

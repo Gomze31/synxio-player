@@ -32,6 +32,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.Brightness6
 import androidx.compose.material.icons.rounded.Check
@@ -136,6 +137,7 @@ private fun String.toStatsPeriod(): StatsPeriod = StatsPeriod.entries.firstOrNul
 fun SettingsScreen(
     viewModel: AppViewModel,
     onOpenEqualizer: () -> Unit,
+    onOpenRepair: () -> Unit,
     onNavigateToStats: () -> Unit,
     onNavigateToHistory: () -> Unit,
     onNavigateToBackup: () -> Unit,
@@ -495,6 +497,15 @@ fun SettingsScreen(
                     subtitle = "${library.songs.size.pluralSongs()} · ${library.totalDurationMs.asLongDuration()}",
                     icon = Icons.Rounded.Sync,
                     onClick = { viewModel.rescan() }
+                )
+            }
+
+            item {
+                ClickableSetting(
+                    title = "Réparer les tags",
+                    subtitle = "Corrige artistes, albums, années et pochettes en masse",
+                    icon = Icons.Rounded.AutoFixHigh,
+                    onClick = onOpenRepair
                 )
             }
             
