@@ -61,6 +61,30 @@ val MediaItem.songId: Long
 val MediaItem.songPath: String?
     get() = mediaMetadata.extras?.getString(EXTRA_PATH)
 
+/**
+ * Reconstruit un objet Song basique à partir des métadonnées d'un MediaItem.
+ * Utile pour les flux réseau (webradios) qui ne sont pas en base de données.
+ */
+fun MediaItem.toSynthesizedSong(): Song = Song(
+    id = songId,
+    title = mediaMetadata.title?.toString() ?: "Titre inconnu",
+    artist = mediaMetadata.artist?.toString() ?: "Artiste inconnu",
+    artistId = -1L,
+    album = mediaMetadata.albumTitle?.toString() ?: "Inconnu",
+    albumId = -1L,
+    albumArtist = mediaMetadata.albumArtist?.toString(),
+    genre = mediaMetadata.genre?.toString(),
+    durationMs = mediaMetadata.extras?.getLong(EXTRA_DURATION) ?: 0L,
+    track = mediaMetadata.trackNumber ?: 0,
+    disc = mediaMetadata.discNumber ?: 0,
+    year = mediaMetadata.recordingYear ?: 0,
+    dateAddedSec = 0L,
+    dateModifiedSec = 0L,
+    sizeBytes = 0L,
+    mimeType = "audio/mpeg",
+    path = mediaMetadata.extras?.getString(EXTRA_PATH) ?: localConfiguration?.uri?.toString() ?: ""
+)
+
 /** Nœud de navigation (album, artiste, playlist…) pour Android Auto et `MediaBrowser`. */
 fun browsableItem(
     id: String,

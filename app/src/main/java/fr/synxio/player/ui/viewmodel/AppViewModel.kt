@@ -60,8 +60,13 @@ class AppViewModel @Inject constructor(
     private val shareCardRepository: ShareCardRepository,
     private val similarityRepository: SimilarityRepository,
     private val rulePlaylistRepository: RulePlaylistRepository,
+    private val radioRepository: fr.synxio.player.data.repo.RadioRepository,
     smartPlaylistRepository: SmartPlaylistRepository,
 ) : ViewModel() {
+
+    val topRadios: StateFlow<List<fr.synxio.player.data.model.RadioStation>> = kotlinx.coroutines.flow.flow {
+        emit(radioRepository.getTopRadios(100))
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val smartPlaylists: StateFlow<List<SmartPlaylist>> = smartPlaylistRepository.playlists
     val rulePlaylists: StateFlow<List<RulePlaylist>> = rulePlaylistRepository.rulePlaylists
@@ -130,6 +135,7 @@ class AppViewModel @Inject constructor(
 
     fun play(songs: List<Song>, index: Int = 0) = player.play(songs, index)
     fun playSong(song: Song, context: List<Song>) = player.playSong(song, context)
+    fun playRadio(station: fr.synxio.player.data.model.RadioStation) = player.playRadio(station)
     /**
      * Le filtrage se fait ici et non dans [PlayerConnection] : c'est un choix de
      * bibliothèque, pas une mécanique de lecteur, et il dépend des réglages.

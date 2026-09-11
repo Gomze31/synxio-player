@@ -185,9 +185,12 @@ class PlayerConnection @Inject constructor(
         val c = controller ?: return
         val previous = _state.value
         val queue = (0 until c.mediaItemCount).mapNotNull {
-            musicRepository.songById(c.getMediaItemAt(it).songId)
+            val item = c.getMediaItemAt(it)
+            musicRepository.songById(item.songId) ?: item.toSynthesizedSong()
         }
-        val current = c.currentMediaItem?.let { musicRepository.songById(it.songId) }
+        val current = c.currentMediaItem?.let { item ->
+            musicRepository.songById(item.songId) ?: item.toSynthesizedSong()
+        }
 
         // Cet état est reconstruit à chaque événement du lecteur, y compris une simple
         // pause. La boucle A-B n'existe que côté contrôleur : sans ce report explicite,
@@ -239,6 +242,32 @@ class PlayerConnection @Inject constructor(
     fun playSong(song: Song, context: List<Song>? = null) {
         val queue = context ?: listOf(song)
         play(queue, queue.indexOf(song).coerceAtLeast(0))
+    }
+
+    /** Démarre la lecture d'une webradio. */
+    fun playRadio(station: fr.synxio.player.data.model.RadioStation) {
+        whenConnected {
+            val c = controller ?: return@whenConnected
+            val id = -(station.stationUuid.hashCode().toLong() and 0x7FFFFFFF)
+            
+            val metadata = androidx.media3.common.MediaMetadata.Builder()
+                .setTitle(station.name)
+                .setArtist(station.tags.ifBlank { station.country })
+                .setAlbumTitle("Webradio")
+                .setArtworkUri(if (station.favicon.isNotBlank()) android.net.Uri.parse(station.favicon) else null)
+                .setIsPlayable(true)
+                .build()
+
+            val mediaItem = MediaItem.Builder()
+                .setMediaId(id.toString())
+                .setUri(station.urlResolved)
+                .setMediaMetadata(metadata)
+                .build()
+
+            c.setMediaItem(mediaItem)
+            c.prepare()
+            c.play()
+        }
     }
 
     /** Lance la sélection en aléatoire, en démarrant sur un titre au hasard. */
