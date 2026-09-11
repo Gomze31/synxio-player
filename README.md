@@ -10,33 +10,11 @@ extraites de la pochette en cours de lecture.
 
 ## 🚀 Démarrage
 
-Le projet **compile déjà** sur ce poste. Le SDK et le JDK sont installés hors OneDrive
-dans `C:\Users\y.gomez\android-dev` :
-
-| | Chemin |
-|---|---|
-| JDK 17 (Temurin) | `C:\Users\y.gomez\android-dev\jdk\jdk-17.0.20.1+1` |
-| SDK Android 35 | `C:\Users\y.gomez\android-dev\sdk` |
-| Dossiers `build/` | `C:\Users\y.gomez\android-dev\build` |
-| APK debug | `C:\Users\y.gomez\android-dev\build\app\outputs\apk\debug\app-debug.apk` |
-
-### En ligne de commande (PowerShell)
-
-```powershell
-$dev = "C:\Users\y.gomez\android-dev"
-$env:JAVA_HOME = "$dev\jdk\jdk-17.0.20.1+1"
-$env:ANDROID_HOME = "$dev\sdk"
-$env:JAVA_TOOL_OPTIONS = "-Djdk.net.unixdomain.tmpdir=$dev\tmp"
-$env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
-
-.\gradlew.bat assembleDebug     # construit l'APK
-.\gradlew.bat installDebug      # installe sur l'appareil branché en débogage USB
-```
+Le projet utilise **Kotlin**, **Jetpack Compose** et **Media3 (ExoPlayer)**.
 
 ### Dans Android Studio
 
-`File > Open` sur ce dossier, puis `File > Project Structure > SDK Location` → pointe le
-**JDK 17** ci-dessus (Android Studio utilise sinon son JBR embarqué, qui convient aussi).
+Ouvrez ce dossier avec Android Studio. Le projet téléchargera automatiquement les dépendances Gradle nécessaires.
 
 **Prérequis** : JDK 17, SDK Android 36, Gradle 8.14.5 / AGP 8.13.2.
 `minSdk 26` (Android 8.0) → `targetSdk 36` (Android 16).
@@ -46,18 +24,12 @@ $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
 > stable. Sur un appareil Android 17, l'app tourne alors dans les comportements Android 16,
 > ce qui est le fonctionnement normal et supporté.
 
-### ⚙️ Deux particularités de ce poste
+### En ligne de commande
 
-Elles sont déjà corrigées dans `gradle.properties`, mais autant savoir pourquoi :
-
-1. **`jdk.net.unixdomain.tmpdir`** — le dossier `TEMP` de l'utilisateur refuse les sockets
-   AF_UNIX, dont le JDK 17+ se sert pour le pipe interne de `Selector.open()`. Sans
-   redirection, Gradle meurt sur `Unable to establish loopback connection`.
-2. **`buildDirRoot`** — OneDrive verrouille les fichiers pendant sa synchronisation, ce qui
-   fait échouer KSP au nettoyage de `build/`. Les dossiers de build sont donc déportés hors
-   du périmètre synchronisé.
-
-Si tu déplaces le projet sur un disque non synchronisé, tu peux commenter `buildDirRoot`.
+```bash
+./gradlew assembleDebug     # construit l'APK
+./gradlew installDebug      # installe sur l'appareil branché en débogage USB
+```
 
 ---
 
@@ -130,19 +102,19 @@ paquet ni permission capsule n'est exposé aux applications. Le système gère s
 
 ## 📦 Publication Play Store
 
-La signature est déjà configurée. Les artefacts se construisent avec :
+La signature est configurée avec des clés de test, ou avec vos propres clés si vous remplacez `synxio-upload.jks` et `keystore.properties`. Les artefacts se construisent avec :
 
-```powershell
-.\gradlew.bat bundleRelease    # AAB signé → à téléverser sur le Play Store
-.\gradlew.bat assembleRelease  # APK signé → pour tester en local
+```bash
+./gradlew bundleRelease    # AAB signé → à téléverser sur le Play Store
+./gradlew assembleRelease  # APK signé → pour tester en local
 ```
 
-Sorties dans `C:\Users\y.gomez\android-dev\build\app\outputs\` :
-`bundle\release\app-release.aab` (9,6 Mo) et `apk\release\app-release.apk` (5 Mo).
+Sorties dans `app/build/outputs/` :
+`bundle/release/app-release.aab` et `apk/release/app-release.apk`.
 
-> ⚠️ **Sauvegarde `synxio-upload.jks` et `keystore.properties` hors de cette machine.**
+> ⚠️ **Sauvegardez soigneusement votre keystore.**
 > Perdre la clé de signature rend toute mise à jour de l'app impossible sur le Play Store —
-> il faudrait republier sous un nouveau nom de paquet. Les deux fichiers sont exclus de Git.
+> il faudrait republier sous un nouveau nom de paquet. Les fichiers de clé sont ignorés par Git.
 
 ### Avant le premier envoi
 

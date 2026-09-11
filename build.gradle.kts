@@ -7,12 +7,4 @@ plugins {
     alias(libs.plugins.hilt) apply false
 }
 
-// Le projet vit dans OneDrive, qui verrouille les fichiers pendant sa synchronisation :
-// KSP et AGP échouent alors à nettoyer `build/`. Renseigner `buildDirRoot` dans
-// gradle.properties déplace tous les dossiers de build hors du périmètre synchronisé.
-providers.gradleProperty("buildDirRoot").orNull?.let { root ->
-    allprojects {
-        val name = project.path.trim(':').replace(':', '-').ifEmpty { "root" }
-        layout.buildDirectory.set(File(root, name))
-    }
-}
+
