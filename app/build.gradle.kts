@@ -27,8 +27,8 @@ android {
         // 36 = Android 16. L'API 37 n'existe qu'en canal preview du SDK : on ne cible pas
         // un SDK canary, ce serait impubliable et instable.
         targetSdk = 36
-        versionCode = 20241020
-        versionName = "2.8.1"
+        versionCode = 20241022
+        versionName = "2.8.2"
         vectorDrawables.useSupportLibrary = true
 
         // Le dépôt devient public, l'app peut donc chercher ses mises à jour ici directement
@@ -47,11 +47,18 @@ android {
     signingConfigs {
         create("release") {
             val storePath = keystoreProperties.getProperty("storeFile")
-            if (storePath != null) {
+            if (storePath != null && rootProject.file(storePath).exists()) {
                 storeFile = rootProject.file(storePath)
                 storePassword = keystoreProperties.getProperty("storePassword")
                 keyAlias = keystoreProperties.getProperty("keyAlias")
                 keyPassword = keystoreProperties.getProperty("keyPassword")
+            } else {
+                // Keystore de release officiel embarqué pour garantir une signature
+                // 100% identique entre GitHub Actions, les APKs et les mises à jour in-app.
+                storeFile = file("synxio-release.keystore")
+                storePassword = "synxioplayer"
+                keyAlias = "synxio"
+                keyPassword = "synxioplayer"
             }
         }
     }
@@ -65,13 +72,7 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Signe seulement si keystore.properties est présent, sinon l'APK sort
-            // non signé plutôt que de faire échouer le build.
-            if (keystoreProperties.getProperty("storeFile") != null) {
-                signingConfig = signingConfigs.getByName("release")
-            } else {
-                signingConfig = signingConfigs.getByName("debug")
-            }
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 
