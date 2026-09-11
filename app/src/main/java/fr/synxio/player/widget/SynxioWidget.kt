@@ -324,7 +324,7 @@ class SynxioWidget : GlanceAppWidget() {
     private companion object {
         /** En dessous, la pochette prendrait la place des commandes. */
         val ARTWORK_MIN_WIDTH = 220.dp
-        const val ARTWORK_PIXELS = 256
+        const val ARTWORK_PIXELS = 128
     }
 }
 

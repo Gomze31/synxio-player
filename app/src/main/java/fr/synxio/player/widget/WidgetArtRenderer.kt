@@ -330,8 +330,8 @@ class WidgetArtRenderer @Inject constructor() {
         const val BAND_COUNT = 10
         const val BLUR_SIDE = 14
         const val MIN_SIDE = 64
-        const val MAX_WIDTH = 540
-        const val MAX_HEIGHT = 280
+        const val MAX_WIDTH = 256
+        const val MAX_HEIGHT = 150
         const val CORNER_FRACTION = 0.18f
         val NEUTRAL_PROFILE =
             floatArrayOf(0.25f, 0.45f, 0.7f, 0.55f, 0.8f, 0.6f, 0.85f, 0.5f, 0.65f, 0.3f)
