@@ -160,4 +160,6 @@ dependencies {
     implementation(libs.jaudiotagger)
     implementation(libs.okhttp)
     implementation(libs.kotlinx.serialization.json)
+
+    testImplementation(libs.junit)
 }

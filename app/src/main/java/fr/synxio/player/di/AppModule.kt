@@ -20,6 +20,7 @@ import fr.synxio.player.data.db.PlayHistoryDao
 import fr.synxio.player.data.db.PlayStatDao
 import fr.synxio.player.data.db.PlaylistDao
 import fr.synxio.player.data.db.QueueDao
+import fr.synxio.player.data.db.RulePlaylistDao
 import fr.synxio.player.data.db.SynxioDatabase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -70,6 +71,8 @@ object AppModule {
     @Provides fun provideLoudnessDao(db: SynxioDatabase): LoudnessDao = db.loudnessDao()
     @Provides fun provideAudioFeatureDao(db: SynxioDatabase): AudioFeatureDao =
         db.audioFeatureDao()
+    @Provides fun provideRulePlaylistDao(db: SynxioDatabase): RulePlaylistDao =
+        db.rulePlaylistDao()
 
     @Provides
     @Singleton
