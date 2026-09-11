@@ -7,11 +7,13 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import fr.synxio.player.data.db.ALL_MIGRATIONS
 import fr.synxio.player.data.db.ArtworkColorDao
 import fr.synxio.player.data.db.DeviceProfileDao
 import fr.synxio.player.data.db.ExcludedFolderDao
 import fr.synxio.player.data.db.FavoriteDao
 import fr.synxio.player.data.db.LyricsDao
+import fr.synxio.player.data.db.LyricsOffsetDao
 import fr.synxio.player.data.db.PlayHistoryDao
 import fr.synxio.player.data.db.PlayStatDao
 import fr.synxio.player.data.db.PlaylistDao
@@ -44,7 +46,10 @@ object AppModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): SynxioDatabase =
         Room.databaseBuilder(context, SynxioDatabase::class.java, SynxioDatabase.NAME)
-            .fallbackToDestructiveMigration()
+            // Pas de migration destructive : favoris, compteurs d'écoute, historique et
+            // playlists ne sont pas reconstructibles. Chaque montée de version doit
+            // fournir son script dans Migrations.kt.
+            .addMigrations(*ALL_MIGRATIONS)
             .build()
 
     @Provides fun providePlaylistDao(db: SynxioDatabase): PlaylistDao = db.playlistDao()
@@ -58,6 +63,8 @@ object AppModule {
     @Provides fun provideArtworkColorDao(db: SynxioDatabase): ArtworkColorDao = db.artworkColorDao()
     @Provides fun provideDeviceProfileDao(db: SynxioDatabase): DeviceProfileDao =
         db.deviceProfileDao()
+    @Provides fun provideLyricsOffsetDao(db: SynxioDatabase): LyricsOffsetDao =
+        db.lyricsOffsetDao()
 
     @Provides
     @Singleton

@@ -115,6 +115,20 @@ data class PlayHistoryEntity(
     val durationMs: Long,
 )
 
+/**
+ * Décalage manuel des paroles synchronisées, en millisecondes.
+ *
+ * Indexé par chemin et non par id MediaStore : le décalage est une propriété du
+ * fichier, et MediaStore réattribue les ids après une réindexation complète.
+ * Positif = les paroles sont en retard et doivent être avancées.
+ */
+@Entity(tableName = "lyrics_offsets")
+data class LyricsOffsetEntity(
+    @PrimaryKey val songPath: String,
+    val offsetMs: Long,
+    val updatedAt: Long,
+)
+
 /** Cache pour les couleurs des pochettes. */
 @Entity(tableName = "artwork_colors")
 data class ArtworkColorEntity(

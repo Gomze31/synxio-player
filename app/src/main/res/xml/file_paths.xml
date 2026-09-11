@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Seul le sous-dossier « share » du cache est exposé.
+
+    Partager la racine du cache donnerait accès aux images mises en cache par Coil et
+    à la base de données temporaire : on n'expose que ce qu'on a l'intention d'envoyer.
+-->
+<paths>
+    <cache-path
+        name="share"
+        path="share/" />
+</paths>

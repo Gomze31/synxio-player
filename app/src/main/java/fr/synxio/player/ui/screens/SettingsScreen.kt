@@ -37,6 +37,7 @@ import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.Brightness6
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ColorLens
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DataSaverOn
 import androidx.compose.material.icons.rounded.DeveloperMode
 import androidx.compose.material.icons.rounded.Equalizer
@@ -138,6 +139,7 @@ fun SettingsScreen(
     viewModel: AppViewModel,
     onOpenEqualizer: () -> Unit,
     onOpenRepair: () -> Unit,
+    onOpenDuplicates: () -> Unit,
     onNavigateToStats: () -> Unit,
     onNavigateToHistory: () -> Unit,
     onNavigateToBackup: () -> Unit,
@@ -508,7 +510,17 @@ fun SettingsScreen(
                     onClick = onOpenRepair
                 )
             }
-            
+
+            item {
+                ClickableSetting(
+                    title = "Chercher les doublons",
+                    subtitle = "Repère les copies multiples et libère de l'espace",
+                    icon = Icons.Rounded.ContentCopy,
+                    onClick = onOpenDuplicates
+                )
+            }
+
+
             item {
                 SwitchSetting(
                     title = "Scan automatique",

@@ -13,20 +13,22 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Album
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -40,6 +42,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -74,6 +77,10 @@ fun LyricsPane(
     positionMs: Long,
     onSeek: (Long) -> Unit,
     modifier: Modifier = Modifier,
+    offsetMs: Long = 0L,
+    offsetLabel: String = "",
+    onNudgeOffset: (Long) -> Unit = {},
+    onResetOffset: () -> Unit = {},
 ) {
     if (loading) {
         Box(modifier, Alignment.Center) { CircularProgressIndicator() }
@@ -93,7 +100,10 @@ fun LyricsPane(
     }
 
     val listState = rememberLazyListState()
-    val activeIndex = remember(positionMs, lyrics) { lyrics.indexAt(positionMs) }
+    // Le décalage déplace la *lecture des paroles*, pas la lecture audio : on interroge
+    // la timeline des paroles à une position décalée plutôt que de réécrire les temps.
+    val adjustedPosition = positionMs + offsetMs
+    val activeIndex = remember(adjustedPosition, lyrics) { lyrics.indexAt(adjustedPosition) }
 
     LaunchedEffect(activeIndex) {
         if (activeIndex >= 0) {
@@ -102,19 +112,80 @@ fun LyricsPane(
         }
     }
 
-    LazyColumn(
-        state = listState,
-        modifier = modifier,
-        contentPadding = PaddingValues(vertical = 120.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        itemsIndexed(lyrics.lines) { index, line ->
-            LyricRow(
-                line = line,
-                active = index == activeIndex,
-                synced = lyrics.synced,
-                onClick = { line.timeMs?.let(onSeek) },
+    Column(modifier) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(vertical = 120.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            itemsIndexed(lyrics.lines) { index, line ->
+                LyricRow(
+                    line = line,
+                    active = index == activeIndex,
+                    synced = lyrics.synced,
+                    // Symétrique du décalage : on retire ce qu'on a ajouté pour retomber
+                    // sur l'instant réel du morceau.
+                    onClick = { line.timeMs?.let { onSeek(it - offsetMs) } },
+                )
+            }
+        }
+
+        // Le réglage n'a de sens que sur des paroles horodatées.
+        if (lyrics.synced) {
+            LyricsOffsetBar(
+                label = offsetLabel,
+                aligned = offsetMs == 0L,
+                onNudge = onNudgeOffset,
+                onReset = onResetOffset,
             )
+        }
+    }
+}
+
+/**
+ * Réglage fin de la synchronisation des paroles.
+ *
+ * Les fichiers .lrc trouvés en ligne sont souvent calés sur une autre édition du
+ * morceau — une intro plus longue suffit à décaler tout le texte. Un pas de 500 ms
+ * permet de rattraper ça à l'oreille, en écoutant, sans quitter l'écran.
+ */
+@Composable
+private fun LyricsOffsetBar(
+    label: String,
+    aligned: Boolean,
+    onNudge: (Long) -> Unit,
+    onReset: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        TextButton(onClick = { onNudge(-500L) }) { Text("−0,5 s") }
+
+        // Largeur fixe : sans elle, passer de « synchro » à « +2,5 s » décale les deux
+        // boutons, et le toucher suivant tombe à côté de celui qu'on visait.
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            color = if (aligned) MaterialTheme.colorScheme.onSurfaceVariant
+            else MaterialTheme.colorScheme.primary,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            modifier = Modifier.width(88.dp),
+        )
+
+        TextButton(onClick = { onNudge(500L) }) { Text("+0,5 s") }
+
+        // Bouton explicite : le libellé lui-même était cliquable pour réinitialiser,
+        // sans rien qui l'indique — on remettait le décalage à zéro en croyant lire.
+        if (!aligned) {
+            IconButton(onClick = onReset) {
+                Icon(Icons.Rounded.Refresh, contentDescription = "Réinitialiser le décalage")
+            }
         }
     }
 }
@@ -154,8 +225,11 @@ fun QueueSheet(
     onClear: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth()) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -223,8 +297,15 @@ fun SleepTimerSheet(
     var minutes by remember { mutableIntStateOf(30) }
     var finishTrack by remember { mutableStateOf(false) }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ) {
+        Column(
+            Modifier
+                .navigationBarsPadding()
+                .padding(horizontal = 24.dp, vertical = 8.dp)
+        ) {
             Text(
                 "Minuterie de veille",
                 style = MaterialTheme.typography.titleLarge,
@@ -297,8 +378,15 @@ fun SpeedSheet(
     var currentPitch by remember { mutableFloatStateOf(pitch) }
     var linkPitch by remember { mutableStateOf(pitch == speed) }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ) {
+        Column(
+            Modifier
+                .navigationBarsPadding()
+                .padding(horizontal = 24.dp, vertical = 8.dp)
+        ) {
             Text(
                 "Vitesse et tonalité",
                 style = MaterialTheme.typography.titleLarge,
@@ -373,10 +461,22 @@ fun NowPlayingMenuSheet(
     onOpenArtist: () -> Unit,
     onEditTags: () -> Unit,
     onRefreshLyrics: () -> Unit,
+    onShare: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.padding(bottom = 24.dp)) {
+    // `skipPartiallyExpanded` : sans lui la feuille s'ouvre à mi-hauteur et le contenu
+    // qui dépasse est dessiné hors de ses limites, sous la barre de navigation système
+    // qui intercepte alors les touchers. Le menu paraissait fonctionner — la feuille se
+    // fermait au toucher du scrim — sans jamais déclencher l'action choisie.
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        // Complété par le décalage de la barre de navigation, que la feuille ne gère pas.
+        Column(
+            Modifier
+                .navigationBarsPadding()
+                .padding(bottom = 12.dp)
+        ) {
             Row(
                 Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -398,7 +498,7 @@ fun NowPlayingMenuSheet(
             MenuRow(Icons.Rounded.Person, "Aller à l'artiste") { onOpenArtist(); onDismiss() }
             MenuRow(Icons.Rounded.Edit, "Modifier les tags") { onEditTags(); onDismiss() }
             MenuRow(Icons.Rounded.Refresh, "Rechercher les paroles") { onRefreshLyrics(); onDismiss() }
-            MenuRow(Icons.Rounded.Close, "Fermer") { onDismiss() }
+            MenuRow(Icons.Rounded.Share, "Partager une carte") { onShare(); onDismiss() }
         }
     }
 }

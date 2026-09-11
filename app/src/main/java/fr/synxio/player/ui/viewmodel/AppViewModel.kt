@@ -1,5 +1,6 @@
 package fr.synxio.player.ui.viewmodel
 
+import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -15,6 +16,10 @@ import fr.synxio.player.data.repo.Library
 import fr.synxio.player.data.repo.MusicRepository
 import fr.synxio.player.data.repo.PlaylistRepository
 import fr.synxio.player.data.repo.SearchResults
+import fr.synxio.player.data.repo.ShareCardRepository
+import fr.synxio.player.data.repo.SmartPlaylist
+import fr.synxio.player.data.repo.SmartPlaylistId
+import fr.synxio.player.data.repo.SmartPlaylistRepository
 import fr.synxio.player.playback.PlayerConnection
 import fr.synxio.player.playback.PlayerUiState
 import fr.synxio.player.playback.SleepTimer
@@ -48,7 +53,11 @@ class AppViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val player: PlayerConnection,
     private val sleepTimer: SleepTimer,
+    private val shareCardRepository: ShareCardRepository,
+    smartPlaylistRepository: SmartPlaylistRepository,
 ) : ViewModel() {
+
+    val smartPlaylists: StateFlow<List<SmartPlaylist>> = smartPlaylistRepository.playlists
 
     val library: StateFlow<Library> = musicRepository.library
     val playerState: StateFlow<PlayerUiState> = player.state
@@ -65,6 +74,15 @@ class AppViewModel @Inject constructor(
 
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val messages: SharedFlow<String> = _messages
+
+    /**
+     * Intents de partage à lancer.
+     *
+     * Le ViewModel ne connaît pas d'Activity : il produit l'intent, l'UI le démarre.
+     * C'est ce qui permet de générer la carte depuis n'importe quel écran.
+     */
+    private val _shareIntents = MutableSharedFlow<Intent>(extraBufferCapacity = 1)
+    val shareIntents: SharedFlow<Intent> = _shareIntents
 
     /** Titres triés selon la préférence courante, recalculés à chaque changement. */
     val sortedSongs: StateFlow<List<Song>> = combine(library, settings) { lib, s ->
@@ -135,6 +153,19 @@ class AppViewModel @Inject constructor(
             settingsRepository.setPitch(pitch)
         }
     }
+
+    // --- Partage -------------------------------------------------------------------------
+
+    fun shareSong(song: Song) = viewModelScope.launch {
+        val intent = shareCardRepository.createShareIntent(song)
+        if (intent != null) _shareIntents.emit(intent)
+        else _messages.emit("Impossible de générer la carte de partage")
+    }
+
+    // --- Playlists intelligentes ----------------------------------------------------------
+
+    fun smartPlaylist(id: SmartPlaylistId): SmartPlaylist? =
+        smartPlaylists.value.firstOrNull { it.id == id }
 
     // --- Favoris -------------------------------------------------------------------------
 

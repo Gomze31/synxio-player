@@ -1,6 +1,7 @@
 package fr.synxio.player.ui
 
 import android.Manifest
+import android.content.Intent
 import android.os.Build
 import android.util.Base64
 import androidx.activity.compose.BackHandler
@@ -37,6 +38,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
@@ -47,7 +49,10 @@ import androidx.navigation.compose.rememberNavController
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
+import fr.synxio.player.data.repo.SmartPlaylistId
 import fr.synxio.player.ui.components.MiniPlayer
+import fr.synxio.player.ui.screens.DuplicatesScreen
+import fr.synxio.player.ui.screens.RecentsScreen
 import fr.synxio.player.ui.screens.AlbumDetailScreen
 import fr.synxio.player.ui.screens.ArtistDetailScreen
 import fr.synxio.player.ui.screens.AdvancedSearchScreen
@@ -96,8 +101,12 @@ object Routes {
     const val BACKUP = "backup"
     const val ABOUT = "about"
     const val ADVANCED_SEARCH = "advanced_search"
+    const val DUPLICATES = "duplicates"
+    const val RECENTS = "recents"
+    const val SMART = "smart/{smartId}"
 
     fun album(id: Long) = "album/$id"
+    fun smart(id: SmartPlaylistId) = "smart/${id.name}"
     fun artist(name: String) = "artist/${name.encode()}"
     fun genre(name: String) = "genre/${name.encode()}"
     fun folder(path: String) = "folder/${path.encode()}"
@@ -153,6 +162,17 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerOnStart: Boolean) {
 
     LaunchedEffect(Unit) {
         viewModel.messages.collect { snackbarHost.showSnackbar(it) }
+    }
+
+    // Le partage est collecté ici et non dans l'écran du lecteur : la carte doit pouvoir
+    // être générée depuis n'importe où, y compris quand le lecteur est replié.
+    val context = LocalContext.current
+    LaunchedEffect(Unit) {
+        viewModel.shareIntents.collect { intent ->
+            runCatching {
+                context.startActivity(Intent.createChooser(intent, "Partager le titre"))
+            }.onFailure { android.util.Log.w("ShareCard", "startActivity a échoué", it) }
+        }
     }
 
     BackHandler(enabled = playerExpanded) { playerExpanded = false }
@@ -232,7 +252,10 @@ private fun BottomBar(navController: NavHostController) {
             currentRoute == Routes.HISTORY ||
             currentRoute == Routes.BACKUP ||
             currentRoute == Routes.ABOUT ||
-            currentRoute == Routes.ADVANCED_SEARCH
+            currentRoute == Routes.ADVANCED_SEARCH ||
+            currentRoute == Routes.DUPLICATES ||
+            currentRoute == Routes.RECENTS ||
+            currentRoute?.startsWith("smart/") == true
 
     if (!hideBottomBar) {
         NavigationBar {
@@ -281,6 +304,7 @@ private fun AppNavHost(
                 onOpenArtist = { navController.navigate(Routes.artist(it)) },
                 onOpenPlayer = onOpenPlayer,
                 onSeeAll = { navController.navigate(TopLevel.LIBRARY.route) },
+                onSeeRecents = { navController.navigate(Routes.RECENTS) },
             )
         }
 
@@ -299,6 +323,7 @@ private fun AppNavHost(
             PlaylistsScreen(
                 viewModel = viewModel,
                 onOpenPlaylist = { navController.navigate(Routes.playlist(it)) },
+                onOpenSmartPlaylist = { navController.navigate(Routes.smart(it)) },
             )
         }
 
@@ -316,6 +341,7 @@ private fun AppNavHost(
                 viewModel = viewModel,
                 onOpenEqualizer = { navController.navigate(Routes.EQUALIZER) },
                 onOpenRepair = { navController.navigate(Routes.REPAIR) },
+                onOpenDuplicates = { navController.navigate(Routes.DUPLICATES) },
                 onNavigateToStats = { navController.navigate(Routes.STATS) },
                 onNavigateToHistory = { navController.navigate(Routes.HISTORY) },
                 onNavigateToBackup = { navController.navigate(Routes.BACKUP) },
@@ -389,6 +415,37 @@ private fun AppNavHost(
 
         composable(Routes.REPAIR) {
             RepairScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.DUPLICATES) {
+            DuplicatesScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.RECENTS) {
+            RecentsScreen(
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() },
+                onEditTags = { navController.navigate(Routes.tags(it)) },
+            )
+        }
+
+        composable(Routes.SMART) { entry ->
+            // L'identifiant vient de l'URL : une valeur inconnue (raccourci obsolète,
+            // lien restauré) ne doit pas faire planter la navigation.
+            val id = entry.arguments?.getString("smartId")
+                ?.let { name -> SmartPlaylistId.entries.firstOrNull { it.name == name } }
+            val smart = id?.let(viewModel::smartPlaylist)
+            SongListScreen(
+                viewModel = viewModel,
+                title = smart?.title ?: "Sélection",
+                subtitle = smart?.description ?: "Sélection automatique",
+                songs = smart?.songs.orEmpty(),
+                artworkModel = smart?.artworkUris?.firstOrNull(),
+                onBack = { navController.popBackStack() },
+                onEditTags = { navController.navigate(Routes.tags(it)) },
+                onOpenAlbum = { navController.navigate(Routes.album(it)) },
+                onOpenArtist = { navController.navigate(Routes.artist(it)) },
+            )
         }
 
         composable(Routes.TAGS) { entry ->

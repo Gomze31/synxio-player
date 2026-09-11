@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -79,7 +80,11 @@ fun SongOptionsSheet(
     var showDetails by remember { mutableStateOf(false) }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
-        Column(Modifier.padding(bottom = 24.dp)) {
+        Column(
+            Modifier
+                .navigationBarsPadding()
+                .padding(bottom = 12.dp)
+        ) {
             Row(
                 Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -205,8 +210,15 @@ fun AddToPlaylistSheet(
     var creating by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.padding(bottom = 24.dp)) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ) {
+        Column(
+            Modifier
+                .navigationBarsPadding()
+                .padding(bottom = 12.dp)
+        ) {
             Text(
                 text = "Ajouter à une playlist",
                 style = MaterialTheme.typography.titleLarge,

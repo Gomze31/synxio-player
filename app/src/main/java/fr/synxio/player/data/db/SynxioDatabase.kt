@@ -16,8 +16,9 @@ import androidx.room.RoomDatabase
         PlayHistoryEntity::class,
         ArtworkColorEntity::class,
         DeviceProfileEntity::class,
+        LyricsOffsetEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class SynxioDatabase : RoomDatabase() {
@@ -30,6 +31,7 @@ abstract class SynxioDatabase : RoomDatabase() {
     abstract fun playHistoryDao(): PlayHistoryDao
     abstract fun artworkColorDao(): ArtworkColorDao
     abstract fun deviceProfileDao(): DeviceProfileDao
+    abstract fun lyricsOffsetDao(): LyricsOffsetDao
 
     companion object {
         const val NAME = "synxio.db"

@@ -177,6 +177,10 @@ fun NowPlayingScreen(
                         positionMs = state.positionMs,
                         onSeek = viewModel::seekTo,
                         modifier = Modifier.fillMaxSize(),
+                        offsetMs = lyricsState.offsetMs,
+                        offsetLabel = lyricsState.offsetLabel,
+                        onNudgeOffset = lyricsViewModel::nudgeOffset,
+                        onResetOffset = lyricsViewModel::resetOffset,
                     )
                 } else {
                     ArtworkStage(
@@ -294,6 +298,7 @@ fun NowPlayingScreen(
             onOpenArtist = { onOpenArtist(song.displayArtist) },
             onEditTags = { onEditTags(song.id) },
             onRefreshLyrics = { lyricsViewModel.load(song, force = true); showLyrics = true },
+            onShare = { viewModel.shareSong(song) },
             onDismiss = { showMenu = false },
         )
     }

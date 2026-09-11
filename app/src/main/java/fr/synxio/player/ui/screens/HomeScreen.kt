@@ -57,6 +57,7 @@ fun HomeScreen(
     onOpenArtist: (String) -> Unit,
     onOpenPlayer: () -> Unit,
     onSeeAll: () -> Unit,
+    onSeeRecents: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val library by viewModel.library.collectAsStateWithLifecycle()
@@ -93,7 +94,9 @@ fun HomeScreen(
                 onShuffleAll = { viewModel.shufflePlay(library.songs) },
                 onFavorites = { viewModel.play(favorites) },
                 favoriteCount = favorites.size,
-                onRecent = { viewModel.play(recentlyAdded) },
+                // La tuile ouvre l'écran des ajouts récents au lieu de lancer la lecture :
+                // « Nouveautés » est une question, pas une commande.
+                onRecent = onSeeRecents,
             )
         }
 
@@ -108,7 +111,13 @@ fun HomeScreen(
         }
 
         if (recentlyAdded.isNotEmpty()) {
-            item { SectionHeader("Ajoutés récemment", actionLabel = "Tout voir", onAction = onSeeAll) }
+            item {
+                SectionHeader(
+                    title = "Ajoutés récemment",
+                    actionLabel = "Tout voir",
+                    onAction = onSeeRecents,
+                )
+            }
             item {
                 SongCarousel(
                     songs = recentlyAdded,

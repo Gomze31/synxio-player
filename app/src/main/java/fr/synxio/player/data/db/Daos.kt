@@ -250,6 +250,22 @@ interface PlayHistoryDao {
 }
 
 @Dao
+interface LyricsOffsetDao {
+
+    @Query("SELECT offsetMs FROM lyrics_offsets WHERE songPath = :path")
+    suspend fun offsetFor(path: String): Long?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun put(offset: LyricsOffsetEntity)
+
+    @Query("DELETE FROM lyrics_offsets WHERE songPath = :path")
+    suspend fun remove(path: String)
+
+    @Query("DELETE FROM lyrics_offsets")
+    suspend fun clear()
+}
+
+@Dao
 interface ArtworkColorDao {
 
     @Query("SELECT * FROM artwork_colors WHERE artworkUri = :uri")
