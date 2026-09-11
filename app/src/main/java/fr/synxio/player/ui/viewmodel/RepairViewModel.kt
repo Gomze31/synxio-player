@@ -126,20 +126,28 @@ class RepairViewModel @Inject constructor(
         )
 
         job = viewModelScope.launch {
-            val (ok, failed) = repair.apply(selected, _state.value.withArtwork) { done, total ->
+            val result = repair.apply(selected, _state.value.withArtwork) { done, total ->
                 _state.value = _state.value.copy(
                     progress = RepairProgress(done, total, running = true)
                 )
             }
             music.refresh()
+
+            val ok = result.ok
+            val failed = result.failed
             _state.value = _state.value.copy(
                 applying = false,
-                analysed = false,
-                proposals = emptyList(),
+                // Si rien n'a abouti, on garde la liste à l'écran : la vider obligerait à
+                // relancer une analyse de plusieurs minutes pour simplement réessayer.
+                analysed = ok > 0 || failed == 0,
+                proposals = if (ok > 0 || failed == 0) emptyList() else _state.value.proposals,
                 progress = RepairProgress(running = false),
                 message = buildString {
                     append("$ok titre${if (ok > 1) "s" else ""} corrigé${if (ok > 1) "s" else ""}")
-                    if (failed > 0) append(" · $failed échec${if (failed > 1) "s" else ""}")
+                    if (failed > 0) {
+                        append(" · $failed échec${if (failed > 1) "s" else ""}")
+                        result.firstError?.let { append(" : $it") }
+                    }
                 },
             )
         }

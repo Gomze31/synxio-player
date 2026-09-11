@@ -158,14 +158,24 @@ class LibraryRepairRepository @Inject constructor(
         }.getOrNull()
     }
 
-    /** Applique les propositions retenues. Retourne le nombre de réussites. */
+    /**
+     * Résultat d'une application en masse.
+     *
+     * [firstError] existe parce que la première version ne renvoyait que des compteurs :
+     * un échec total affichait « 0 corrigé · 121 échecs » sans jamais dire pourquoi, ce
+     * qui rendait le diagnostic impossible depuis l'appareil.
+     */
+    data class ApplyResult(val ok: Int, val failed: Int, val firstError: String? = null)
+
+    /** Applique les propositions retenues. */
     suspend fun apply(
         proposals: List<RepairProposal>,
         withArtwork: Boolean,
         onProgress: (Int, Int) -> Unit,
-    ): Pair<Int, Int> = withContext(Dispatchers.IO) {
+    ): ApplyResult = withContext(Dispatchers.IO) {
         var ok = 0
         var failed = 0
+        var firstError: String? = null
 
         proposals.forEachIndexed { index, proposal ->
             onProgress(index + 1, proposals.size)
@@ -187,13 +197,22 @@ class LibraryRepairRepository @Inject constructor(
                 artwork = artwork,
             )
 
-            when (tagEditor.write(proposal.song, edit)) {
+            when (val result = tagEditor.write(proposal.song, edit)) {
                 is TagWriteResult.Success -> ok++
-                else -> failed++
+
+                is TagWriteResult.Failure -> {
+                    failed++
+                    if (firstError == null) firstError = result.message
+                }
+
+                is TagWriteResult.NeedsUserConsent -> {
+                    failed++
+                    if (firstError == null) firstError = "autorisation d'écriture refusée"
+                }
             }
         }
 
-        ok to failed
+        ApplyResult(ok, failed, firstError)
     }
 
     private fun String.cleanFileName(): String = this

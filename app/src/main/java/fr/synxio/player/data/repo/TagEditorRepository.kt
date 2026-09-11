@@ -79,15 +79,24 @@ class TagEditorRepository @Inject constructor(
      * qu'après un consentement explicite : on remonte l'[IntentSender] à l'UI dans ce cas.
      */
     suspend fun write(song: Song, edit: TagEdit): TagWriteResult = withContext(Dispatchers.IO) {
-        val file = File(song.path)
-        if (!file.exists()) return@withContext TagWriteResult.Failure("Fichier introuvable")
+        val source = File(song.path)
+        if (!source.exists()) return@withContext TagWriteResult.Failure("Fichier introuvable")
 
-        if (!file.canWrite()) {
-            requestConsent(song)?.let { return@withContext TagWriteResult.NeedsUserConsent(it) }
-        }
+        // Copie de travail dans le cache privé de l'application.
+        //
+        // jaudiotagger a besoin d'un vrai fichier accessible en écriture, or les médias
+        // appartiennent au MediaProvider : sous stockage cantonné, écrire directement sur
+        // song.path échoue avec EACCES, même après le consentement accordé — celui-ci
+        // porte sur l'URI de contenu, pas sur le chemin.
+        val workDir = File(context.cacheDir, WORK_DIR).apply { mkdirs() }
+        val work = File(workDir, "edit.${song.extension.lowercase().ifBlank { "mp3" }}")
 
         runCatching {
-            val audioFile = AudioFileIO.read(file)
+            source.inputStream().use { input ->
+                work.outputStream().use { output -> input.copyTo(output) }
+            }
+
+            val audioFile = AudioFileIO.read(work)
             val tag = audioFile.tagOrCreateAndSetDefault
 
             edit.title?.let { tag.setField(FieldKey.TITLE, it) }
@@ -117,6 +126,16 @@ class TagEditorRepository @Inject constructor(
             }
 
             AudioFileIO.write(audioFile)
+
+            // Réécriture par l'URI de contenu, seul canal autorisé.
+            //
+            // Le mode "wt" tronque avant d'écrire : sans le `t`, un fichier corrigé plus
+            // court que l'original laisserait la queue des anciens octets en place et
+            // produirait un média corrompu.
+            context.contentResolver.openOutputStream(song.uri, "wt")?.use { output ->
+                work.inputStream().use { input -> input.copyTo(output) }
+            } ?: error("Flux d'écriture indisponible")
+
             rescan(song.path)
             TagWriteResult.Success
         }.getOrElse { error ->
@@ -124,9 +143,13 @@ class TagEditorRepository @Inject constructor(
                 is SecurityException ->
                     requestConsent(song)?.let { TagWriteResult.NeedsUserConsent(it) }
                         ?: TagWriteResult.Failure("Accès en écriture refusé")
-                else -> TagWriteResult.Failure(error.message ?: "Écriture des tags impossible")
+
+                else -> {
+                    Log.w(TAG, "Écriture impossible pour ${song.title}", error)
+                    TagWriteResult.Failure(error.message ?: "Écriture des tags impossible")
+                }
             }
-        }
+        }.also { work.delete() }
     }
 
     private fun requestConsent(song: Song): IntentSender? = when {
@@ -145,6 +168,7 @@ class TagEditorRepository @Inject constructor(
         const val TAG = "TagEditorRepository"
         /** Type de pochette ID3 « front cover ». */
         const val FRONT_COVER = 3
+        const val WORK_DIR = "tag-edit"
     }
 
     /** Relance le media scanner pour que la bibliothèque reflète les nouveaux tags. */
