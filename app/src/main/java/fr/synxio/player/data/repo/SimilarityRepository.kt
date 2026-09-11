@@ -68,6 +68,14 @@ class SimilarityRepository @Inject constructor(
 
     fun hasFingerprint(song: Song): Boolean = song.path in vectors.value
 
+    /**
+     * Empreinte brute d'un morceau, si elle a été calculée.
+     *
+     * Exposée pour le widget, qui dessine une onde à partir des énergies de bande : le
+     * tracé reflète alors le spectre réel du morceau et non une décoration générique.
+     */
+    fun featuresFor(song: Song): FloatArray? = vectors.value[song.path]
+
     fun pendingCount(songs: List<Song>): Int {
         val known = vectors.value
         return songs.count { it.path !in known }

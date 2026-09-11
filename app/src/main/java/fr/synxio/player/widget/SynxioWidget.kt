@@ -32,6 +32,8 @@ import androidx.glance.appwidget.provideContent
 import androidx.glance.appwidget.updateAll
 import androidx.glance.background
 import androidx.glance.layout.Alignment
+import androidx.glance.layout.Box
+import androidx.glance.layout.ContentScale
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
@@ -56,6 +58,7 @@ import fr.synxio.player.data.db.QueueDao
 import fr.synxio.player.data.model.Song
 import fr.synxio.player.data.model.ThemeMode
 import fr.synxio.player.data.repo.MusicRepository
+import fr.synxio.player.data.repo.SimilarityRepository
 import fr.synxio.player.playback.PlaybackService
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -83,6 +86,8 @@ class SynxioWidget : GlanceAppWidget() {
         fun musicRepository(): MusicRepository
         fun queueDao(): QueueDao
         fun settingsRepository(): SettingsRepository
+        fun similarityRepository(): SimilarityRepository
+        fun artRenderer(): WidgetArtRenderer
     }
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
@@ -115,26 +120,60 @@ class SynxioWidget : GlanceAppWidget() {
             amoled = theme == ThemeMode.AMOLED,
         )
 
+        val bands = song?.let { entryPoint.similarityRepository().featuresFor(it) }
+        val density = context.resources.displayMetrics.density
+
         provideContent {
             GlanceTheme {
-                val compact = LocalSize.current.width < ARTWORK_MIN_WIDTH
+                val size = LocalSize.current
+                val compact = size.width < ARTWORK_MIN_WIDTH
 
-                Row(
-                    modifier = GlanceModifier
-                        .fillMaxSize()
-                        .background(palette.background)
-                        .cornerRadius(24.dp)
-                        .padding(10.dp)
-                        .clickable(actionStartActivity<MainActivity>()),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+                // Le fond est un bitmap et non une couleur : Glance se resout en
+                // RemoteViews, qui n'offre ni flou ni degrade ni dessin libre.
+                val backdrop = entryPoint.artRenderer().render(
+                    widthPx = (size.width.value * density).toInt(),
+                    heightPx = (size.height.value * density).toInt(),
+                    artwork = artwork,
+                    bands = bands,
+                    dark = palette.dark,
+                )
+
+                Box(modifier = GlanceModifier.fillMaxSize()) {
+                    if (backdrop != null) {
+                        Image(
+                            provider = ImageProvider(backdrop),
+                            contentDescription = null,
+                            contentScale = ContentScale.FillBounds,
+                            modifier = GlanceModifier.fillMaxSize().cornerRadius(24.dp),
+                        )
+                    }
+
+                    Row(
+                        modifier = GlanceModifier
+                            .fillMaxSize()
+                            .then(
+                                // Le bitmap fait deja office de fond : la couleur unie
+                                // n'est utilisee qu'en cas d'echec du rendu.
+                                if (backdrop == null) {
+                                    GlanceModifier.background(palette.background)
+                                } else {
+                                    GlanceModifier
+                                }
+                            )
+                            .cornerRadius(24.dp)
+                            .padding(12.dp)
+                            .clickable(actionStartActivity<MainActivity>()),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                     if (artwork != null && !compact) {
                         Image(
                             provider = ImageProvider(artwork),
                             contentDescription = null,
                             // Remplit la hauteur : à 64 dp fixes, la pochette flottait au
-                            // milieu d'un widget deux fois plus haut.
-                            modifier = GlanceModifier.fillMaxHeight().cornerRadius(16.dp),
+                            // milieu d'un widget deux fois plus haut. Le fond derrière
+                            // elle étant sa propre version floutée, elle s'y fondait :
+                            // l'arrondi marqué lui redonne un contour.
+                            modifier = GlanceModifier.fillMaxHeight().cornerRadius(18.dp),
                         )
                         Spacer(GlanceModifier.width(12.dp))
                     }
@@ -175,6 +214,7 @@ class SynxioWidget : GlanceAppWidget() {
                             Spacer(GlanceModifier.height(4.dp))
                             Controls(isPlaying, palette)
                         }
+                    }
                     }
                 }
             }
@@ -255,7 +295,7 @@ class SynxioWidget : GlanceAppWidget() {
     }.getOrNull()
 
     /** Couleurs du widget, dérivées du thème choisi dans l'application. */
-    private class Palette(dark: Boolean, amoled: Boolean) {
+    private class Palette(val dark: Boolean, amoled: Boolean) {
         val background = ColorProvider(
             when {
                 amoled -> Color(0xFF000000)
