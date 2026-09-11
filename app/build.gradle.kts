@@ -27,14 +27,12 @@ android {
         // 36 = Android 16. L'API 37 n'existe qu'en canal preview du SDK : on ne cible pas
         // un SDK canary, ce serait impubliable et instable.
         targetSdk = 36
-        versionCode = 20241016
-        versionName = "2.5.0"
+        versionCode = 20241017
+        versionName = "2.5.1"
         vectorDrawables.useSupportLibrary = true
 
-        // Dépôt PUBLIC ne contenant que les binaires publiés. Le code reste privé, et
-        // l'application n'a donc aucun jeton à embarquer pour récupérer ses mises à jour :
-        // un jeton dans un APK est extractible par quiconque récupère le fichier.
-        buildConfigField("String", "UPDATE_REPO", "\"Gomze31/synxio-releases\"")
+        // Le dépôt devient public, l'app peut donc chercher ses mises à jour ici directement
+        buildConfigField("String", "UPDATE_REPO", "\"Gomze31/synxio-player\"")
 
         // Identifiant d'application Discord. Contrairement au client secret, il est
         // public par conception : il est embarqué dans tout client qui l'utilise.
