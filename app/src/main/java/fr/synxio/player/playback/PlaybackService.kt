@@ -138,6 +138,12 @@ class PlaybackService : MediaLibraryService() {
         observeSettings()
         observeLibraryForQueueRestore()
         observeFavoriteForCustomLayout()
+        
+        serviceScope.launch {
+            sleepTimer.state.collect { state ->
+                fade.sleepGain = state.fadeMultiplier
+            }
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession =

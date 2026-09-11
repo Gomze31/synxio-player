@@ -1,6 +1,7 @@
 package fr.synxio.player.ui.screens.nowplaying
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.EaseInOut
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
@@ -8,9 +9,11 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -18,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
@@ -94,6 +98,7 @@ fun NowPlayingScreen(
     onOpenArtist: (String) -> Unit,
     onEditTags: (Long) -> Unit,
     onOpenEqualizer: () -> Unit,
+    onOpenDriveMode: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.playerState.collectAsStateWithLifecycle()
@@ -129,12 +134,33 @@ fun NowPlayingScreen(
     ) {
         // Fond : pochette floutée + dégradé, pour que l'écran « prenne » la couleur du disque.
         if (settings.blurBackground && song != null) {
+            val infiniteTransition = rememberInfiniteTransition(label = "fluid")
+            val scaleAnim by infiniteTransition.animateFloat(
+                initialValue = 1.3f,
+                targetValue = 1.7f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(14000, easing = EaseInOut),
+                    repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
+                ),
+                label = "fluidScale"
+            )
+            val rotationAnim by infiniteTransition.animateFloat(
+                initialValue = 0f,
+                targetValue = 360f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(40000, easing = LinearEasing),
+                    repeatMode = androidx.compose.animation.core.RepeatMode.Restart
+                ),
+                label = "fluidRotation"
+            )
+
             Artwork(
                 model = song.artworkUri,
                 modifier = Modifier
                     .fillMaxSize()
-                    .blur(60.dp)
-                    .scale(1.3f),
+                    .scale(scaleAnim)
+                    .rotate(rotationAnim)
+                    .blur(80.dp),
                 shape = RoundedCornerShape(0.dp),
             )
         }
@@ -304,6 +330,7 @@ fun NowPlayingScreen(
             onEditTags = { onEditTags(song.id) },
             onRefreshLyrics = { lyricsViewModel.load(song, force = true); showLyrics = true },
             onShare = { viewModel.shareSong(song) },
+            onOpenDriveMode = onOpenDriveMode,
             onDismiss = { showMenu = false },
         )
     }
@@ -363,7 +390,7 @@ private fun ArtworkStage(
         state = pagerState,
         modifier = Modifier.fillMaxSize(),
         pageSpacing = 16.dp,
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp),
+        contentPadding = PaddingValues(horizontal = 8.dp),
     ) { page ->
         val song = queue[page]
         val isCurrent = page == pagerState.currentPage
@@ -435,24 +462,55 @@ private fun VinylArtwork(model: Any?, spinning: Boolean, modifier: Modifier = Mo
     val rotation by animateFloatAsState(if (spinning) angle else 0f, label = "vinylRotation")
 
     Box(modifier, Alignment.Center) {
+        // Ombre sous le disque
+        Box(
+            Modifier
+                .fillMaxSize(0.95f)
+                .clip(CircleShape)
+                .background(Color.Black.copy(alpha = 0.4f))
+                .blur(16.dp)
+                .offset(y = 12.dp)
+        )
+        // Disque vinyle avec reflets radiaux
         Box(
             Modifier
                 .fillMaxSize()
                 .clip(CircleShape)
-                .background(Color(0xFF101014))
-        )
+                .background(Brush.sweepGradient(
+                    listOf(
+                        Color(0xFF141418),
+                        Color(0xFF2C2C35),
+                        Color(0xFF0F0F12),
+                        Color(0xFF2C2C35),
+                        Color(0xFF141418)
+                    )
+                ))
+                .rotate(if (spinning) angle else rotation)
+        ) {
+            // Sillons (Grooves)
+            for (i in 1..7) {
+                Box(
+                    Modifier
+                        .fillMaxSize(0.4f + (0.6f * (i / 7f)))
+                        .align(Alignment.Center)
+                        .border(0.5.dp, Color.White.copy(alpha = 0.04f), CircleShape)
+                )
+            }
+        }
+        // Macaron (Artwork)
         Artwork(
             model = model,
             modifier = Modifier
-                .fillMaxSize(0.72f)
+                .fillMaxSize(0.42f)
                 .rotate(if (spinning) angle else rotation),
             shape = CircleShape,
         )
+        // Trou central
         Box(
             Modifier
-                .size(22.dp)
+                .size(16.dp)
                 .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surface)
+                .background(MaterialTheme.colorScheme.background)
         )
     }
 }

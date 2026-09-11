@@ -115,6 +115,7 @@ object Routes {
     const val ADVANCED_SEARCH = "advanced_search"
     const val DUPLICATES = "duplicates"
     const val RECENTS = "recents"
+    const val DRIVE_MODE = "drive_mode"
     const val SMART = "smart/{smartId}"
     const val RULE = "rule/{ruleId}"
     const val RULE_EDITOR = "rule_editor/{ruleId}"
@@ -261,6 +262,10 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerOnStart: Boolean) {
                     playerExpanded = false
                     navController.navigate(Routes.EQUALIZER)
                 },
+                onOpenDriveMode = {
+                    playerExpanded = false
+                    navController.navigate(Routes.DRIVE_MODE)
+                },
             )
         }
     }
@@ -294,7 +299,8 @@ private fun shouldShowBottomBar(navController: NavHostController): Boolean {
             route == Routes.ABOUT ||
             route == Routes.ADVANCED_SEARCH ||
             route == Routes.DUPLICATES ||
-            route == Routes.RECENTS
+            route == Routes.RECENTS ||
+            route == Routes.DRIVE_MODE
 
     return !fullScreen
 }
@@ -474,6 +480,13 @@ private fun AppNavHost(
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() },
                 onEditTags = { navController.navigate(Routes.tags(it)) },
+            )
+        }
+
+        composable(Routes.DRIVE_MODE) {
+            fr.synxio.player.ui.screens.DriveModeScreen(
+                viewModel = viewModel,
+                onExit = { navController.popBackStack() }
             )
         }
 

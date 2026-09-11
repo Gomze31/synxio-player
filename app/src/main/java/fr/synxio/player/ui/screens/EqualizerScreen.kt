@@ -55,8 +55,16 @@ fun EqualizerScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
     val activeCurveId by viewModel.activeCurveId.collectAsStateWithLifecycle()
     val connectedDevice by viewModel.connectedDevice.collectAsStateWithLifecycle()
     val deviceProfiles by viewModel.deviceProfiles.collectAsStateWithLifecycle()
+    val fftFlow by viewModel.fftFlow.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) { viewModel.refreshConnectedDevice() }
+
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        viewModel.setVisualizerEnabled(true)
+        onDispose {
+            viewModel.setVisualizerEnabled(false)
+        }
+    }
 
     Scaffold(
         modifier = modifier,
@@ -114,6 +122,17 @@ fun EqualizerScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                     checked = settings.equalizerEnabled,
                     onCheckedChange = viewModel::setEnabled,
                 )
+            }
+
+            if (settings.equalizerEnabled) {
+                Spacer(modifier = Modifier.height(16.dp))
+                fr.synxio.player.ui.components.VisualizerView(
+                    fftBytes = fftFlow,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(120.dp)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
             }
 
             HorizontalDivider()

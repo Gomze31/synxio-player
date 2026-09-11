@@ -40,6 +40,8 @@ class EqualizerViewModel @Inject constructor(
     private val _bandLevels = MutableStateFlow(controller.currentBandLevels())
     val bandLevels: StateFlow<List<Short>> = _bandLevels.asStateFlow()
 
+    val fftFlow: StateFlow<ByteArray> = controller.fftFlow
+
     init {
         refresh()
     }
@@ -57,6 +59,10 @@ class EqualizerViewModel @Inject constructor(
         controller.setEnabled(enabled)
         viewModelScope.launch { settingsRepository.setEqualizerEnabled(enabled) }
         refresh()
+    }
+
+    fun setVisualizerEnabled(enabled: Boolean) {
+        controller.setVisualizerEnabled(enabled)
     }
 
     fun setBand(index: Int, millibel: Short) {

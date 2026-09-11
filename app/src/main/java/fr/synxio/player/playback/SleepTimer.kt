@@ -16,7 +16,15 @@ data class SleepTimerState(
     val active: Boolean = false,
     val remainingMs: Long = 0,
     val finishCurrentTrack: Boolean = false,
-)
+) {
+    /** Multiplicateur de volume : descend de 1.0 à 0.0 dans les 60 dernières secondes. */
+    val fadeMultiplier: Float
+        get() = if (active && !finishCurrentTrack && remainingMs <= 60_000L) {
+            (remainingMs / 60_000f).coerceIn(0f, 1f)
+        } else {
+            1f
+        }
+}
 
 /**
  * Minuterie de veille. Deux modes :

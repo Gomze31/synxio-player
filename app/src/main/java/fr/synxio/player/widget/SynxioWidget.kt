@@ -189,7 +189,11 @@ class SynxioWidget : GlanceAppWidget() {
                     // (« Le Re-nouvea… ») et l'artiste se réduisait à trois lettres.
                     // Empilées, le texte récupère toute la largeur restante.
                     Column(
-                        modifier = GlanceModifier.defaultWeight(),
+                        modifier = GlanceModifier
+                            .defaultWeight()
+                            .background(ColorProvider(if (palette.dark) Color(0x28FFFFFF) else Color(0x18000000)))
+                            .cornerRadius(20.dp)
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         if (song == null) {
@@ -215,7 +219,7 @@ class SynxioWidget : GlanceAppWidget() {
                                     fontSize = 13.sp,
                                 ),
                             )
-                            Spacer(GlanceModifier.height(4.dp))
+                            Spacer(GlanceModifier.height(6.dp))
                             Controls(isPlaying, palette)
                         }
                     }

@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
@@ -313,6 +314,11 @@ fun SleepTimerSheet(
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
             )
+            Text(
+                "Le volume diminuera progressivement 60 secondes avant l'arrêt.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Spacer(Modifier.height(12.dp))
 
             if (state.active) {
@@ -464,6 +470,7 @@ fun NowPlayingMenuSheet(
     onEditTags: () -> Unit,
     onRefreshLyrics: () -> Unit,
     onShare: () -> Unit,
+    onOpenDriveMode: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     // `skipPartiallyExpanded` : sans lui la feuille s'ouvre à mi-hauteur et le contenu
@@ -500,6 +507,7 @@ fun NowPlayingMenuSheet(
             MenuRow(Icons.Rounded.Person, "Aller à l'artiste") { onOpenArtist(); onDismiss() }
             MenuRow(Icons.Rounded.Edit, "Modifier les tags") { onEditTags(); onDismiss() }
             MenuRow(Icons.Rounded.Refresh, "Rechercher les paroles") { onRefreshLyrics(); onDismiss() }
+            MenuRow(Icons.Rounded.DirectionsCar, "Mode Voiture") { onOpenDriveMode(); onDismiss() }
             MenuRow(Icons.Rounded.Share, "Partager une carte") { onShare(); onDismiss() }
         }
     }

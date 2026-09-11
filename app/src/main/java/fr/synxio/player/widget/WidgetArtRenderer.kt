@@ -130,18 +130,18 @@ class WidgetArtRenderer @Inject constructor() {
         // 1. Reflet supérieur caustique (éclat de verre courbé)
         val topSheen = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             shader = LinearGradient(
-                0f, 0f, 0f, height * 0.65f,
+                0f, 0f, 0f, height * 0.85f,
                 intArrayOf(
-                    ColorUtils.setAlphaComponent(Color.WHITE, if (dark) 55 else 140),
-                    ColorUtils.setAlphaComponent(Color.WHITE, if (dark) 18 else 45),
+                    ColorUtils.setAlphaComponent(Color.WHITE, if (dark) 70 else 180),
+                    ColorUtils.setAlphaComponent(Color.WHITE, if (dark) 25 else 60),
                     ColorUtils.setAlphaComponent(Color.WHITE, 0),
                 ),
-                floatArrayOf(0f, 0.4f, 1f),
+                floatArrayOf(0f, 0.5f, 1f),
                 Shader.TileMode.CLAMP,
             )
         }
         canvas.drawRoundRect(
-            RectF(0f, 0f, width.toFloat(), height * 0.7f),
+            RectF(0f, 0f, width.toFloat(), height * 0.9f),
             cornerRadius,
             cornerRadius,
             topSheen
@@ -164,27 +164,9 @@ class WidgetArtRenderer @Inject constructor() {
             beamPaint
         )
 
-        // 3. Capsule en verre dépoli intérieure pour les commandes
-        val controlsPlateRect = RectF(
-            width * 0.45f,
-            height * 0.52f,
-            width * 0.96f,
-            height * 0.92f
-        )
-        val platePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.FILL
-            color = ColorUtils.setAlphaComponent(
-                if (dark) Color.WHITE else 0xFF4A3B69.toInt(),
-                if (dark) 16 else 14
-            )
-        }
-        val plateStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = 1f
-            color = ColorUtils.setAlphaComponent(Color.WHITE, if (dark) 32 else 70)
-        }
-        canvas.drawRoundRect(controlsPlateRect, height * 0.2f, height * 0.2f, platePaint)
-        canvas.drawRoundRect(controlsPlateRect, height * 0.2f, height * 0.2f, plateStroke)
+        // Retrait de la capsule matérielle fixe (étape 3).
+        // L'UI Glance dessinera son propre conteneur aligné avec le texte,
+        // ce qui évite le désalignement lors du redimensionnement du widget.
 
         // 4. Liseré prismatique 3D (biseau lumineux supérieur, ombre inférieure)
         val strokeWidth = max(1.2f, width / 360f)
