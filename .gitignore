@@ -11,6 +11,7 @@ captures/
 *.aab
 *.keystore
 !debug.keystore
+!app/synxio-release.keystore
 *.jks
 keystore.properties
 
