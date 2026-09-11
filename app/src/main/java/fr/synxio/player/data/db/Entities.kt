@@ -129,6 +129,22 @@ data class LyricsOffsetEntity(
     val updatedAt: Long,
 )
 
+/**
+ * Niveau sonore mesure d'un morceau, en dBFS.
+ *
+ * Indexe par chemin : c'est une propriete du fichier, et une reindexation MediaStore
+ * reattribue les identifiants. Une mesure coute quelques centaines de millisecondes,
+ * donc on ne la refait jamais tant que le fichier n'a pas change.
+ */
+@Entity(tableName = "loudness")
+data class LoudnessEntity(
+    @PrimaryKey val songPath: String,
+    val dbfs: Float,
+    /** Date de modification du fichier au moment de la mesure, pour la perimer. */
+    val fileModifiedSec: Long,
+    val analysedAt: Long,
+)
+
 /** Cache pour les couleurs des pochettes. */
 @Entity(tableName = "artwork_colors")
 data class ArtworkColorEntity(

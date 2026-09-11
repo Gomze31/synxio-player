@@ -123,7 +123,21 @@ class AppViewModel @Inject constructor(
 
     fun play(songs: List<Song>, index: Int = 0) = player.play(songs, index)
     fun playSong(song: Song, context: List<Song>) = player.playSong(song, context)
-    fun shufflePlay(songs: List<Song>) = player.shufflePlay(songs)
+    /**
+     * Le filtrage se fait ici et non dans [PlayerConnection] : c'est un choix de
+     * bibliothèque, pas une mécanique de lecteur, et il dépend des réglages.
+     */
+    fun shufflePlay(songs: List<Song>) {
+        val pool = if (settings.value.shuffleSkipsDisliked) {
+            musicRepository.withoutDisliked(songs)
+        } else {
+            songs
+        }
+        val removed = songs.size - pool.size
+        if (removed > 0) emit("$removed titre${if (removed > 1) "s" else ""} souvent zappé" +
+            "${if (removed > 1) "s" else ""} écarté${if (removed > 1) "s" else ""}")
+        player.shufflePlay(pool)
+    }
     fun togglePlayPause() = player.togglePlayPause()
     fun next() = player.next()
     fun previous() = player.previous()

@@ -26,6 +26,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import dagger.hilt.android.AndroidEntryPoint
 import fr.synxio.player.MainActivity
 import fr.synxio.player.R
+import fr.synxio.player.core.prefs.Settings
 import fr.synxio.player.core.prefs.SettingsRepository
 import fr.synxio.player.core.prefs.toBandLevels
 import fr.synxio.player.data.db.PlaybackStateEntity
@@ -34,6 +35,7 @@ import fr.synxio.player.data.db.QueueDao
 import fr.synxio.player.data.model.EqCurves
 import fr.synxio.player.data.lastfm.LastFmScrobbler
 import fr.synxio.player.data.model.Song
+import fr.synxio.player.data.repo.LoudnessRepository
 import fr.synxio.player.data.repo.MusicRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -66,6 +68,7 @@ class PlaybackService : MediaLibraryService() {
     @Inject lateinit var scrobbler: LastFmScrobbler
     @Inject lateinit var queueDao: QueueDao
     @Inject lateinit var deviceProfileDao: DeviceProfileDao
+    @Inject lateinit var loudnessRepository: LoudnessRepository
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -79,6 +82,14 @@ class PlaybackService : MediaLibraryService() {
     private var lastResumeUptime: Long = 0L
     private var trackStartedAtSec: Long = 0L
     private var persistJob: Job? = null
+
+    /**
+     * Derniers réglages connus.
+     *
+     * Le changement de piste est un callback synchrone : il ne peut pas attendre un
+     * `first()` sur le flux sans retarder l'application du gain d'une piste entière.
+     */
+    private var latestSettings: Settings? = null
     private var queueRestored = false
     private var headsetCallback: AudioDeviceCallback? = null
 
@@ -157,6 +168,8 @@ class PlaybackService : MediaLibraryService() {
     private fun observeSettings() {
         settingsRepository.settings
             .onEach { s ->
+                val previous = latestSettings
+                latestSettings = s
                 player.skipSilenceEnabled = s.skipSilence
                 player.playbackParameters = PlaybackParameters(s.playbackSpeed, s.playbackPitch)
                 // 0 ms = gapless natif d'ExoPlayer, sans manipulation de volume.
@@ -169,6 +182,15 @@ class PlaybackService : MediaLibraryService() {
                     equalizer.setBassBoost(s.bassBoost)
                     equalizer.setVirtualizer(s.virtualizer)
                     equalizer.setLoudnessGain(s.loudnessGain)
+                }
+
+                // La normalisation se réapplique dès que son réglage change, sans
+                // attendre le morceau suivant.
+                if (previous == null ||
+                    previous.normalizeVolume != s.normalizeVolume ||
+                    previous.normalizeTargetDbfs != s.normalizeTargetDbfs
+                ) {
+                    applyNormalization()
                 }
             }
             .launchIn(serviceScope)
@@ -276,6 +298,27 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
+    /**
+     * Applique le gain de normalisation de la piste qui commence.
+     *
+     * Recalculé à chaque transition plutôt qu'une fois pour la file : la mesure d'un
+     * morceau peut arriver pendant la lecture, si l'analyse tourne en arrière-plan.
+     */
+    private fun applyNormalization() {
+        val settings = latestSettings ?: return
+        if (!settings.normalizeVolume) {
+            fade.normalizationGain = 1f
+            return
+        }
+        val song = currentSong() ?: return
+        fade.normalizationGain = loudnessRepository.gainFor(song, settings.normalizeTargetDbfs)
+    }
+
+    private fun currentSong(): Song? {
+        val id = player.currentMediaItem?.mediaId?.toLongOrNull() ?: return null
+        return musicRepository.songById(id)
+    }
+
     private inner class PlayerListener : Player.Listener {
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -288,6 +331,7 @@ class PlaybackService : MediaLibraryService() {
             }
 
             startTracking(mediaItem)
+            applyNormalization()
             fade.resetVolume()
             persistQueue()
         }

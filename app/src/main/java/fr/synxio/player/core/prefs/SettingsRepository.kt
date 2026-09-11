@@ -90,6 +90,18 @@ data class Settings(
     // Nouvelle option : masquer les doublons
     val hideDuplicates: Boolean = false,
 
+    /** Normalisation du volume entre morceaux. */
+    val normalizeVolume: Boolean = false,
+    /**
+     * Niveau cible en dBFS. -14 est la valeur retenue par la plupart des plateformes
+     * de streaming : assez haut pour rester dynamique, assez bas pour que la majorite
+     * des fichiers puisse y etre ramenee sans ecretage.
+     */
+    val normalizeTargetDbfs: Float = -14f,
+
+    /** Ecarte de la lecture aleatoire les titres que l'on coupe systematiquement. */
+    val shuffleSkipsDisliked: Boolean = false,
+
     val lyricsOnlineEnabled: Boolean = true,
     val scrobbleEnabled: Boolean = false,
     val lastFmSessionKey: String = "",
@@ -174,6 +186,9 @@ class SettingsRepository @Inject constructor(
         val AUTO_SCAN = booleanPreferencesKey("auto_scan")
         val SCAN_IN_BACKGROUND = booleanPreferencesKey("scan_in_background")
         val HIDE_DUPLICATES = booleanPreferencesKey("hide_duplicates")
+        val NORMALIZE_VOLUME = booleanPreferencesKey("normalize_volume")
+        val NORMALIZE_TARGET_DBFS = floatPreferencesKey("normalize_target_dbfs")
+        val SHUFFLE_SKIPS_DISLIKED = booleanPreferencesKey("shuffle_skips_disliked")
 
         val LYRICS_ONLINE = booleanPreferencesKey("lyrics_online")
         val SCROBBLE = booleanPreferencesKey("scrobble")
@@ -257,6 +272,9 @@ class SettingsRepository @Inject constructor(
                 autoScan = p[Keys.AUTO_SCAN] ?: true,
                 scanInBackground = p[Keys.SCAN_IN_BACKGROUND] ?: true,
                 hideDuplicates = p[Keys.HIDE_DUPLICATES] ?: false,
+                normalizeVolume = p[Keys.NORMALIZE_VOLUME] ?: false,
+                normalizeTargetDbfs = p[Keys.NORMALIZE_TARGET_DBFS] ?: -14f,
+                shuffleSkipsDisliked = p[Keys.SHUFFLE_SKIPS_DISLIKED] ?: false,
 
                 lyricsOnlineEnabled = p[Keys.LYRICS_ONLINE] ?: true,
                 scrobbleEnabled = p[Keys.SCROBBLE] ?: false,
@@ -376,6 +394,9 @@ class SettingsRepository @Inject constructor(
     suspend fun setAutoScan(value: Boolean) = put(Keys.AUTO_SCAN, value)
     suspend fun setScanInBackground(value: Boolean) = put(Keys.SCAN_IN_BACKGROUND, value)
     suspend fun setHideDuplicates(value: Boolean) = put(Keys.HIDE_DUPLICATES, value)
+    suspend fun setNormalizeVolume(value: Boolean) = put(Keys.NORMALIZE_VOLUME, value)
+    suspend fun setNormalizeTargetDbfs(value: Float) = put(Keys.NORMALIZE_TARGET_DBFS, value)
+    suspend fun setShuffleSkipsDisliked(value: Boolean) = put(Keys.SHUFFLE_SKIPS_DISLIKED, value)
     
     // Nouvelles options pour les playlists
     suspend fun setDefaultPlaylistSort(value: String) = put(Keys.DEFAULT_PLAYLIST_SORT, value)

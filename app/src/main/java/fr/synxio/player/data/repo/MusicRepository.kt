@@ -243,6 +243,25 @@ class MusicRepository @Inject constructor(
         .map { lib -> lib.songs.sortedByDescending { it.dateAddedSec }.take(25) }
         .stateIn(scope, SharingStarted.Eagerly, emptyList())
 
+    /**
+     * Retire les titres que l'on coupe systématiquement.
+     *
+     * Le critère est le même que celui de la sélection « Souvent zappés » : au moins
+     * deux coupures, et plus de coupures que d'écoutes complètes. Un morceau zappé une
+     * fois par hasard n'est pas écarté.
+     *
+     * La liste filtrée n'est retenue que si elle garde de quoi écouter : mieux vaut une
+     * lecture aléatoire imparfaite qu'une file quasi vide sur une petite bibliothèque.
+     */
+    fun withoutDisliked(songs: List<Song>): List<Song> {
+        val stats = allStats.value
+        val kept = songs.filter { song ->
+            val stat = stats[song.id] ?: return@filter true
+            !(stat.skipCount >= 2 && stat.skipCount > stat.playCount)
+        }
+        return if (kept.size >= MIN_SHUFFLE_POOL) kept else songs
+    }
+
     suspend fun registerPlay(song: Song, listenedMs: Long) =
         playStatDao.registerPlay(song.id, song.path, listenedMs, System.currentTimeMillis())
 
@@ -325,5 +344,10 @@ class MusicRepository @Inject constructor(
             ArtistSort.SONG_COUNT -> compareBy { it.songCount }
         }
         return artists.sortedWith(if (descending) comparator.reversed() else comparator)
+    }
+
+    private companion object {
+        /** En dessous, filtrer l'aléatoire appauvrirait trop la file. */
+        const val MIN_SHUFFLE_POOL = 10
     }
 }

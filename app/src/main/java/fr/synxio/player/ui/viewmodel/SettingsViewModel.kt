@@ -15,6 +15,9 @@ import fr.synxio.player.data.model.ThemeColor
 import fr.synxio.player.data.model.ThemeMode
 import fr.synxio.player.data.model.TextSize
 import fr.synxio.player.data.repo.ArtworkColorRepository
+import fr.synxio.player.data.repo.LoudnessProgress
+import fr.synxio.player.data.repo.LoudnessRepository
+import fr.synxio.player.data.repo.MusicRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,7 +30,44 @@ class SettingsViewModel @Inject constructor(
     private val scrobbler: LastFmScrobbler,
     @ApplicationContext private val context: Context,
     private val artworkColorRepository: ArtworkColorRepository,
+    private val loudness: LoudnessRepository,
+    private val music: MusicRepository,
 ) : ViewModel() {
+
+    // ========================================================================
+    // NORMALISATION DU VOLUME
+    // ========================================================================
+
+    val loudnessProgress: StateFlow<LoudnessProgress> = loudness.progress
+
+    /** Morceaux encore sans mesure : sert a annoncer le travail restant. */
+    fun pendingLoudnessCount(): Int = loudness.pendingCount(music.library.value.songs)
+
+    fun setNormalizeVolume(value: Boolean) = viewModelScope.launch {
+        settings.setNormalizeVolume(value)
+        // Activer l'option sans mesure ne changerait rien : on lance l'analyse dans la
+        // foulee plutot que de laisser l'utilisateur devant un reglage sans effet.
+        if (value) loudness.analyseLibrary(music.library.value.songs)
+    }
+
+    fun setNormalizeTargetDbfs(value: Float) = viewModelScope.launch {
+        settings.setNormalizeTargetDbfs(value)
+    }
+
+    fun analyseLoudness() = loudness.analyseLibrary(music.library.value.songs)
+
+    fun cancelLoudnessAnalysis() = loudness.cancel()
+
+    /** Efface les mesures et relance immediatement : un effacement seul laisserait
+     *  la normalisation active mais sans effet. */
+    fun resetLoudness() = viewModelScope.launch {
+        loudness.clear()
+        loudness.analyseLibrary(music.library.value.songs)
+    }
+
+    fun setShuffleSkipsDisliked(value: Boolean) = viewModelScope.launch {
+        settings.setShuffleSkipsDisliked(value)
+    }
 
     /** Sans clé d'API compilée, l'option Last.fm est masquée plutôt que cassée. */
     val lastFmAvailable: Boolean get() = scrobbler.isConfigured

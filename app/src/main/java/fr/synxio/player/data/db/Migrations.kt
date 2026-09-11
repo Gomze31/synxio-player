@@ -52,4 +52,21 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
     }
 }
 
-val ALL_MIGRATIONS = arrayOf(MIGRATION_2_3, MIGRATION_3_4)
+/** v4 -> v5 : niveaux sonores mesures, pour la normalisation du volume. */
+val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `loudness` (
+                `songPath` TEXT NOT NULL,
+                `dbfs` REAL NOT NULL,
+                `fileModifiedSec` INTEGER NOT NULL,
+                `analysedAt` INTEGER NOT NULL,
+                PRIMARY KEY(`songPath`)
+            )
+            """.trimIndent()
+        )
+    }
+}
+
+val ALL_MIGRATIONS = arrayOf(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)

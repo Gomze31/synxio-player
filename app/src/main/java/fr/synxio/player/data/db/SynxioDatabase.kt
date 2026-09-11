@@ -17,8 +17,9 @@ import androidx.room.RoomDatabase
         ArtworkColorEntity::class,
         DeviceProfileEntity::class,
         LyricsOffsetEntity::class,
+        LoudnessEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class SynxioDatabase : RoomDatabase() {
@@ -32,6 +33,7 @@ abstract class SynxioDatabase : RoomDatabase() {
     abstract fun artworkColorDao(): ArtworkColorDao
     abstract fun deviceProfileDao(): DeviceProfileDao
     abstract fun lyricsOffsetDao(): LyricsOffsetDao
+    abstract fun loudnessDao(): LoudnessDao
 
     companion object {
         const val NAME = "synxio.db"

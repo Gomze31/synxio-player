@@ -266,6 +266,22 @@ interface LyricsOffsetDao {
 }
 
 @Dao
+interface LoudnessDao {
+
+    @Query("SELECT * FROM loudness")
+    fun observeAll(): Flow<List<LoudnessEntity>>
+
+    @Query("SELECT * FROM loudness")
+    suspend fun all(): List<LoudnessEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun put(entry: LoudnessEntity)
+
+    @Query("DELETE FROM loudness")
+    suspend fun clear()
+}
+
+@Dao
 interface ArtworkColorDao {
 
     @Query("SELECT * FROM artwork_colors WHERE artworkUri = :uri")

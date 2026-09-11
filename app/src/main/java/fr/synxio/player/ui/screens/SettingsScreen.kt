@@ -43,6 +43,7 @@ import androidx.compose.material.icons.rounded.DeveloperMode
 import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Language
@@ -59,6 +60,7 @@ import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Speaker
 import androidx.compose.material.icons.rounded.Speed
@@ -85,6 +87,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -118,6 +121,7 @@ import fr.synxio.player.data.model.StatsPeriod
 import fr.synxio.player.data.model.TextSize
 import fr.synxio.player.data.model.ThemeColor
 import fr.synxio.player.data.model.ThemeMode
+import fr.synxio.player.data.repo.LoudnessProgress
 import fr.synxio.player.ui.viewmodel.AppViewModel
 import fr.synxio.player.ui.theme.ThemePreset
 import fr.synxio.player.ui.viewmodel.SettingsViewModel
@@ -308,6 +312,31 @@ fun SettingsScreen(
                 )
             }
             
+            item {
+                val progress by settingsViewModel.loudnessProgress.collectAsStateWithLifecycle()
+                NormalizationSetting(
+                    enabled = settings.normalizeVolume,
+                    targetDbfs = settings.normalizeTargetDbfs,
+                    progress = progress,
+                    pendingCount = settingsViewModel.pendingLoudnessCount(),
+                    onToggle = settingsViewModel::setNormalizeVolume,
+                    onTarget = settingsViewModel::setNormalizeTargetDbfs,
+                    onAnalyse = settingsViewModel::analyseLoudness,
+                    onCancel = settingsViewModel::cancelLoudnessAnalysis,
+                    onReset = settingsViewModel::resetLoudness,
+                )
+            }
+
+            item {
+                SwitchSetting(
+                    title = "Aléatoire sans les titres zappés",
+                    subtitle = "Écarte ceux que tu coupes systématiquement",
+                    icon = Icons.Rounded.Shuffle,
+                    checked = settings.shuffleSkipsDisliked,
+                    onCheckedChange = settingsViewModel::setShuffleSkipsDisliked
+                )
+            }
+
             item {
                 SwitchSetting(
                     title = "Reprendre la file au démarrage",
@@ -1366,5 +1395,85 @@ private fun TextSizeSettingsSheet(
                 Text("Terminé")
             }
         }
+    }
+}
+
+/**
+ * Normalisation du volume : interrupteur, niveau cible et avancement de l'analyse.
+ *
+ * Regroupés dans un seul bloc plutôt qu'en trois réglages distincts : ils n'ont aucun
+ * sens séparément, et l'analyse n'est pas une option mais la condition pour que
+ * l'interrupteur produise un effet.
+ */
+@Composable
+private fun NormalizationSetting(
+    enabled: Boolean,
+    targetDbfs: Float,
+    progress: LoudnessProgress,
+    pendingCount: Int,
+    onToggle: (Boolean) -> Unit,
+    onTarget: (Float) -> Unit,
+    onAnalyse: () -> Unit,
+    onCancel: () -> Unit,
+    onReset: () -> Unit,
+) {
+    Column {
+        SwitchSetting(
+            title = "Normaliser le volume",
+            subtitle = "Aligne le niveau sonore des morceaux entre eux",
+            icon = Icons.Rounded.GraphicEq,
+            checked = enabled,
+            onCheckedChange = onToggle,
+        )
+
+        if (!enabled) return@Column
+
+        when {
+            progress.running -> {
+                Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
+                    Text(
+                        text = "Analyse des fichiers · ${progress.done} / ${progress.total}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    LinearProgressIndicator(
+                        progress = { progress.fraction },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = onCancel) { Text("Arrêter l'analyse") }
+                }
+            }
+
+            pendingCount > 0 -> {
+                ClickableSetting(
+                    title = "Analyser $pendingCount titre${if (pendingCount > 1) "s" else ""}",
+                    subtitle = "Mesure nécessaire pour aligner leur volume",
+                    icon = Icons.Rounded.Equalizer,
+                    onClick = onAnalyse,
+                )
+            }
+
+            else -> {
+                ClickableSetting(
+                    title = "Tous les titres sont mesurés",
+                    subtitle = "Toucher pour tout remesurer",
+                    icon = Icons.Rounded.Equalizer,
+                    onClick = onReset,
+                )
+            }
+        }
+
+        SliderSetting(
+            title = "Niveau cible",
+            subtitle = "Plus bas = plus de morceaux alignés, volume général plus faible",
+            value = targetDbfs,
+            valueRange = -24f..-6f,
+            steps = 17,
+            display = { "${it.toInt()} dB" },
+            onChange = onTarget,
+            icon = Icons.Rounded.VolumeUp,
+        )
     }
 }
