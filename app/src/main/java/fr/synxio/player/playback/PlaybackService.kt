@@ -35,6 +35,7 @@ import fr.synxio.player.data.db.QueueDao
 import fr.synxio.player.data.model.EqCurves
 import fr.synxio.player.data.lastfm.LastFmScrobbler
 import fr.synxio.player.data.model.Song
+import fr.synxio.player.data.repo.DiscordRepository
 import fr.synxio.player.data.repo.LoudnessRepository
 import fr.synxio.player.data.repo.MusicRepository
 import kotlinx.coroutines.CoroutineScope
@@ -69,6 +70,7 @@ class PlaybackService : MediaLibraryService() {
     @Inject lateinit var queueDao: QueueDao
     @Inject lateinit var deviceProfileDao: DeviceProfileDao
     @Inject lateinit var loudnessRepository: LoudnessRepository
+    @Inject lateinit var discord: DiscordRepository
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -255,6 +257,7 @@ class PlaybackService : MediaLibraryService() {
 
         val song = musicRepository.songById(trackedSongId) ?: return
         serviceScope.launch { scrobbler.updateNowPlaying(song) }
+        serviceScope.launch { discord.announce(song) }
     }
 
     private fun accumulate() {

@@ -43,11 +43,13 @@ import androidx.compose.material.icons.rounded.DeveloperMode
 import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.LinearScale
+import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Loop
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Palette
@@ -61,6 +63,7 @@ import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Speaker
 import androidx.compose.material.icons.rounded.Speed
@@ -82,6 +85,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHostState
@@ -111,7 +115,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.synxio.player.BuildConfig
 import fr.synxio.player.R
 import fr.synxio.player.core.util.asFileSize
-import fr.synxio.player.core.util.asFileSize
 import fr.synxio.player.core.util.asLongDuration
 import fr.synxio.player.core.util.pluralSongs
 import fr.synxio.player.data.model.AccentSource
@@ -127,6 +130,8 @@ import fr.synxio.player.data.model.ThemeMode
 import fr.synxio.player.data.repo.LoudnessProgress
 import fr.synxio.player.ui.viewmodel.AppViewModel
 import fr.synxio.player.ui.theme.ThemePreset
+import fr.synxio.player.ui.components.SynxioDialog
+import fr.synxio.player.ui.viewmodel.DiscordViewModel
 import fr.synxio.player.ui.viewmodel.SettingsViewModel
 import fr.synxio.player.ui.viewmodel.UpdateViewModel
 
@@ -613,7 +618,9 @@ fun SettingsScreen(
                     )
                 }
             }
-            
+
+            item { DiscordSection(onMessage = viewModel::showMessage) }
+
             // ========================================================================
             // SECTION : RECHERCHE
             // ========================================================================
@@ -1561,6 +1568,92 @@ private fun UpdateSection(onMessage: (String) -> Unit) {
                     icon = Icons.Rounded.Sync,
                     onClick = viewModel::checkNow,
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Publication du morceau en cours dans un salon Discord.
+ *
+ * Le « Écoute… » du profil Discord n'est pas atteignable depuis Android sans automatiser
+ * le compte de l'utilisateur, ce que Discord interdit sous peine de suppression. Un
+ * webhook est le seul canal officiel accessible à une application tierce.
+ */
+@Composable
+private fun DiscordSection(onMessage: (String) -> Unit) {
+    val viewModel: DiscordViewModel = hiltViewModel()
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    var editing by remember { mutableStateOf(false) }
+
+    LaunchedEffect(state.message) {
+        state.message?.let {
+            onMessage(it)
+            viewModel.consumeMessage()
+        }
+    }
+
+    Column {
+        SwitchSetting(
+            title = "Annoncer sur Discord",
+            subtitle = "Publie chaque morceau dans un salon via un webhook",
+            icon = Icons.Rounded.Forum,
+            checked = state.enabled,
+            onCheckedChange = viewModel::setEnabled,
+        )
+
+        ClickableSetting(
+            title = if (state.webhookUrl.isBlank()) "Configurer le webhook"
+            else "Webhook configuré",
+            subtitle = if (state.webhookUrl.isBlank())
+                "Salon Discord → Paramètres → Intégrations → Webhooks"
+            else state.maskedUrl,
+            icon = Icons.Rounded.Link,
+            onClick = { editing = true },
+        )
+
+        if (state.webhookUrl.isNotBlank()) {
+            ClickableSetting(
+                title = if (state.testing) "Envoi…" else "Envoyer un message de test",
+                subtitle = "Vérifie que Synxio peut écrire dans le salon",
+                icon = Icons.Rounded.Send,
+                onClick = viewModel::sendTest,
+            )
+        }
+    }
+
+    if (editing) {
+        var draft by remember { mutableStateOf(state.webhookUrl) }
+        SynxioDialog(onDismiss = { editing = false }) {
+            Text("Webhook Discord", style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = "Dans Discord : clic droit sur le salon → Modifier le salon → " +
+                    "Intégrations → Webhooks → Nouveau webhook → Copier l'URL.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(16.dp))
+            OutlinedTextField(
+                value = draft,
+                onValueChange = { draft = it },
+                label = { Text("URL du webhook") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "Cette URL permet d'écrire dans le salon : garde-la pour toi.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(16.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = { editing = false }) { Text("Annuler") }
+                Button(onClick = {
+                    viewModel.setUrl(draft.trim())
+                    editing = false
+                }) { Text("Enregistrer") }
             }
         }
     }

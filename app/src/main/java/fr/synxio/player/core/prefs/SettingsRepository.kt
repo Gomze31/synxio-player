@@ -106,6 +106,14 @@ data class Settings(
     val autoCheckUpdates: Boolean = true,
     val lastUpdateCheck: Long = 0L,
 
+    /**
+     * Publication du morceau en cours dans un salon Discord.
+     *
+     * L'URL de webhook est un secret : quiconque la detient peut ecrire dans le salon.
+     */
+    val discordEnabled: Boolean = false,
+    val discordWebhookUrl: String = "",
+
     val lyricsOnlineEnabled: Boolean = true,
     val scrobbleEnabled: Boolean = false,
     val lastFmSessionKey: String = "",
@@ -194,6 +202,8 @@ class SettingsRepository @Inject constructor(
         val NORMALIZE_TARGET_DBFS = floatPreferencesKey("normalize_target_dbfs")
         val SHUFFLE_SKIPS_DISLIKED = booleanPreferencesKey("shuffle_skips_disliked")
         val AUTO_CHECK_UPDATES = booleanPreferencesKey("auto_check_updates")
+        val DISCORD_ENABLED = booleanPreferencesKey("discord_enabled")
+        val DISCORD_WEBHOOK_URL = stringPreferencesKey("discord_webhook_url")
         val LAST_UPDATE_CHECK = longPreferencesKey("last_update_check")
 
         val LYRICS_ONLINE = booleanPreferencesKey("lyrics_online")
@@ -282,6 +292,8 @@ class SettingsRepository @Inject constructor(
                 normalizeTargetDbfs = p[Keys.NORMALIZE_TARGET_DBFS] ?: -14f,
                 shuffleSkipsDisliked = p[Keys.SHUFFLE_SKIPS_DISLIKED] ?: false,
                 autoCheckUpdates = p[Keys.AUTO_CHECK_UPDATES] ?: true,
+                discordEnabled = p[Keys.DISCORD_ENABLED] ?: false,
+                discordWebhookUrl = p[Keys.DISCORD_WEBHOOK_URL] ?: "",
                 lastUpdateCheck = p[Keys.LAST_UPDATE_CHECK] ?: 0L,
 
                 lyricsOnlineEnabled = p[Keys.LYRICS_ONLINE] ?: true,
@@ -406,6 +418,8 @@ class SettingsRepository @Inject constructor(
     suspend fun setNormalizeTargetDbfs(value: Float) = put(Keys.NORMALIZE_TARGET_DBFS, value)
     suspend fun setShuffleSkipsDisliked(value: Boolean) = put(Keys.SHUFFLE_SKIPS_DISLIKED, value)
     suspend fun setAutoCheckUpdates(value: Boolean) = put(Keys.AUTO_CHECK_UPDATES, value)
+    suspend fun setDiscordEnabled(value: Boolean) = put(Keys.DISCORD_ENABLED, value)
+    suspend fun setDiscordWebhookUrl(value: String) = put(Keys.DISCORD_WEBHOOK_URL, value.trim())
     suspend fun setLastUpdateCheck(value: Long) = put(Keys.LAST_UPDATE_CHECK, value)
     
     // Nouvelles options pour les playlists
