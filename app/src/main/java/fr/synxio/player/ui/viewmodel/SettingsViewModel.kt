@@ -232,6 +232,31 @@ class SettingsViewModel @Inject constructor(
     fun setDeveloperMode(value: Boolean) = update { settings.setDeveloperMode(value) }
 
     // ========================================================================
+    // WIDGET LIQUID GLASS
+    // ========================================================================
+
+    fun setWidgetShowWave(value: Boolean) = update { settings.setWidgetShowWave(value) }
+    fun setWidgetGlassOpacity(value: Float) = update { settings.setWidgetGlassOpacity(value) }
+    fun setWidgetWaveTint(value: String) = update { settings.setWidgetWaveTint(value) }
+
+    // ========================================================================
+    // LECTURE & AFFICHAGE AVANCÉS
+    // ========================================================================
+
+    fun setAutoRewindSec(value: Int) = update { settings.setAutoRewindSec(value) }
+    fun setKeepScreenOnNowPlaying(value: Boolean) = update { settings.setKeepScreenOnNowPlaying(value) }
+
+    /** Nettoyer tous les caches (pochettes, temporaires) */
+    fun clearAllCaches(onComplete: () -> Unit = {}) = viewModelScope.launch {
+        artworkColorRepository.clearCache()
+        runCatching {
+            context.cacheDir.deleteRecursively()
+            context.cacheDir.mkdirs()
+        }
+        onComplete()
+    }
+
+    // ========================================================================
     // UTILITAIRES
     // ========================================================================
 

@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.RadialGradient
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
@@ -16,21 +17,10 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * Dessine le fond du widget : pochette floutée, voile de verre et onde spectrale.
+ * Dessine le fond d'écran d'accueil du widget Synxio en pur style « Liquid Glass ».
  *
- * ## Pourquoi une image et pas des composants
- *
- * Glance se résout en `RemoteViews` : ni shader, ni flou, ni dessin libre. Tout effet
- * visuel doit donc être produit côté application, sous forme de bitmap, puis affiché
- * comme une simple image. C'est la seule échappatoire, et elle est totale.
- *
- * ## L'onde n'est pas décorative
- *
- * Sa silhouette vient des énergies de bande calculées pour la recherche de morceaux
- * similaires : elle dessine le spectre réel du morceau affiché. Un titre sourd donne une
- * onde basse et ramassée, un titre brillant une onde étalée vers la droite. Sans
- * empreinte disponible, on retombe sur un profil neutre plutôt que d'afficher une ligne
- * plate qui ferait croire à un bug.
+ * Combine réfraction optique multicouche, halo chromatique diffus extrait de la pochette,
+ * liseré prismatique 3D et double vague fluide harmonique réagissant au spectre audio réel.
  */
 @Singleton
 class WidgetArtRenderer @Inject constructor() {
@@ -39,6 +29,9 @@ class WidgetArtRenderer @Inject constructor() {
      * @param artwork pochette du morceau, ou `null`
      * @param bands énergies de bande du morceau, ou `null` si non analysé
      * @param dark palette sombre demandée par le thème de l'application
+     * @param showWave afficher les vagues liquides spectrales
+     * @param glassOpacity intensité d'opacité du verre (0.2f à 1.0f)
+     * @param waveTint style de couleur néon du fluide ("ACCENT", "NEON_CYAN", "AMETHYST", "EMERALD")
      */
     fun render(
         widthPx: Int,
@@ -46,6 +39,9 @@ class WidgetArtRenderer @Inject constructor() {
         artwork: Bitmap?,
         bands: FloatArray?,
         dark: Boolean,
+        showWave: Boolean = true,
+        glassOpacity: Float = 0.75f,
+        waveTint: String = "ACCENT",
     ): Bitmap? = runCatching {
         val width = widthPx.coerceIn(MIN_SIDE, MAX_WIDTH)
         val height = heightPx.coerceIn(MIN_SIDE, MAX_HEIGHT)
@@ -53,21 +49,19 @@ class WidgetArtRenderer @Inject constructor() {
         val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             .also { canvas = Canvas(it) }
 
-        drawBackdrop(canvas, width, height, artwork, dark)
-        drawGlass(canvas, width, height, dark)
-        drawWave(canvas, width, height, bands, dark)
+        val opacity = glassOpacity.coerceIn(0.2f, 1.0f)
+
+        drawBackdrop(canvas, width, height, artwork, dark, opacity)
+        drawLiquidGlass(canvas, width, height, dark, opacity)
+        if (showWave) {
+            drawLiquidWaves(canvas, width, height, bands, dark, waveTint)
+        }
 
         output
     }.getOrNull()
 
     /**
-     * Pochette étirée puis floutée, ou dégradé uni à défaut.
-     *
-     * Le flou est obtenu en réduisant l'image à quelques dizaines de pixels puis en la
-     * réétirant avec filtrage bilinéaire. C'est grossier comparé à un vrai flou
-     * gaussien, mais sur un fond destiné à passer sous du texte la différence est
-     * invisible — et cela évite RenderScript, déprécié, comme RenderEffect, réservé aux
-     * vues et indisponible ici.
+     * Pochette étirée et floutée avec halo chromatique d'ambiance projeté.
      */
     private fun drawBackdrop(
         canvas: Canvas,
@@ -75,13 +69,14 @@ class WidgetArtRenderer @Inject constructor() {
         height: Int,
         artwork: Bitmap?,
         dark: Boolean,
+        opacity: Float,
     ) {
         if (artwork == null) {
-            val paint = Paint().apply {
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 shader = LinearGradient(
                     0f, 0f, width.toFloat(), height.toFloat(),
-                    if (dark) 0xFF241F33.toInt() else 0xFFE8E2F5.toInt(),
-                    if (dark) 0xFF0E0C14.toInt() else 0xFFF8F5FF.toInt(),
+                    if (dark) 0xFF181524.toInt() else 0xFFECE6F8.toInt(),
+                    if (dark) 0xFF0A0910.toInt() else 0xFFF9F7FD.toInt(),
                     Shader.TileMode.CLAMP,
                 )
             }
@@ -89,112 +84,254 @@ class WidgetArtRenderer @Inject constructor() {
             return
         }
 
+        // Flou progressif bilinéaire
         val tiny = Bitmap.createScaledBitmap(artwork, BLUR_SIDE, BLUR_SIDE, true)
         val smooth = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
         canvas.drawBitmap(tiny, Rect(0, 0, BLUR_SIDE, BLUR_SIDE), Rect(0, 0, width, height), smooth)
         tiny.recycle()
 
-        // Voile sombre : sans lui, une pochette claire rendrait le texte illisible, et
-        // c'est le cas le plus fréquent dans une bibliothèque de pop.
-        canvas.drawColor(if (dark) SCRIM_DARK else SCRIM_LIGHT)
+        // Halo d'ambiance chromatique projeté depuis la pochette
+        val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = RadialGradient(
+                width * 0.25f, height * 0.5f, width * 0.6f,
+                ColorUtils.setAlphaComponent(Color.WHITE, if (dark) 28 else 60),
+                0,
+                Shader.TileMode.CLAMP
+            )
+        }
+        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), glowPaint)
+
+        // Voile de verre teinté adaptatif
+        val scrimAlpha = if (dark) {
+            ((0xB8 * opacity).toInt()).coerceIn(120, 230)
+        } else {
+            ((0x65 * opacity).toInt()).coerceIn(60, 160)
+        }
+        val scrimColor = if (dark) {
+            ColorUtils.setAlphaComponent(0xFF000000.toInt(), scrimAlpha)
+        } else {
+            ColorUtils.setAlphaComponent(0xFFFFFFFF.toInt(), scrimAlpha)
+        }
+        canvas.drawColor(scrimColor)
     }
 
-    /** Panneau de verre : léger éclaircissement et liseré supérieur. */
-    private fun drawGlass(canvas: Canvas, width: Int, height: Int, dark: Boolean) {
-        val sheen = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    /**
+     * Panneau Liquid Glass : brillance caustique, réflexion diagonale et biseau 3D.
+     */
+    private fun drawLiquidGlass(
+        canvas: Canvas,
+        width: Int,
+        height: Int,
+        dark: Boolean,
+        opacity: Float,
+    ) {
+        val cornerRadius = CORNER_FRACTION * height
+
+        // 1. Reflet supérieur caustique (éclat de verre courbé)
+        val topSheen = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             shader = LinearGradient(
-                0f, 0f, 0f, height.toFloat(),
-                ColorUtils.setAlphaComponent(Color.WHITE, if (dark) 34 else 120),
-                ColorUtils.setAlphaComponent(Color.WHITE, 0),
+                0f, 0f, 0f, height * 0.65f,
+                intArrayOf(
+                    ColorUtils.setAlphaComponent(Color.WHITE, if (dark) 55 else 140),
+                    ColorUtils.setAlphaComponent(Color.WHITE, if (dark) 18 else 45),
+                    ColorUtils.setAlphaComponent(Color.WHITE, 0),
+                ),
+                floatArrayOf(0f, 0.4f, 1f),
                 Shader.TileMode.CLAMP,
             )
         }
-        canvas.drawRect(0f, 0f, width.toFloat(), height * 0.6f, sheen)
+        canvas.drawRoundRect(
+            RectF(0f, 0f, width.toFloat(), height * 0.7f),
+            cornerRadius,
+            cornerRadius,
+            topSheen
+        )
 
-        // Le liseré est ce qui fait lire la surface comme du verre plutôt que comme un
-        // simple aplat translucide.
+        // 2. Faisceau de réfraction liquide diagonal
+        val beamPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(
+                -width * 0.1f, -height * 0.2f,
+                width * 0.8f, height * 0.9f,
+                ColorUtils.setAlphaComponent(Color.WHITE, if (dark) 25 else 50),
+                0,
+                Shader.TileMode.CLAMP
+            )
+        }
+        canvas.drawRoundRect(
+            RectF(0f, 0f, width.toFloat(), height.toFloat()),
+            cornerRadius,
+            cornerRadius,
+            beamPaint
+        )
+
+        // 3. Capsule en verre dépoli intérieure pour les commandes
+        val controlsPlateRect = RectF(
+            width * 0.45f,
+            height * 0.52f,
+            width * 0.96f,
+            height * 0.92f
+        )
+        val platePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            color = ColorUtils.setAlphaComponent(
+                if (dark) Color.WHITE else 0xFF4A3B69.toInt(),
+                if (dark) 16 else 14
+            )
+        }
+        val plateStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 1f
+            color = ColorUtils.setAlphaComponent(Color.WHITE, if (dark) 32 else 70)
+        }
+        canvas.drawRoundRect(controlsPlateRect, height * 0.2f, height * 0.2f, platePaint)
+        canvas.drawRoundRect(controlsPlateRect, height * 0.2f, height * 0.2f, plateStroke)
+
+        // 4. Liseré prismatique 3D (biseau lumineux supérieur, ombre inférieure)
+        val strokeWidth = max(1.2f, width / 360f)
         val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
-            strokeWidth = max(1f, width / 400f)
-            color = ColorUtils.setAlphaComponent(Color.WHITE, if (dark) 46 else 150)
+            this.strokeWidth = strokeWidth
+            shader = LinearGradient(
+                0f, 0f, width.toFloat(), height.toFloat(),
+                intArrayOf(
+                    ColorUtils.setAlphaComponent(Color.WHITE, if (dark) 120 else 220),
+                    ColorUtils.setAlphaComponent(Color.WHITE, if (dark) 40 else 90),
+                    ColorUtils.setAlphaComponent(if (dark) 0xFF8B7CF0.toInt() else 0xFF6C5CE7.toInt(), 50),
+                    ColorUtils.setAlphaComponent(Color.WHITE, if (dark) 20 else 50),
+                ),
+                floatArrayOf(0f, 0.35f, 0.7f, 1f),
+                Shader.TileMode.CLAMP
+            )
         }
-        val inset = edge.strokeWidth / 2f
+        val inset = strokeWidth / 2f
         canvas.drawRoundRect(
             RectF(inset, inset, width - inset, height - inset),
-            CORNER_FRACTION * height,
-            CORNER_FRACTION * height,
+            cornerRadius,
+            cornerRadius,
             edge,
         )
     }
 
     /**
-     * Onde spectrale, tracée en courbes lissées.
-     *
-     * Les points de contrôle sont placés à mi-chemin entre deux sommets : c'est ce qui
-     * donne une ligne continue et « liquide » là où un tracé droit produirait une silhouette
-     * en dents de scie.
+     * Vagues de fluide harmonique liquide à double couche réactives au spectre audio.
      */
-    private fun drawWave(
+    private fun drawLiquidWaves(
         canvas: Canvas,
         width: Int,
         height: Int,
         bands: FloatArray?,
         dark: Boolean,
+        waveTint: String,
     ) {
         val profile = normalise(bands)
-        // L'onde reste confinée au bas du widget. Tracée plus haut, elle passait derrière
-        // les boutons de lecture et les rendait illisibles : un fond ne doit pas disputer
-        // la lisibilité à ce qu'il porte.
-        val baseline = height * 0.94f
-        val amplitude = height * 0.18f
-        val step = width.toFloat() / (profile.size - 1)
+        val tintColor = resolveWaveTint(waveTint, dark)
 
-        val path = Path().apply { moveTo(0f, baseline - profile[0] * amplitude) }
+        // 1. Première couche : vague fluide d'arrière-plan (douce et enveloppante)
+        val bgBaseline = height * 0.95f
+        val bgAmplitude = height * 0.22f
+        val bgStep = width.toFloat() / (profile.size - 1)
+        val bgPath = Path().apply {
+            val startY = bgBaseline - (profile[0] * 0.6f + 0.2f) * bgAmplitude
+            moveTo(0f, startY)
+        }
         for (i in 0 until profile.size - 1) {
-            val x1 = i * step
-            val y1 = baseline - profile[i] * amplitude
-            val x2 = (i + 1) * step
-            val y2 = baseline - profile[i + 1] * amplitude
+            val currentVal = profile[i] * 0.6f + 0.2f
+            val nextVal = profile[i + 1] * 0.6f + 0.2f
+            val x1 = i * bgStep
+            val y1 = bgBaseline - currentVal * bgAmplitude
+            val x2 = (i + 1) * bgStep
+            val y2 = bgBaseline - nextVal * bgAmplitude
             val midX = (x1 + x2) / 2f
-            path.cubicTo(midX, y1, midX, y2, x2, y2)
+            bgPath.cubicTo(midX, y1, midX, y2, x2, y2)
+        }
+        val bgFill = Path(bgPath).apply {
+            lineTo(width.toFloat(), height.toFloat())
+            lineTo(0f, height.toFloat())
+            close()
+        }
+        canvas.drawPath(
+            bgFill,
+            Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                shader = LinearGradient(
+                    0f, bgBaseline - bgAmplitude, 0f, height.toFloat(),
+                    ColorUtils.setAlphaComponent(tintColor, if (dark) 45 else 35),
+                    0,
+                    Shader.TileMode.CLAMP
+                )
+            }
+        )
+
+        // 2. Seconde couche : vague fluide de premier plan (précise, luminescente avec crête néon)
+        val fgBaseline = height * 0.93f
+        val fgAmplitude = height * 0.17f
+        val fgStep = width.toFloat() / (profile.size - 1)
+
+        val fgPath = Path().apply {
+            moveTo(0f, fgBaseline - profile[0] * fgAmplitude)
+        }
+        for (i in 0 until profile.size - 1) {
+            val x1 = i * fgStep
+            val y1 = fgBaseline - profile[i] * fgAmplitude
+            val x2 = (i + 1) * fgStep
+            val y2 = fgBaseline - profile[i + 1] * fgAmplitude
+            val midX = (x1 + x2) / 2f
+            fgPath.cubicTo(midX, y1, midX, y2, x2, y2)
         }
 
-        val fill = Path(path).apply {
+        val fgFill = Path(fgPath).apply {
             lineTo(width.toFloat(), height.toFloat())
             lineTo(0f, height.toFloat())
             close()
         }
 
-        val tint = if (dark) 0xFF8B7CF0.toInt() else 0xFF6C5CE7.toInt()
+        // Remplissage dégradé lumineux
         canvas.drawPath(
-            fill,
+            fgFill,
             Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 shader = LinearGradient(
-                    0f, baseline - amplitude, 0f, height.toFloat(),
-                    ColorUtils.setAlphaComponent(tint, 90),
-                    ColorUtils.setAlphaComponent(tint, 0),
+                    0f, fgBaseline - fgAmplitude, 0f, height.toFloat(),
+                    ColorUtils.setAlphaComponent(tintColor, if (dark) 100 else 75),
+                    ColorUtils.setAlphaComponent(tintColor, 0),
                     Shader.TileMode.CLAMP,
                 )
             },
         )
-        canvas.drawPath(
-            path,
-            Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                style = Paint.Style.STROKE
-                strokeWidth = max(2f, height / 60f)
-                strokeCap = Paint.Cap.ROUND
-                color = ColorUtils.setAlphaComponent(tint, 150)
-            },
-        )
+
+        // Ligne de crête néon
+        val crestStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = max(2.2f, height / 55f)
+            strokeCap = Paint.Cap.ROUND
+            shader = LinearGradient(
+                0f, 0f, width.toFloat(), 0f,
+                ColorUtils.setAlphaComponent(tintColor, 120),
+                ColorUtils.setAlphaComponent(tintColor, 240),
+                Shader.TileMode.CLAMP
+            )
+        }
+        canvas.drawPath(fgPath, crestStroke)
+
+        // Gouttes de lumière / Perles liquides aux pics de fréquence
+        val beadPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            color = ColorUtils.setAlphaComponent(Color.WHITE, if (dark) 230 else 255)
+        }
+        for (i in 1 until profile.size - 1) {
+            if (profile[i] > 0.65f && profile[i] >= profile[i - 1] && profile[i] >= profile[i + 1]) {
+                val beadX = i * fgStep
+                val beadY = fgBaseline - profile[i] * fgAmplitude
+                canvas.drawCircle(beadX, beadY, max(2f, height / 70f), beadPaint)
+            }
+        }
     }
 
-    /**
-     * Ramène les énergies de bande dans [0, 1], relativement à ce morceau.
-     *
-     * Une normalisation absolue produirait des ondes quasi identiques d'un titre à
-     * l'autre : ce qui distingue visuellement deux morceaux, c'est le *relief* entre
-     * leurs bandes, pas leur niveau global — que la normalisation du volume gomme déjà.
-     */
+    private fun resolveWaveTint(tintName: String, dark: Boolean): Int = when (tintName) {
+        "NEON_CYAN" -> if (dark) 0xFF00E5FF.toInt() else 0xFF00A8B5.toInt()
+        "AMETHYST" -> if (dark) 0xFFD946EF.toInt() else 0xFFA21CAF.toInt()
+        "EMERALD" -> if (dark) 0xFF10B981.toInt() else 0xFF059669.toInt()
+        else -> if (dark) 0xFF8B7CF0.toInt() else 0xFF6C5CE7.toInt()
+    }
+
     private fun normalise(bands: FloatArray?): FloatArray {
         val source = bands?.takeIf { it.size >= BAND_COUNT * 2 }
             ?.let { vector -> FloatArray(BAND_COUNT) { vector[it * 2] } }
@@ -203,23 +340,17 @@ class WidgetArtRenderer @Inject constructor() {
         val low = source.min()
         val high = source.max()
         val span = high - low
-        // Morceau au spectre parfaitement plat : on retombe sur le profil neutre plutôt
-        // que de diviser par zéro.
         if (span < 1e-4f) return NEUTRAL_PROFILE
         return FloatArray(source.size) { ((source[it] - low) / span).coerceIn(0f, 1f) }
     }
 
     private companion object {
         const val BAND_COUNT = 10
-        const val BLUR_SIDE = 12
+        const val BLUR_SIDE = 14
         const val MIN_SIDE = 64
-        /** Un `RemoteViews` plafonne autour du mégaoctet : on reste très en deçà. */
-        const val MAX_WIDTH = 520
-        const val MAX_HEIGHT = 260
-        const val CORNER_FRACTION = 0.16f
-        const val SCRIM_DARK = 0xB3000000.toInt()
-        const val SCRIM_LIGHT = 0x59FFFFFF
-        /** Silhouette douce utilisée tant qu'un morceau n'a pas été analysé. */
+        const val MAX_WIDTH = 540
+        const val MAX_HEIGHT = 280
+        const val CORNER_FRACTION = 0.18f
         val NEUTRAL_PROFILE =
             floatArrayOf(0.25f, 0.45f, 0.7f, 0.55f, 0.8f, 0.6f, 0.85f, 0.5f, 0.65f, 0.3f)
     }

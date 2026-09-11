@@ -146,6 +146,15 @@ data class Settings(
     
     // Expérimental
     val developerMode: Boolean = false,
+
+    // Widget Liquid Glass
+    val widgetShowWave: Boolean = true,
+    val widgetGlassOpacity: Float = 0.75f,
+    val widgetWaveTint: String = "ACCENT",
+
+    // Audio & Lecture avancée
+    val autoRewindSec: Int = 0,
+    val keepScreenOnNowPlaying: Boolean = false,
 )
 
 @Singleton
@@ -238,6 +247,15 @@ class SettingsRepository @Inject constructor(
         // Expérimental
         val DEVELOPER_MODE = booleanPreferencesKey("developer_mode")
 
+        // Widget Liquid Glass
+        val WIDGET_SHOW_WAVE = booleanPreferencesKey("widget_show_wave")
+        val WIDGET_GLASS_OPACITY = floatPreferencesKey("widget_glass_opacity")
+        val WIDGET_WAVE_TINT = stringPreferencesKey("widget_wave_tint")
+
+        // Audio & Lecture avancée
+        val AUTO_REWIND_SEC = intPreferencesKey("auto_rewind_sec")
+        val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on_now_playing")
+
         val LAST_SCAN = longPreferencesKey("last_scan")
     }
 
@@ -328,6 +346,15 @@ class SettingsRepository @Inject constructor(
                 
                 // Expérimental
                 developerMode = p[Keys.DEVELOPER_MODE] ?: false,
+
+                // Widget Liquid Glass
+                widgetShowWave = p[Keys.WIDGET_SHOW_WAVE] ?: true,
+                widgetGlassOpacity = p[Keys.WIDGET_GLASS_OPACITY] ?: 0.75f,
+                widgetWaveTint = p[Keys.WIDGET_WAVE_TINT] ?: "ACCENT",
+
+                // Audio & Lecture avancée
+                autoRewindSec = p[Keys.AUTO_REWIND_SEC] ?: 0,
+                keepScreenOnNowPlaying = p[Keys.KEEP_SCREEN_ON] ?: false,
             )
         }
 
@@ -442,6 +469,15 @@ class SettingsRepository @Inject constructor(
     
     // Expérimental
     suspend fun setDeveloperMode(value: Boolean) = put(Keys.DEVELOPER_MODE, value)
+
+    // Widget Liquid Glass
+    suspend fun setWidgetShowWave(value: Boolean) = put(Keys.WIDGET_SHOW_WAVE, value)
+    suspend fun setWidgetGlassOpacity(value: Float) = put(Keys.WIDGET_GLASS_OPACITY, value)
+    suspend fun setWidgetWaveTint(value: String) = put(Keys.WIDGET_WAVE_TINT, value)
+
+    // Audio & Lecture avancée
+    suspend fun setAutoRewindSec(value: Int) = put(Keys.AUTO_REWIND_SEC, value)
+    suspend fun setKeepScreenOnNowPlaying(value: Boolean) = put(Keys.KEEP_SCREEN_ON, value)
 
     private suspend fun <T> put(key: Preferences.Key<T>, value: T) {
         context.dataStore.edit { it[key] = value }

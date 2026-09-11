@@ -110,7 +110,8 @@ class SynxioWidget : GlanceAppWidget() {
         // pleine journée sur un fond d'écran sombre et une application en AMOLED : le
         // widget était le seul élément clair de l'écran d'accueil. Suivre le réglage de
         // l'application est ce qu'on attend d'un widget de Synxio.
-        val theme = entryPoint.settingsRepository().settings.first().themeMode
+        val settings = entryPoint.settingsRepository().settings.first()
+        val theme = settings.themeMode
         val palette = Palette(
             dark = when (theme) {
                 ThemeMode.LIGHT -> false
@@ -136,6 +137,9 @@ class SynxioWidget : GlanceAppWidget() {
                     artwork = artwork,
                     bands = bands,
                     dark = palette.dark,
+                    showWave = settings.widgetShowWave,
+                    glassOpacity = settings.widgetGlassOpacity,
+                    waveTint = settings.widgetWaveTint,
                 )
 
                 Box(modifier = GlanceModifier.fillMaxSize()) {
@@ -223,26 +227,32 @@ class SynxioWidget : GlanceAppWidget() {
 
     @Composable
     private fun Controls(isPlaying: Boolean, palette: Palette) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = GlanceModifier.padding(vertical = 2.dp)
+        ) {
             WidgetButton(
                 R.drawable.ic_widget_previous,
                 "Précédent",
                 KeyEvent.KEYCODE_MEDIA_PREVIOUS,
                 palette,
+                isPrimary = false,
             )
+            Spacer(GlanceModifier.width(4.dp))
             WidgetButton(
-                // L'icône reflète l'état réel : un bouton « lecture » affiché pendant la
-                // lecture laisse croire que le widget n'a pas pris en compte l'appui.
                 iconRes = if (isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play,
                 description = if (isPlaying) "Pause" else "Lecture",
                 keyCode = KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
                 palette = palette,
+                isPrimary = true,
             )
+            Spacer(GlanceModifier.width(4.dp))
             WidgetButton(
                 R.drawable.ic_widget_next,
                 "Suivant",
                 KeyEvent.KEYCODE_MEDIA_NEXT,
                 palette,
+                isPrimary = false,
             )
         }
     }
@@ -253,16 +263,15 @@ class SynxioWidget : GlanceAppWidget() {
         description: String,
         keyCode: Int,
         palette: Palette,
+        isPrimary: Boolean = false,
     ) {
         Image(
             provider = ImageProvider(iconRes),
             contentDescription = description,
-            // Les icônes sont monochromes : sans teinte, elles restent noires et
-            // disparaissent sur un fond sombre.
-            colorFilter = ColorFilter.tint(palette.onSurface),
+            colorFilter = ColorFilter.tint(if (isPrimary) palette.accent else palette.onSurface),
             modifier = GlanceModifier
-                .size(40.dp)
-                .padding(5.dp)
+                .size(if (isPrimary) 44.dp else 36.dp)
+                .padding(if (isPrimary) 4.dp else 6.dp)
                 .clickable(
                     actionRunCallback<MediaKeyAction>(
                         actionParametersOf(MediaKeyAction.KEY_CODE to keyCode)
@@ -305,6 +314,7 @@ class SynxioWidget : GlanceAppWidget() {
         )
         val onSurface = ColorProvider(if (dark) Color(0xFFF2EFFA) else Color(0xFF1B1A20))
         val onSurfaceVariant = ColorProvider(if (dark) Color(0xFFB9B3C7) else Color(0xFF5C5768))
+        val accent = ColorProvider(if (dark) Color(0xFF9D8DF8) else Color(0xFF6C5CE7))
     }
 
     private companion object {

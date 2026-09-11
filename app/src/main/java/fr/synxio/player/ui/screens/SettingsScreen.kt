@@ -2,6 +2,7 @@ package fr.synxio.player.ui.screens
 
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.EaseInOut
 import androidx.compose.animation.core.animateFloat
@@ -94,15 +95,18 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -146,8 +150,245 @@ private fun String.toSongSort(): SongSort = SongSort.entries.firstOrNull { it.na
 private fun String.toStatsPeriod(): StatsPeriod = StatsPeriod.entries.firstOrNull { it.name == this } ?: StatsPeriod.ALL_TIME
 
 /**
+ * Catégories de sous-menus des paramètres.
+ */
+enum class SettingsSubMenu(
+    val title: String,
+    val subtitle: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+) {
+    APPEARANCE(
+        "Apparence & Thèmes",
+        "Thèmes, couleurs, style du lecteur et affichage",
+        Icons.Rounded.Palette,
+    ),
+    PLAYBACK(
+        "Lecture & Audio",
+        "Fondu, gapless, silences, reprise casque et rembobinage",
+        Icons.Rounded.PlayCircle,
+    ),
+    LIQUID_GLASS_WIDGET(
+        "Widget Liquid Glass",
+        "Rendu verre liquide, vagues spectrales et teintes néon",
+        Icons.Rounded.BlurOn,
+    ),
+    VOLUME(
+        "Volume & Normalisation",
+        "Normalisation dynamique LUFS et limiteur de volume",
+        Icons.Rounded.VolumeUp,
+    ),
+    LIBRARY(
+        "Bibliothèque & Fichiers",
+        "Durée minimale, albums, maintenance et doublons",
+        Icons.Rounded.Folder,
+    ),
+    EQUALIZER(
+        "Égaliseur & Effets Sonores",
+        "Égaliseur système, bass boost, spatialisation et gain",
+        Icons.Rounded.GraphicEq,
+    ),
+    LYRICS_AND_SOCIAL(
+        "Paroles & Connexions",
+        "Paroles LRCLIB, Last.fm scrobble et Discord Presence",
+        Icons.Rounded.Language,
+    ),
+    STATS_AND_HISTORY(
+        "Statistiques & Historique",
+        "Top écoutes, habitudes et journal de lecture",
+        Icons.Rounded.History,
+    ),
+    BACKUP_AND_RESTORE(
+        "Sauvegarde & Données",
+        "Exporter, importer et réinitialiser les données",
+        Icons.Rounded.Backup,
+    ),
+    SYSTEM_AND_ABOUT(
+        "Système & À propos",
+        "Mises à jour, purge du cache, performances et version",
+        Icons.Rounded.Info,
+    ),
+}
+
+private fun SettingsSubMenu.getSummary(
+    settings: fr.synxio.player.core.prefs.Settings,
+    library: fr.synxio.player.data.repo.Library,
+): String = when (this) {
+    SettingsSubMenu.APPEARANCE ->
+        "${settings.themeMode.label} • ${ThemePreset.fromName(settings.themePreset).label} • ${settings.nowPlayingSkin.label}"
+    SettingsSubMenu.PLAYBACK ->
+        "Gapless ${if (settings.gaplessEnabled) "Actif" else "Désactivé"} • Fondu ${settings.crossfadeMs / 1000}s • ${if (settings.autoRewindSec > 0) "Rembobinage ${settings.autoRewindSec}s" else "Direct"}"
+    SettingsSubMenu.LIQUID_GLASS_WIDGET ->
+        "Verre ${(settings.widgetGlassOpacity * 100).toInt()}% • Vagues ${if (settings.widgetShowWave) "actives" else "masquées"} • ${settings.widgetWaveTint}"
+    SettingsSubMenu.VOLUME ->
+        "Vol. départ ${(settings.defaultVolume * 100).toInt()}% • Normalisation ${if (settings.normalizeVolume) "Active (${settings.normalizeTargetDbfs.toInt()} dBFS)" else "Désactivée"}"
+    SettingsSubMenu.LIBRARY ->
+        "Min. ${settings.minDurationSec}s • Onglet ${settings.defaultTab.label} • ${library.albums.size} albums"
+    SettingsSubMenu.EQUALIZER ->
+        "Égaliseur ${if (settings.equalizerEnabled) "Actif" else "Désactivé"} • Bass Boost ${settings.bassBoost / 10}%"
+    SettingsSubMenu.LYRICS_AND_SOCIAL ->
+        "Paroles ${if (settings.lyricsOnlineEnabled) "LRCLIB" else "Locale"} • ${if (settings.scrobbleEnabled) "Last.fm connecté" else "Last.fm inactif"}"
+    SettingsSubMenu.STATS_AND_HISTORY ->
+        "Période ${settings.defaultStatsPeriod.toStatsPeriod().label}"
+    SettingsSubMenu.BACKUP_AND_RESTORE ->
+        "Export et import JSON des données"
+    SettingsSubMenu.SYSTEM_AND_ABOUT ->
+        "Synxio v${BuildConfig.VERSION_NAME} • Mises à jour & Cache"
+}
+
+@Composable
+private fun SubMenuCard(
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        onClick = onClick,
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 5.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = androidx.compose.material3.CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp),
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+
+            Spacer(Modifier.width(14.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Spacer(Modifier.width(8.dp))
+
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                contentDescription = "Ouvrir",
+                modifier = Modifier
+                    .size(18.dp)
+                    .rotate(180f),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsHeroBanner(
+    songCount: Int,
+    albumCount: Int,
+    onQuickAction: (SettingsSubMenu) -> Unit,
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        shape = RoundedCornerShape(20.dp),
+        colors = androidx.compose.material3.CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+        )
+    ) {
+        Column(modifier = Modifier.padding(18.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(50.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.primary),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Tune,
+                        contentDescription = null,
+                        modifier = Modifier.size(28.dp),
+                        tint = MaterialTheme.colorScheme.onPrimary
+                    )
+                }
+
+                Spacer(Modifier.width(16.dp))
+
+                Column {
+                    Text(
+                        text = "Synxio Player",
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = "Version ${BuildConfig.VERSION_NAME} • ${songCount.pluralSongs()} • $albumCount albums",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(14.dp))
+
+            androidx.compose.foundation.layout.FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                FilterChip(
+                    selected = false,
+                    onClick = { onQuickAction(SettingsSubMenu.APPEARANCE) },
+                    label = { Text("Thèmes") }
+                )
+                FilterChip(
+                    selected = false,
+                    onClick = { onQuickAction(SettingsSubMenu.PLAYBACK) },
+                    label = { Text("Audio & Gapless") }
+                )
+                FilterChip(
+                    selected = false,
+                    onClick = { onQuickAction(SettingsSubMenu.LIQUID_GLASS_WIDGET) },
+                    label = { Text("Widget Liquid Glass") }
+                )
+                FilterChip(
+                    selected = false,
+                    onClick = { onQuickAction(SettingsSubMenu.LIBRARY) },
+                    label = { Text("Bibliothèque") }
+                )
+            }
+        }
+    }
+}
+
+/**
  * Écran des paramètres complet.
- * Menu repensé avec toutes les nouvelles fonctionnalités pour le Play Store.
+ * Menu repensé avec sous-menus thématiques et nouvelles fonctionnalités.
  */
 @Composable
 fun SettingsScreen(
@@ -166,22 +407,41 @@ fun SettingsScreen(
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val library by viewModel.library.collectAsStateWithLifecycle()
     val lastFmAvailable = remember { settingsViewModel.lastFmAvailable }
-    
+    var currentSubMenu by rememberSaveable { mutableStateOf<SettingsSubMenu?>(null) }
     var showThemeSheet by remember { mutableStateOf(false) }
     var showColorSheet by remember { mutableStateOf(false) }
     var showTextSizeSheet by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = currentSubMenu != null) {
+        currentSubMenu = null
+    }
     
     Column(
         modifier = modifier.fillMaxSize()
     ) {
         // Top App Bar
         TopAppBar(
-            title = { Text("Paramètres") },
+            title = {
+                Text(
+                    text = currentSubMenu?.title ?: "Paramètres",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            navigationIcon = {
+                if (currentSubMenu != null) {
+                    IconButton(onClick = { currentSubMenu = null }) {
+                        Icon(
+                            Icons.AutoMirrored.Rounded.ArrowBack,
+                            contentDescription = "Retour aux paramètres"
+                        )
+                    }
+                }
+            },
             actions = {
-                IconButton(
-                    onClick = { /* Accès rapide */ }
-                ) {
-                    Icon(Icons.Rounded.Tune, contentDescription = "Paramètres rapides")
+                if (currentSubMenu == null) {
+                    IconButton(onClick = onOpenEqualizer) {
+                        Icon(Icons.Rounded.Tune, contentDescription = "Égaliseur rapide")
+                    }
                 }
             }
         )
@@ -191,585 +451,690 @@ fun SettingsScreen(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 32.dp)
         ) {
-            // ========================================================================
-            // SECTION : APPARENCE
-            // ========================================================================
-            item { 
-                SettingsSectionHeader(
-                    title = "Apparence",
-                    icon = Icons.Rounded.Palette
-                )
-            }
-            
-            item {
-                ClickableSetting(
-                    title = "Thème",
-                    subtitle = "${settings.themeMode.label} - ${settings.accentSource.label}",
-                    icon = Icons.Rounded.Brightness6,
-                    onClick = { showThemeSheet = true }
-                )
-            }
-            
-            item {
-                ClickableSetting(
-                    title = "Couleurs",
-                    subtitle = "Personnalise les couleurs de l'application",
-                    icon = Icons.Rounded.ColorLens,
-                    onClick = { showColorSheet = true }
-                )
-            }
-            
-            item {
-                ChipSetting(
-                    title = "Thème visuel",
-                    options = ThemePreset.entries.map { it.label },
-                    selectedIndex = ThemePreset.entries.indexOf(
-                        ThemePreset.fromName(settings.themePreset)
-                    ),
-                    onSelect = { settingsViewModel.setThemePreset(ThemePreset.entries[it]) },
-                )
-            }
+            if (currentSubMenu == null) {
+                // ====================================================================
+                // HUB PRINCIPAL : SOUS-MENUS CLIQUABLES
+                // ====================================================================
+                item {
+                    SettingsHeroBanner(
+                        songCount = library.songs.size,
+                        albumCount = library.albums.size,
+                        onQuickAction = { currentSubMenu = it }
+                    )
+                }
 
-            item {
-                Text(
-                    text = ThemePreset.fromName(settings.themePreset).description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
-                )
-            }
+                items(SettingsSubMenu.entries) { subMenu ->
+                    SubMenuCard(
+                        title = subMenu.title,
+                        subtitle = subMenu.getSummary(settings, library),
+                        icon = subMenu.icon,
+                        onClick = { currentSubMenu = subMenu }
+                    )
+                }
+            } else {
+                when (currentSubMenu) {
+                    // ================================================================
+                    // SOUS-MENU : APPARENCE
+                    // ================================================================
+                    SettingsSubMenu.APPEARANCE -> {
+                        item {
+                            ClickableSetting(
+                                title = "Thème",
+                                subtitle = "${settings.themeMode.label} - ${settings.accentSource.label}",
+                                icon = Icons.Rounded.Brightness6,
+                                onClick = { showThemeSheet = true }
+                            )
+                        }
+                        
+                        item {
+                            ClickableSetting(
+                                title = "Couleurs",
+                                subtitle = "Personnalise les couleurs de l'application",
+                                icon = Icons.Rounded.ColorLens,
+                                onClick = { showColorSheet = true }
+                            )
+                        }
+                        
+                        item {
+                            ChipSetting(
+                                title = "Thème visuel",
+                                options = ThemePreset.entries.map { it.label },
+                                selectedIndex = ThemePreset.entries.indexOf(
+                                    ThemePreset.fromName(settings.themePreset)
+                                ),
+                                onSelect = { settingsViewModel.setThemePreset(ThemePreset.entries[it]) },
+                            )
+                        }
 
-            item {
-                ChipSetting(
-                    title = "Style du lecteur",
-                    options = NowPlayingSkin.entries.map { it.label },
-                    selectedIndex = NowPlayingSkin.entries.indexOf(settings.nowPlayingSkin),
-                    onSelect = { settingsViewModel.setSkin(NowPlayingSkin.entries[it]) }
-                )
-            }
-            
-            item {
-                SwitchSetting(
-                    title = "Fond flouté",
-                    subtitle = "Floute la pochette derrière le lecteur plein écran",
-                    icon = Icons.Rounded.BlurOn,
-                    checked = settings.blurBackground,
-                    onCheckedChange = settingsViewModel::setBlurBackground
-                )
-            }
-            
-            item {
-                SliderSetting(
-                    title = "Colonnes de la grille d'albums",
-                    subtitle = "Nombre de colonnes dans la vue grille des albums",
-                    icon = Icons.Rounded.Album,
-                    value = settings.albumGridColumns.toFloat(),
-                    valueRange = 2f..4f,
-                    steps = 1,
-                    display = { "${it.toInt()} colonnes" },
-                    onChange = { settingsViewModel.setAlbumColumns(it.toInt()) }
-                )
-            }
-            
-            item {
-                ChipSetting(
-                    title = "Taille du texte",
-                    options = TextSize.entries.map { entry -> entry.label },
-                    selectedIndex = TextSize.entries.indexOf(settings.textSize.toTextSize()),
-                    onSelect = { settingsViewModel.setTextSize(TextSize.entries[it]) }
-                )
-            }
-            
-            // ========================================================================
-            // SECTION : LECTURE
-            // ========================================================================
-            item { 
-                SettingsSectionHeader(
-                    title = "Lecture",
-                    icon = Icons.Rounded.PlayCircle
-                )
-            }
-            
-            item {
-                SliderSetting(
-                    title = "Fondu entre les morceaux",
-                    subtitle = "0 s = enchaînement sans blanc (gapless natif)",
-                    icon = Icons.Rounded.LinearScale,
-                    value = settings.crossfadeMs / 1000f,
-                    valueRange = 0f..12f,
-                    steps = 11,
-                    display = { if (it < 0.5f) "Désactivé" else "${it.toInt()} s" },
-                    onChange = { settingsViewModel.setCrossfade((it * 1000).toInt()) }
-                )
-            }
-            
-            item {
-                SwitchSetting(
-                    title = "Enchaînement gapless",
-                    subtitle = "Aucun silence entre deux pistes d'un même album",
-                    icon = Icons.Rounded.Loop,
-                    checked = settings.gaplessEnabled,
-                    onCheckedChange = settingsViewModel::setGapless
-                )
-            }
-            
-            item {
-                SwitchSetting(
-                    title = "Ignorer les silences",
-                    subtitle = "Saute les blancs en début et fin de piste",
-                    icon = Icons.Rounded.Loop,
-                    checked = settings.skipSilence,
-                    onCheckedChange = settingsViewModel::setSkipSilence
-                )
-            }
-            
-            item {
-                val progress by settingsViewModel.loudnessProgress.collectAsStateWithLifecycle()
-                NormalizationSetting(
-                    enabled = settings.normalizeVolume,
-                    targetDbfs = settings.normalizeTargetDbfs,
-                    progress = progress,
-                    pendingCount = settingsViewModel.pendingLoudnessCount(),
-                    onToggle = settingsViewModel::setNormalizeVolume,
-                    onTarget = settingsViewModel::setNormalizeTargetDbfs,
-                    onAnalyse = settingsViewModel::analyseLoudness,
-                    onCancel = settingsViewModel::cancelLoudnessAnalysis,
-                    onReset = settingsViewModel::resetLoudness,
-                )
-            }
+                        item {
+                            Text(
+                                text = ThemePreset.fromName(settings.themePreset).description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
+                            )
+                        }
 
-            item {
-                val fingerprints by settingsViewModel.similarityProgress
-                    .collectAsStateWithLifecycle()
-                FingerprintSetting(
-                    progress = fingerprints,
-                    pendingCount = settingsViewModel.pendingFingerprintCount(),
-                    onAnalyse = settingsViewModel::analyseFingerprints,
-                    onCancel = settingsViewModel::cancelFingerprints,
-                    onReset = settingsViewModel::resetFingerprints,
-                )
-            }
+                        item {
+                            ChipSetting(
+                                title = "Style du lecteur",
+                                options = NowPlayingSkin.entries.map { it.label },
+                                selectedIndex = NowPlayingSkin.entries.indexOf(settings.nowPlayingSkin),
+                                onSelect = { settingsViewModel.setSkin(NowPlayingSkin.entries[it]) }
+                            )
+                        }
+                        
+                        item {
+                            SwitchSetting(
+                                title = "Fond flouté",
+                                subtitle = "Floute la pochette derrière le lecteur plein écran",
+                                icon = Icons.Rounded.BlurOn,
+                                checked = settings.blurBackground,
+                                onCheckedChange = settingsViewModel::setBlurBackground
+                            )
+                        }
 
-            item {
-                SwitchSetting(
-                    title = "Aléatoire sans les titres zappés",
-                    subtitle = "Écarte ceux que tu coupes systématiquement",
-                    icon = Icons.Rounded.Shuffle,
-                    checked = settings.shuffleSkipsDisliked,
-                    onCheckedChange = settingsViewModel::setShuffleSkipsDisliked
-                )
-            }
+                        item {
+                            SwitchSetting(
+                                title = "Visualiseur audio",
+                                subtitle = "Affiche l'indicateur d'ondes sonores dans le lecteur",
+                                icon = Icons.Rounded.GraphicEq,
+                                checked = settings.showVisualizer,
+                                onCheckedChange = settingsViewModel::setShowVisualizer
+                            )
+                        }
 
-            item {
-                SwitchSetting(
-                    title = "Reprendre la file au démarrage",
-                    subtitle = "Retrouve ta file d'attente là où tu l'avais laissée",
-                    icon = Icons.Rounded.QueueMusic,
-                    checked = settings.rememberQueue,
-                    onCheckedChange = settingsViewModel::setRememberQueue
-                )
-            }
-            
-            item {
-                SwitchSetting(
-                    title = "Reprendre au branchement du casque",
-                    subtitle = "La lecture repart quand tu connectes des écouteurs, filaires ou Bluetooth",
-                    icon = Icons.Rounded.VolumeUp,
-                    checked = settings.resumeOnHeadsetConnect,
-                    onCheckedChange = settingsViewModel::setResumeOnHeadsetConnect
-                )
-            }
+                        item {
+                            SwitchSetting(
+                                title = "Maintenir l'écran allumé",
+                                subtitle = "Garde l'écran actif tant que le lecteur plein écran est affiché",
+                                icon = Icons.Rounded.SmartDisplay,
+                                checked = settings.keepScreenOnNowPlaying,
+                                onCheckedChange = settingsViewModel::setKeepScreenOnNowPlaying
+                            )
+                        }
+                        
+                        item {
+                            SliderSetting(
+                                title = "Colonnes de la grille d'albums",
+                                subtitle = "Nombre de colonnes dans la vue grille des albums",
+                                icon = Icons.Rounded.Album,
+                                value = settings.albumGridColumns.toFloat(),
+                                valueRange = 2f..4f,
+                                steps = 1,
+                                display = { "${it.toInt()} colonnes" },
+                                onChange = { settingsViewModel.setAlbumColumns(it.toInt()) }
+                            )
+                        }
+                        
+                        item {
+                            ChipSetting(
+                                title = "Taille du texte",
+                                options = TextSize.entries.map { entry -> entry.label },
+                                selectedIndex = TextSize.entries.indexOf(settings.textSize.toTextSize()),
+                                onSelect = { settingsViewModel.setTextSize(TextSize.entries[it]) }
+                            )
+                        }
 
-            item {
-                SwitchSetting(
-                    title = "Reprendre après un appel",
-                    subtitle = "La lecture reprend automatiquement après un appel téléphonique",
-                    icon = Icons.Rounded.PhonelinkSetup,
-                    checked = settings.resumeAfterCall,
-                    onCheckedChange = settingsViewModel::setResumeAfterCall
-                )
-            }
-            
-            item {
-                SwitchSetting(
-                    title = "Arrêter après inactivité",
-                    subtitle = "Arrête la lecture après une période d'inactivité",
-                    icon = Icons.Rounded.Timer,
-                    checked = settings.stopAfterInactivityMin > 0,
-                    onCheckedChange = { enabled ->
-                        settingsViewModel.setStopAfterInactivity(if (enabled) 15 else 0)
+                        item {
+                            SwitchSetting(
+                                title = "Réduire les animations",
+                                subtitle = "Désactive certaines animations pour améliorer les performances",
+                                icon = Icons.Rounded.DataSaverOn,
+                                checked = settings.reduceAnimations,
+                                onCheckedChange = settingsViewModel::setReduceAnimations
+                            )
+                        }
                     }
-                )
-            }
-            
-            if (settings.stopAfterInactivityMin > 0) {
-                item {
-                    SliderSetting(
-                        title = "Durée d'inactivité",
-                        subtitle = "Temps avant l'arrêt automatique",
-                        icon = Icons.Rounded.LinearScale,
-                        value = settings.stopAfterInactivityMin.toFloat(),
-                        valueRange = 5f..60f,
-                        steps = 11,
-                        display = { "${it.toInt()} min" },
-                        onChange = { settingsViewModel.setStopAfterInactivity(it.toInt()) }
-                    )
+
+                    // ================================================================
+                    // SOUS-MENU : LECTURE & AUDIO
+                    // ================================================================
+                    SettingsSubMenu.PLAYBACK -> {
+                        item {
+                            SliderSetting(
+                                title = "Fondu entre les morceaux",
+                                subtitle = "0 s = enchaînement sans blanc (gapless natif)",
+                                icon = Icons.Rounded.LinearScale,
+                                value = settings.crossfadeMs / 1000f,
+                                valueRange = 0f..12f,
+                                steps = 11,
+                                display = { if (it < 0.5f) "Désactivé" else "${it.toInt()} s" },
+                                onChange = { settingsViewModel.setCrossfade((it * 1000).toInt()) }
+                            )
+                        }
+                        
+                        item {
+                            SwitchSetting(
+                                title = "Enchaînement gapless",
+                                subtitle = "Aucun silence entre deux pistes d'un même album",
+                                icon = Icons.Rounded.Loop,
+                                checked = settings.gaplessEnabled,
+                                onCheckedChange = settingsViewModel::setGapless
+                            )
+                        }
+                        
+                        item {
+                            SwitchSetting(
+                                title = "Ignorer les silences",
+                                subtitle = "Saute les blancs en début et fin de piste",
+                                icon = Icons.Rounded.Loop,
+                                checked = settings.skipSilence,
+                                onCheckedChange = settingsViewModel::setSkipSilence
+                            )
+                        }
+
+                        item {
+                            val rewindOptions = listOf("Désactivé", "3 secondes", "5 secondes")
+                            val rewindValues = listOf(0, 3, 5)
+                            val selectedIndex = rewindValues.indexOf(settings.autoRewindSec).coerceAtLeast(0)
+                            ChipSetting(
+                                title = "Rembobinage automatique à la reprise",
+                                options = rewindOptions,
+                                selectedIndex = selectedIndex,
+                                onSelect = { settingsViewModel.setAutoRewindSec(rewindValues[it]) },
+                                icon = Icons.Rounded.Restore
+                            )
+                        }
+
+                        item {
+                            SwitchSetting(
+                                title = "Aléatoire sans les titres zappés",
+                                subtitle = "Écarte ceux que tu coupes systématiquement",
+                                icon = Icons.Rounded.Shuffle,
+                                checked = settings.shuffleSkipsDisliked,
+                                onCheckedChange = settingsViewModel::setShuffleSkipsDisliked
+                            )
+                        }
+                        
+                        item {
+                            SwitchSetting(
+                                title = "Reprendre la file au démarrage",
+                                subtitle = "Retrouve ta file d'attente là où tu l'avais laissée",
+                                icon = Icons.Rounded.QueueMusic,
+                                checked = settings.rememberQueue,
+                                onCheckedChange = settingsViewModel::setRememberQueue
+                            )
+                        }
+                        
+                        item {
+                            SwitchSetting(
+                                title = "Reprendre au branchement du casque",
+                                subtitle = "La lecture repart quand tu connectes des écouteurs, filaires ou Bluetooth",
+                                icon = Icons.Rounded.PhonelinkSetup,
+                                checked = settings.resumeOnHeadsetConnect,
+                                onCheckedChange = settingsViewModel::setResumeOnHeadsetConnect
+                            )
+                        }
+                        
+                        item {
+                            SwitchSetting(
+                                title = "Reprendre après un appel",
+                                subtitle = "La lecture reprend automatiquement après un appel téléphonique",
+                                icon = Icons.Rounded.PhonelinkSetup,
+                                checked = settings.resumeAfterCall,
+                                onCheckedChange = settingsViewModel::setResumeAfterCall
+                            )
+                        }
+
+                        item {
+                            SwitchSetting(
+                                title = "Pause lors de la perte du focus audio",
+                                subtitle = "Met en pause quand une autre application émet du son",
+                                icon = Icons.Rounded.SurroundSound,
+                                checked = settings.audioFocusPause,
+                                onCheckedChange = { /* Activé par conception */ }
+                            )
+                        }
+                        
+                        item {
+                            SwitchSetting(
+                                title = "Arrêter après inactivité",
+                                subtitle = "Arrête la lecture après une période d'inactivité",
+                                icon = Icons.Rounded.Timer,
+                                checked = settings.stopAfterInactivityMin > 0,
+                                onCheckedChange = { 
+                                    settingsViewModel.setStopAfterInactivity(if (it) 30 else 0)
+                                }
+                            )
+                        }
+                        
+                        if (settings.stopAfterInactivityMin > 0) {
+                            item {
+                                SliderSetting(
+                                    title = "Durée d'inactivité",
+                                    subtitle = "Temps avant l'arrêt automatique",
+                                    icon = Icons.Rounded.Timer,
+                                    value = settings.stopAfterInactivityMin.toFloat(),
+                                    valueRange = 5f..120f,
+                                    steps = 22,
+                                    display = { "${it.toInt()} min" },
+                                    onChange = { settingsViewModel.setStopAfterInactivity(it.toInt()) }
+                                )
+                            }
+                        }
+
+                        item {
+                            val fingerprints by settingsViewModel.similarityProgress
+                                .collectAsStateWithLifecycle()
+                            FingerprintSetting(
+                                progress = fingerprints,
+                                pendingCount = settingsViewModel.pendingFingerprintCount(),
+                                onAnalyse = settingsViewModel::analyseFingerprints,
+                                onCancel = settingsViewModel::cancelFingerprints,
+                                onReset = settingsViewModel::resetFingerprints,
+                            )
+                        }
+                    }
+
+                    // ================================================================
+                    // SOUS-MENU : WIDGET LIQUID GLASS
+                    // ================================================================
+                    SettingsSubMenu.LIQUID_GLASS_WIDGET -> {
+                        item {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 24.dp, vertical = 8.dp),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = androidx.compose.material3.CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                                )
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            Icons.Rounded.BlurOn,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            "Moteur Liquid Glass",
+                                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                                        )
+                                    }
+                                    Spacer(Modifier.height(6.dp))
+                                    Text(
+                                        "Le widget d'écran d'accueil Synxio dispose d'une finition optique de verre liquide : réfraction caustique supérieure, halo d'ambiance projeté par la pochette et vagues fluides harmoniques à double couche synchronisées avec le spectre audio.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+
+                        item {
+                            SwitchSetting(
+                                title = "Vagues fluides spectrales",
+                                subtitle = "Dessine le spectre harmonique fluide de la musique au bas du widget",
+                                icon = Icons.Rounded.GraphicEq,
+                                checked = settings.widgetShowWave,
+                                onCheckedChange = settingsViewModel::setWidgetShowWave
+                            )
+                        }
+
+                        item {
+                            val tintOptions = listOf("Accent Pochette", "Néon Cyan", "Améthyste", "Émeraude")
+                            val tintKeys = listOf("ACCENT", "NEON_CYAN", "AMETHYST", "EMERALD")
+                            val selectedIndex = tintKeys.indexOf(settings.widgetWaveTint).coerceAtLeast(0)
+                            ChipSetting(
+                                title = "Teinte néon des fluides",
+                                options = tintOptions,
+                                selectedIndex = selectedIndex,
+                                onSelect = { settingsViewModel.setWidgetWaveTint(tintKeys[it]) },
+                                icon = Icons.Rounded.ColorLens
+                            )
+                        }
+
+                        item {
+                            SliderSetting(
+                                title = "Opacité du voile de verre",
+                                subtitle = "Ajuste la profondeur et la translucidité de la surface vitrée",
+                                icon = Icons.Rounded.BlurOn,
+                                value = settings.widgetGlassOpacity,
+                                valueRange = 0.25f..1f,
+                                steps = 14,
+                                display = { "${(it * 100).toInt()} %" },
+                                onChange = settingsViewModel::setWidgetGlassOpacity
+                            )
+                        }
+
+                        item {
+                            Text(
+                                text = "Le widget est rafraîchi instantanément à chaque changement de morceau ou appui par le service de lecture Synxio.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
+                            )
+                        }
+                    }
+
+                    // ================================================================
+                    // SOUS-MENU : VOLUME & NORMALISATION
+                    // ================================================================
+                    SettingsSubMenu.VOLUME -> {
+                        item {
+                            val progress by settingsViewModel.loudnessProgress.collectAsStateWithLifecycle()
+                            NormalizationSetting(
+                                enabled = settings.normalizeVolume,
+                                targetDbfs = settings.normalizeTargetDbfs,
+                                progress = progress,
+                                pendingCount = settingsViewModel.pendingLoudnessCount(),
+                                onToggle = settingsViewModel::setNormalizeVolume,
+                                onTarget = settingsViewModel::setNormalizeTargetDbfs,
+                                onAnalyse = settingsViewModel::analyseLoudness,
+                                onCancel = settingsViewModel::cancelLoudnessAnalysis,
+                                onReset = settingsViewModel::resetLoudness,
+                            )
+                        }
+
+                        item {
+                            SliderSetting(
+                                title = "Volume par défaut",
+                                subtitle = "Volume de démarrage de l'application",
+                                icon = Icons.Rounded.VolumeUp,
+                                value = settings.defaultVolume,
+                                valueRange = 0f..1f,
+                                steps = 10,
+                                display = { "${(it * 100).toInt()}%" },
+                                onChange = { settingsViewModel.setDefaultVolume(it) }
+                            )
+                        }
+                        
+                        item {
+                            SwitchSetting(
+                                title = "Limiter le volume",
+                                subtitle = "Empêche de dépasser un volume maximum pour protéger l'audition",
+                                icon = Icons.Rounded.Speaker,
+                                checked = settings.maxVolumeLimit,
+                                onCheckedChange = settingsViewModel::setMaxVolumeLimit
+                            )
+                        }
+                        
+                        if (settings.maxVolumeLimit) {
+                            item {
+                                SliderSetting(
+                                    title = "Volume maximum",
+                                    subtitle = "Niveau de volume maximum autorisé",
+                                    icon = Icons.Rounded.LinearScale,
+                                    value = settings.maxVolumeValue,
+                                    valueRange = 0.5f..1f,
+                                    steps = 5,
+                                    display = { "${(it * 100).toInt()}%" },
+                                    onChange = { settingsViewModel.setMaxVolumeValue(it) }
+                                )
+                            }
+                        }
+                    }
+
+                    // ================================================================
+                    // SOUS-MENU : BIBLIOTHÈQUE & FICHIERS
+                    // ================================================================
+                    SettingsSubMenu.LIBRARY -> {
+                        item {
+                            SliderSetting(
+                                title = "Durée minimale d'un titre",
+                                subtitle = "Filtre les sonneries et notifications indexées comme musique",
+                                icon = Icons.Rounded.Timer,
+                                value = settings.minDurationSec.toFloat(),
+                                valueRange = 0f..120f,
+                                steps = 11,
+                                display = { if (it < 1f) "Aucun filtre" else "${it.toInt()} s" },
+                                onChange = { settingsViewModel.setMinDuration(it.toInt()) }
+                            )
+                        }
+                        
+                        item {
+                            ChipSetting(
+                                title = "Onglet par défaut",
+                                options = LibraryTab.entries.map { it.label },
+                                selectedIndex = LibraryTab.entries.indexOf(settings.defaultTab),
+                                onSelect = { settingsViewModel.setDefaultTab(LibraryTab.entries[it]) }
+                            )
+                        }
+                        
+                        item {
+                            ChipSetting(
+                                title = "Tri des playlists",
+                                options = PlaylistSort.entries.map { entry -> entry.label },
+                                selectedIndex = PlaylistSort.entries.indexOf(settings.defaultPlaylistSort.toPlaylistSort()),
+                                onSelect = { settingsViewModel.setDefaultPlaylistSort(PlaylistSort.entries[it]) }
+                            )
+                        }
+                        
+                        item {
+                            SwitchSetting(
+                                title = "Afficher les albums vides",
+                                subtitle = "Affiche les albums même s'ils ne contiennent aucun morceau",
+                                icon = Icons.Rounded.Folder,
+                                checked = settings.showEmptyAlbums,
+                                onCheckedChange = settingsViewModel::setShowEmptyAlbums
+                            )
+                        }
+                        
+                        item {
+                            SwitchSetting(
+                                title = "Grouper les albums par artiste",
+                                subtitle = "Regroupe les albums par artiste dans la bibliothèque",
+                                icon = Icons.Rounded.Person,
+                                checked = settings.groupAlbumsByArtist,
+                                onCheckedChange = settingsViewModel::setGroupAlbumsByArtist
+                            )
+                        }
+                        
+                        item {
+                            SwitchSetting(
+                                title = "Masquer les copies dans la bibliothèque",
+                                subtitle = "N'affiche qu'un exemplaire par morceau, sans rien supprimer",
+                                icon = Icons.Rounded.DataSaverOn,
+                                checked = settings.hideDuplicates,
+                                onCheckedChange = settingsViewModel::setHideDuplicates
+                            )
+                        }
+                        
+                        item {
+                            ClickableSetting(
+                                title = "Relancer le scan",
+                                subtitle = "${library.songs.size.pluralSongs()} · ${library.totalDurationMs.asLongDuration()}",
+                                icon = Icons.Rounded.Sync,
+                                onClick = { viewModel.rescan() }
+                            )
+                        }
+
+                        item {
+                            ClickableSetting(
+                                title = "Réparer les tags",
+                                subtitle = "Corrige artistes, albums, années et pochettes en masse",
+                                icon = Icons.Rounded.AutoFixHigh,
+                                onClick = onOpenRepair
+                            )
+                        }
+
+                        item {
+                            ClickableSetting(
+                                title = "Supprimer les fichiers en double",
+                                subtitle = "Analyse tes fichiers et libère de l'espace de stockage",
+                                icon = Icons.Rounded.ContentCopy,
+                                onClick = onOpenDuplicates
+                            )
+                        }
+
+                        item {
+                            ClickableSetting(
+                                title = "Recherche avancée",
+                                subtitle = "Filtres par artiste, album, genre, durée, etc.",
+                                icon = Icons.Rounded.SmartDisplay,
+                                onClick = onNavigateToAdvancedSearch
+                            )
+                        }
+
+                        item {
+                            SwitchSetting(
+                                title = "Scan automatique",
+                                subtitle = "Démarre automatiquement le scan au démarrage de l'application",
+                                icon = Icons.Rounded.SystemSecurityUpdate,
+                                checked = settings.autoScan,
+                                onCheckedChange = settingsViewModel::setAutoScan
+                            )
+                        }
+                        
+                        if (settings.autoScan) {
+                            item {
+                                SwitchSetting(
+                                    title = "Scan en arrière-plan",
+                                    subtitle = "Permet de continuer le scan même quand l'application est en arrière-plan",
+                                    icon = Icons.Rounded.DataSaverOn,
+                                    checked = settings.scanInBackground,
+                                    onCheckedChange = settingsViewModel::setScanInBackground
+                                )
+                            }
+                        }
+                    }
+
+                    // ================================================================
+                    // SOUS-MENU : ÉGALISEUR & EFFETS
+                    // ================================================================
+                    SettingsSubMenu.EQUALIZER -> {
+                        item {
+                            ClickableSetting(
+                                title = "Ouvrir l'égaliseur complet",
+                                subtitle = if (settings.equalizerEnabled) "Actif • Personnaliser les bandes et presets" else "Désactivé • Appuyer pour ouvrir",
+                                icon = Icons.Rounded.Equalizer,
+                                onClick = onOpenEqualizer
+                            )
+                        }
+
+                        item {
+                            Text(
+                                text = "Synxio s'interface directement avec le moteur audio système d'Android pour offrir le meilleur compromis latence et clarté acoustique.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
+                            )
+                        }
+                    }
+
+                    // ================================================================
+                    // SOUS-MENU : PAROLES & CONNEXIONS
+                    // ================================================================
+                    SettingsSubMenu.LYRICS_AND_SOCIAL -> {
+                        item {
+                            SwitchSetting(
+                                title = "Chercher les paroles en ligne",
+                                subtitle = "Utilise LRCLIB quand aucun fichier .lrc n'est trouvé",
+                                icon = Icons.Rounded.Language,
+                                checked = settings.lyricsOnlineEnabled,
+                                onCheckedChange = settingsViewModel::setLyricsOnline
+                            )
+                        }
+                        
+                        if (lastFmAvailable) {
+                            item {
+                                SwitchSetting(
+                                    title = "Scrobbling Last.fm",
+                                    subtitle = settings.lastFmUsername.takeIf { it.isNotBlank() }
+                                        ?.let { "Connecté en tant que $it" }
+                                        ?: "Connecte ton compte pour envoyer tes écoutes",
+                                    icon = Icons.Rounded.SurroundSound,
+                                    checked = settings.scrobbleEnabled,
+                                    onCheckedChange = settingsViewModel::setScrobbleEnabled
+                                )
+                            }
+                        }
+
+                        item { DiscordSection(onMessage = viewModel::showMessage) }
+                    }
+
+                    // ================================================================
+                    // SOUS-MENU : STATISTIQUES & HISTORIQUE
+                    // ================================================================
+                    SettingsSubMenu.STATS_AND_HISTORY -> {
+                        item {
+                            ClickableSetting(
+                                title = "Mes statistiques",
+                                subtitle = "Top artistes, albums, et plus encore",
+                                icon = Icons.Rounded.Star,
+                                onClick = onNavigateToStats
+                            )
+                        }
+                        
+                        item {
+                            ClickableSetting(
+                                title = "Historique de lecture",
+                                subtitle = "Voir l'historique des morceaux écoutés",
+                                icon = Icons.Rounded.History,
+                                onClick = onNavigateToHistory
+                            )
+                        }
+                        
+                        item {
+                            ChipSetting(
+                                title = "Période par défaut pour les stats",
+                                options = StatsPeriod.entries.map { entry -> entry.label },
+                                selectedIndex = StatsPeriod.entries.indexOf(settings.defaultStatsPeriod.toStatsPeriod()),
+                                onSelect = { settingsViewModel.setDefaultStatsPeriod(StatsPeriod.entries[it]) }
+                            )
+                        }
+                    }
+
+                    // ================================================================
+                    // SOUS-MENU : SAUVEGARDE & DONNÉES
+                    // ================================================================
+                    SettingsSubMenu.BACKUP_AND_RESTORE -> {
+                        item {
+                            ClickableSetting(
+                                title = "Sauvegarde et restauration",
+                                subtitle = "Exporte et importe tes playlists, favoris et données",
+                                icon = Icons.Rounded.Save,
+                                onClick = onNavigateToBackup
+                            )
+                        }
+                    }
+
+                    // ================================================================
+                    // SOUS-MENU : SYSTÈME & À PROPOS
+                    // ================================================================
+                    SettingsSubMenu.SYSTEM_AND_ABOUT -> {
+                        item { UpdateSection(onMessage = viewModel::showMessage) }
+
+                        item {
+                            ClickableSetting(
+                                title = "Nettoyer les caches",
+                                subtitle = "Pochettes d'album décodées et fichiers temporaires",
+                                icon = Icons.Rounded.Restore,
+                                onClick = {
+                                    settingsViewModel.clearAllCaches {
+                                        viewModel.showMessage("Caches des pochettes et données temporaires nettoyés !")
+                                    }
+                                }
+                            )
+                        }
+
+                        item {
+                            SwitchSetting(
+                                title = "Mode développeur",
+                                subtitle = "Active des options de débogage avancées",
+                                icon = Icons.Rounded.DeveloperMode,
+                                checked = settings.developerMode,
+                                onCheckedChange = settingsViewModel::setDeveloperMode
+                            )
+                        }
+
+                        item {
+                            ClickableSetting(
+                                title = "À propos de Synxio",
+                                subtitle = "Version ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) - Lecteur local, sans pub, open source",
+                                icon = Icons.Rounded.Info,
+                                onClick = onNavigateToAbout
+                            )
+                        }
+                    }
+
+                    null -> Unit
                 }
             }
-            
-            item {
-                ClickableSetting(
-                    title = "Égaliseur",
-                    subtitle = if (settings.equalizerEnabled) "Actif" else "Désactivé",
-                    icon = Icons.Rounded.Equalizer,
-                    onClick = onOpenEqualizer
-                )
-            }
-            
-            // ========================================================================
-            // SECTION : VOLUME
-            // ========================================================================
-            item { 
-                SettingsSectionHeader(
-                    title = "Volume",
-                    icon = Icons.Rounded.VolumeUp
-                )
-            }
-            
-            item {
-                SliderSetting(
-                    title = "Volume par défaut",
-                    subtitle = "Volume de démarrage de l'application",
-                    icon = Icons.Rounded.VolumeUp,
-                    value = settings.defaultVolume,
-                    valueRange = 0f..1f,
-                    steps = 10,
-                    display = { "${(it * 100).toInt()}%" },
-                    onChange = { settingsViewModel.setDefaultVolume(it) }
-                )
-            }
-            
-            item {
-                SwitchSetting(
-                    title = "Limiter le volume",
-                    subtitle = "Empêche de dépasser un volume maximum",
-                    icon = Icons.Rounded.Speaker,
-                    checked = settings.maxVolumeLimit,
-                    onCheckedChange = settingsViewModel::setMaxVolumeLimit
-                )
-            }
-            
-            if (settings.maxVolumeLimit) {
-                item {
-                    SliderSetting(
-                        title = "Volume maximum",
-                        subtitle = "Niveau de volume maximum autorisé",
-                        icon = Icons.Rounded.LinearScale,
-                        value = settings.maxVolumeValue,
-                        valueRange = 0.5f..1f,
-                        steps = 5,
-                        display = { "${(it * 100).toInt()}%" },
-                        onChange = { settingsViewModel.setMaxVolumeValue(it) }
-                    )
-                }
-            }
-            
-            // ========================================================================
-            // SECTION : BIBLIOTHÈQUE
-            // ========================================================================
-            item { 
-                SettingsSectionHeader(
-                    title = "Bibliothèque",
-                    icon = Icons.Rounded.Album
-                )
-            }
-            
-            item {
-                SliderSetting(
-                    title = "Durée minimale d'un titre",
-                    subtitle = "Filtre les sonneries et notifications indexées comme musique",
-                    icon = Icons.Rounded.Timer,
-                    value = settings.minDurationSec.toFloat(),
-                    valueRange = 0f..120f,
-                    steps = 11,
-                    display = { if (it < 1f) "Aucun filtre" else "${it.toInt()} s" },
-                    onChange = { settingsViewModel.setMinDuration(it.toInt()) }
-                )
-            }
-            
-            item {
-                ChipSetting(
-                    title = "Onglet par défaut",
-                    options = LibraryTab.entries.map { it.label },
-                    selectedIndex = LibraryTab.entries.indexOf(settings.defaultTab),
-                    onSelect = { settingsViewModel.setDefaultTab(LibraryTab.entries[it]) }
-                )
-            }
-            
-            item {
-                ChipSetting(
-                    title = "Tri des playlists",
-                    options = PlaylistSort.entries.map { entry -> entry.label },
-                    selectedIndex = PlaylistSort.entries.indexOf(settings.defaultPlaylistSort.toPlaylistSort()),
-                    onSelect = { settingsViewModel.setDefaultPlaylistSort(PlaylistSort.entries[it]) }
-                )
-            }
-            
-            item {
-                SwitchSetting(
-                    title = "Afficher les albums vides",
-                    subtitle = "Affiche les albums même s'ils ne contiennent aucun morceau",
-                    icon = Icons.Rounded.Folder,
-                    checked = settings.showEmptyAlbums,
-                    onCheckedChange = settingsViewModel::setShowEmptyAlbums
-                )
-            }
-            
-            item {
-                SwitchSetting(
-                    title = "Grouper les albums par artiste",
-                    subtitle = "Regroupe les albums par artiste dans la bibliothèque",
-                    icon = Icons.Rounded.Person,
-                    checked = settings.groupAlbumsByArtist,
-                    onCheckedChange = settingsViewModel::setGroupAlbumsByArtist
-                )
-            }
-            
-            item {
-                SwitchSetting(
-                    // Trois réglages parlaient de « doublons » pour trois choses
-                    // différentes. Les deux filtres d'affichage disent désormais
-                    // « masquer les copies », l'opération sur les fichiers dit
-                    // « supprimer les fichiers ».
-                    title = "Masquer les copies dans la bibliothèque",
-                    subtitle = "N'affiche qu'un exemplaire par morceau, sans rien supprimer",
-                    icon = Icons.Rounded.DataSaverOn,
-                    checked = settings.hideDuplicates,
-                    onCheckedChange = settingsViewModel::setHideDuplicates
-                )
-            }
-            
-            item {
-                ClickableSetting(
-                    title = "Relancer le scan",
-                    subtitle = "${library.songs.size.pluralSongs()} · ${library.totalDurationMs.asLongDuration()}",
-                    icon = Icons.Rounded.Sync,
-                    onClick = { viewModel.rescan() }
-                )
-            }
-
-            item {
-                ClickableSetting(
-                    title = "Réparer les tags",
-                    subtitle = "Corrige artistes, albums, années et pochettes en masse",
-                    icon = Icons.Rounded.AutoFixHigh,
-                    onClick = onOpenRepair
-                )
-            }
-
-            item {
-                ClickableSetting(
-                    title = "Supprimer les fichiers en double",
-                    subtitle = "Analyse tes fichiers et libère de l'espace de stockage",
-                    icon = Icons.Rounded.ContentCopy,
-                    onClick = onOpenDuplicates
-                )
-            }
-
-
-            item {
-                SwitchSetting(
-                    title = "Scan automatique",
-                    subtitle = "Démarre automatiquement le scan au démarrage de l'application",
-                    icon = Icons.Rounded.SystemSecurityUpdate,
-                    checked = settings.autoScan,
-                    onCheckedChange = settingsViewModel::setAutoScan
-                )
-            }
-            
-            if (settings.autoScan) {
-                item {
-                    SwitchSetting(
-                        title = "Scan en arrière-plan",
-                        subtitle = "Permet de continuer le scan même quand l'application est en arrière-plan",
-                        icon = Icons.Rounded.DataSaverOn,
-                        checked = settings.scanInBackground,
-                        onCheckedChange = settingsViewModel::setScanInBackground
-                    )
-                }
-            }
-            
-            // ========================================================================
-            // SECTION : PAROLES ET SCROBBLING
-            // ========================================================================
-            item { 
-                SettingsSectionHeader(
-                    title = "Paroles et Scrobbling",
-                    icon = Icons.Rounded.Language
-                )
-            }
-            
-            item {
-                SwitchSetting(
-                    title = "Chercher les paroles en ligne",
-                    subtitle = "Utilise LRCLIB quand aucun fichier .lrc n'est trouvé",
-                    icon = Icons.Rounded.Language,
-                    checked = settings.lyricsOnlineEnabled,
-                    onCheckedChange = settingsViewModel::setLyricsOnline
-                )
-            }
-            
-            if (lastFmAvailable) {
-                item {
-                    SwitchSetting(
-                        title = "Scrobbling Last.fm",
-                        subtitle = settings.lastFmUsername.takeIf { it.isNotBlank() }
-                            ?.let { "Connecté en tant que $it" }
-                            ?: "Connecte ton compte pour envoyer tes écoutes",
-                        icon = Icons.Rounded.SurroundSound,
-                        checked = settings.scrobbleEnabled,
-                        onCheckedChange = settingsViewModel::setScrobbleEnabled
-                    )
-                }
-            }
-
-            item { DiscordSection(onMessage = viewModel::showMessage) }
-
-            // ========================================================================
-            // SECTION : RECHERCHE
-            // ========================================================================
-            item { 
-                SettingsSectionHeader(
-                    title = "Recherche",
-                    icon = Icons.Rounded.Search
-                )
-            }
-            
-            item {
-                ClickableSetting(
-                    title = "Recherche avancée",
-                    subtitle = "Filtres par artiste, album, genre, durée, etc.",
-                    icon = Icons.Rounded.SmartDisplay,
-                    onClick = onNavigateToAdvancedSearch
-                )
-            }
-            
-            item {
-                SwitchSetting(
-                    title = "Afficher les copies dans la recherche",
-                    subtitle = "Montre chaque exemplaire d'un même morceau dans les résultats",
-                    icon = Icons.Rounded.FilterList,
-                    checked = settings.allowDuplicateSongs,
-                    onCheckedChange = settingsViewModel::setAllowDuplicateSongs
-                )
-            }
-            
-            // ========================================================================
-            // SECTION : STATISTIQUES ET HISTORIQUE
-            // ========================================================================
-            item { 
-                SettingsSectionHeader(
-                    title = "Statistiques et Historique",
-                    icon = Icons.Rounded.History
-                )
-            }
-            
-            item {
-                ClickableSetting(
-                    title = "Mes statistiques",
-                    subtitle = "Top artistes, albums, et plus encore",
-                    icon = Icons.Rounded.Star,
-                    onClick = onNavigateToStats
-                )
-            }
-            
-            item {
-                ClickableSetting(
-                    title = "Historique de lecture",
-                    subtitle = "Voir l'historique des morceaux écoutés",
-                    icon = Icons.Rounded.History,
-                    onClick = onNavigateToHistory
-                )
-            }
-            
-            item {
-                ChipSetting(
-                    title = "Période par défaut pour les stats",
-                    options = StatsPeriod.entries.map { entry -> entry.label },
-                    selectedIndex = StatsPeriod.entries.indexOf(settings.defaultStatsPeriod.toStatsPeriod()),
-                    onSelect = { settingsViewModel.setDefaultStatsPeriod(StatsPeriod.entries[it]) }
-                )
-            }
-            
-            // ========================================================================
-            // SECTION : SAUVEGARDE
-            // ========================================================================
-            item { 
-                SettingsSectionHeader(
-                    title = "Sauvegarde",
-                    icon = Icons.Rounded.Backup
-                )
-            }
-            
-            item {
-                ClickableSetting(
-                    title = "Sauvegarde et restauration",
-                    subtitle = "Exporte et importe tes données",
-                    icon = Icons.Rounded.Save,
-                    onClick = onNavigateToBackup
-                )
-            }
-            
-            // ========================================================================
-            // SECTION : PERFORMANCES
-            // ========================================================================
-            item { 
-                SettingsSectionHeader(
-                    title = "Performances",
-                    icon = Icons.Rounded.Speed
-                )
-            }
-            
-            item {
-                SwitchSetting(
-                    title = "Réduire les animations",
-                    subtitle = "Désactive certaines animations pour améliorer les performances",
-                    icon = Icons.Rounded.DataSaverOn,
-                    checked = settings.reduceAnimations,
-                    onCheckedChange = settingsViewModel::setReduceAnimations
-                )
-            }
-            
-            item {
-                SwitchSetting(
-                    title = "Mode développeur",
-                    subtitle = "Active des options de débogage avancées",
-                    icon = Icons.Rounded.DeveloperMode,
-                    checked = settings.developerMode,
-                    onCheckedChange = settingsViewModel::setDeveloperMode
-                )
-            }
-            
-            // ========================================================================
-            // SECTION : À PROPOS
-            // ========================================================================
-            item { 
-                SettingsSectionHeader(
-                    title = "À propos",
-                    icon = Icons.Rounded.Info
-                )
-            }
-            
-            item {
-                ClickableSetting(
-                    title = "À propos de Synxio",
-                    subtitle = "Version ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) - Lecteur local, sans pub, open source",
-                    icon = Icons.Rounded.Info,
-                    onClick = onNavigateToAbout
-                )
-            }
-
-            item { UpdateSection(onMessage = viewModel::showMessage) }
         }
     }
 
