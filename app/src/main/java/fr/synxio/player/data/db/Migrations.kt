@@ -86,4 +86,25 @@ val MIGRATION_5_6 = object : Migration(5, 6) {
     }
 }
 
-val ALL_MIGRATIONS = arrayOf(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+/** v6 -> v7 : etat de lecture persiste, pour que le widget affiche le bon bouton. */
+val MIGRATION_6_7 = object : Migration(6, 7) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // ALTER TABLE ADD COLUMN echoue si la colonne existe deja, et SQLite ne sait pas
+        // dire IF NOT EXISTS ici : on inspecte le schema avant d'agir.
+        val existing = db.query("PRAGMA table_info(`playback_state`)").use { cursor ->
+            val names = mutableSetOf<String>()
+            val index = cursor.getColumnIndex("name")
+            while (cursor.moveToNext()) names += cursor.getString(index)
+            names
+        }
+        if ("isPlaying" !in existing) {
+            db.execSQL(
+                "ALTER TABLE `playback_state` ADD COLUMN `isPlaying` INTEGER NOT NULL DEFAULT 0"
+            )
+        }
+    }
+}
+
+val ALL_MIGRATIONS = arrayOf(
+    MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7,
+)

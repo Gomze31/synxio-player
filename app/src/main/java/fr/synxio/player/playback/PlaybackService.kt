@@ -39,6 +39,8 @@ import fr.synxio.player.data.discord.DiscordPresenceRepository
 import fr.synxio.player.data.repo.DiscordRepository
 import fr.synxio.player.data.repo.LoudnessRepository
 import fr.synxio.player.data.repo.MusicRepository
+import fr.synxio.player.widget.SynxioWidget
+import androidx.glance.appwidget.updateAll
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -251,8 +253,20 @@ class PlaybackService : MediaLibraryService() {
             shuffle = player.shuffleModeEnabled,
             repeatMode = player.repeatMode,
             queueTitle = player.currentMediaItem?.mediaMetadata?.albumTitle?.toString().orEmpty(),
+            isPlaying = player.isPlaying,
         )
-        persistJob = serviceScope.launch(Dispatchers.IO) { queueDao.persist(ids, state) }
+        persistJob = serviceScope.launch(Dispatchers.IO) {
+            queueDao.persist(ids, state)
+            // Le widget lit cet etat mais ne surveille pas la base : sans ce reveil, il
+            // reste fige sur le morceau precedent des que la lecture change ailleurs.
+            refreshWidget()
+        }
+    }
+
+    /** Redessine le widget d'ecran d'accueil apres un changement d'etat. */
+    private suspend fun refreshWidget() {
+        runCatching { SynxioWidget().updateAll(this@PlaybackService) }
+            .onFailure { android.util.Log.d("SynxioWidget", "Widget non rafraichi", it) }
     }
 
     // --- Suivi d'écoute ----------------------------------------------------------------

@@ -71,6 +71,13 @@ data class PlaybackStateEntity(
     val shuffle: Boolean,
     val repeatMode: Int,
     val queueTitle: String,
+    /**
+     * Lecture en cours au moment de la persistance.
+     *
+     * Sert au widget, qui n'a pas de session media : sans cette valeur il ne peut pas
+     * savoir s'il doit afficher « lecture » ou « pause ».
+     */
+    val isPlaying: Boolean = false,
 )
 
 /** Cache local des paroles récupérées en ligne, pour éviter de re-télécharger. */
