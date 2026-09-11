@@ -13,7 +13,10 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Home
@@ -152,6 +155,7 @@ fun SynxioRoot(viewModel: AppViewModel, openPlayerOnStart: Boolean) {
 @Composable
 private fun MainScaffold(viewModel: AppViewModel, openPlayerOnStart: Boolean) {
     val navController = rememberNavController()
+    val showBottomBar = shouldShowBottomBar(navController)
     val snackbarHost = remember { SnackbarHostState() }
     val playerState by viewModel.playerState.collectAsStateWithLifecycle()
     var playerExpanded by remember { mutableStateOf(false) }
@@ -194,7 +198,21 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerOnStart: Boolean) {
                             onNext = viewModel::next,
                         )
                     }
-                    BottomBar(navController)
+
+                    if (showBottomBar) {
+                        // `NavigationBar` absorbe déjà l'encoche de navigation système.
+                        BottomBar(navController)
+                    } else {
+                        // Sans elle, plus rien n'absorbe cette encoche : le mini-lecteur
+                        // descendait sous la barre système, qui interceptait la moitié
+                        // basse de ses boutons. Ils paraissaient affichés mais ne
+                        // répondaient qu'au tiers supérieur.
+                        Spacer(
+                            Modifier
+                                .fillMaxWidth()
+                                .navigationBarsPadding()
+                        )
+                    }
                 }
             },
         ) { padding ->
@@ -235,30 +253,43 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerOnStart: Boolean) {
     }
 }
 
+/**
+ * Les écrans plein écran, qui ont leur propre barre de titre et un bouton retour.
+ *
+ * Décidé ici plutôt que dans [BottomBar] : le conteneur doit connaître la réponse pour
+ * compenser l'encoche de navigation quand la barre est masquée.
+ */
+@Composable
+private fun shouldShowBottomBar(navController: NavHostController): Boolean {
+    val backStackEntry by navController.currentBackStackEntryAsState()
+    val route = backStackEntry?.destination?.route ?: return true
+
+    val fullScreen = route.startsWith("album/") ||
+            route.startsWith("artist/") ||
+            route.startsWith("genre/") ||
+            route.startsWith("folder/") ||
+            route.startsWith("playlist/") ||
+            route.startsWith("smart/") ||
+            route.startsWith("tags/") ||
+            route == Routes.EQUALIZER ||
+            route == Routes.REPAIR ||
+            route == Routes.STATS ||
+            route == Routes.HISTORY ||
+            route == Routes.BACKUP ||
+            route == Routes.ABOUT ||
+            route == Routes.ADVANCED_SEARCH ||
+            route == Routes.DUPLICATES ||
+            route == Routes.RECENTS
+
+    return !fullScreen
+}
+
 @Composable
 private fun BottomBar(navController: NavHostController) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
 
-    // Masquer la barre de navigation pour les écrans plein écran
-    val hideBottomBar = currentRoute?.startsWith("album/") == true ||
-            currentRoute?.startsWith("artist/") == true ||
-            currentRoute?.startsWith("genre/") == true ||
-            currentRoute?.startsWith("folder/") == true ||
-            currentRoute?.startsWith("playlist/") == true ||
-            currentRoute == Routes.EQUALIZER ||
-            currentRoute == Routes.TAGS ||
-            currentRoute == Routes.STATS ||
-            currentRoute == Routes.HISTORY ||
-            currentRoute == Routes.BACKUP ||
-            currentRoute == Routes.ABOUT ||
-            currentRoute == Routes.ADVANCED_SEARCH ||
-            currentRoute == Routes.DUPLICATES ||
-            currentRoute == Routes.RECENTS ||
-            currentRoute?.startsWith("smart/") == true
-
-    if (!hideBottomBar) {
-        NavigationBar {
+    NavigationBar {
             TopLevel.entries.forEach { destination ->
                 NavigationBarItem(
                     selected = currentRoute == destination.route,
@@ -281,7 +312,6 @@ private fun BottomBar(navController: NavHostController) {
                     },
                 )
             }
-        }
     }
 }
 
