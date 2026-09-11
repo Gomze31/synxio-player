@@ -1,199 +1,146 @@
 # 🎧 Synxio Player
 
-Lecteur de musique **locale** pour Android. Pas de compte, pas de traceur, pas de pub :
-il lit ce qu'il y a sur ton téléphone, et il le fait bien.
+<div align="center">
 
-Écrit en **Kotlin + Jetpack Compose + Media3 (ExoPlayer)**, Material 3 avec couleurs
-extraites de la pochette en cours de lecture.
+![GitHub Release](https://img.shields.io/github/v/release/Gomze31/synxio-player?color=4CAF50&logo=android&style=for-the-badge)
+![Platform](https://img.shields.io/badge/Platform-Android%208.0%2B%20(API%2026%2B)-blue?style=for-the-badge&logo=android)
+![Kotlin](https://img.shields.io/badge/Language-Kotlin%20%2F%20Compose-purple?style=for-the-badge&logo=kotlin)
+![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
+![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
+
+**Un lecteur de musique moderne, fluide et élégant pour Android.**  
+*Sans publicité, sans pistage, sans compte : vos fichiers locaux et vos webradios préférées sublimés.*
+
+[📥 Télécharger l'APK](https://github.com/Gomze31/synxio-player/releases/latest) • [✨ Fonctionnalités](#-fonctionnalités) • [📱 Captures](#-aperçu) • [🚀 Démarrage](#-démarrage--compilation) • [🔒 Vie Privée](#-vie-privée--sécurité)
 
 ---
 
-## 🚀 Démarrage
+</div>
 
-Le projet utilise **Kotlin**, **Jetpack Compose** et **Media3 (ExoPlayer)**.
+## 🌟 Pourquoi Synxio Player ?
 
-### Dans Android Studio
+**Synxio Player** a été pensé pour offrir l'expérience d'écoute locale ultime sur Android. Conçu avec **Jetpack Compose** et propulsé par le moteur haute performance **Media3 (ExoPlayer)**, il combine une interface Material 3 réactive, des couleurs dynamiques adaptées à chaque pochette d'album et un ensemble complet d'outils pour audiophiles et mélomanes.
 
-Ouvrez ce dossier avec Android Studio. Le projet téléchargera automatiquement les dépendances Gradle nécessaires.
+---
 
-**Prérequis** : JDK 17, SDK Android 36, Gradle 8.14.5 / AGP 8.13.2.
-`minSdk 26` (Android 8.0) → `targetSdk 36` (Android 16).
+## ✨ Fonctionnalités
 
-> L'API 37 (Android 17) n'est distribuée qu'en canal *preview* du SDK. Cibler un SDK canary
-> rendrait l'app impubliable et casserait à chaque révision : on reste sur le dernier SDK
-> stable. Sur un appareil Android 17, l'app tourne alors dans les comportements Android 16,
-> ce qui est le fonctionnement normal et supporté.
+### 🎵 Expérience Audio Haute Qualité
+- **Moteur Media3 (ExoPlayer)** : Lecture continue et stable avec service d'avant-plan persistant.
+- **Lecture Gapless & Fondu Enchaîné** : Transitions fluides et personnalisables (0 à 12 s) pour vos albums live et conceptuels.
+- **Contrôle Précis du Son** : Réglage indépendant de la **vitesse** (0.5× à 2.5×) et de la **tonalité** (pitch).
+- **Égaliseur & Effets** : Compatibilité avec l'égaliseur système, amplification des basses, spatialisation et gain audio.
+- **Minuterie de Veille (Sleep Timer)** : Extinction programmée avec fondu audio doux, ou option « Terminer le morceau en cours ».
+- **Gestion du Focus Audio** : Reprise intelligente au branchement Bluetooth et mise en pause automatique au débranchement.
 
-### En ligne de commande
+### 🎨 Design Moderne & Personnalisation
+- **Thèmes Dynamiques Material You** : Couleurs de l'interface extraites en direct de la pochette d'album via *Palette*.
+- **Styles de Lecteur Multiples** :
+  - *Immersif* : Grand visuel avec arrière-plan flouté artistique.
+  - *Vinyle* : Disque vinyle rétro en rotation pendant la lecture.
+  - *Carte & Minimaliste* : Pour une navigation épurée.
+- **Mode Sombre & Vrai Noir AMOLED** : Optimisé pour économiser la batterie sur les écrans OLED.
+
+### 🚗 Connectivité & Intégrations
+- **🚗 Android Auto & Google Assistant** : Arborescence complète (Albums, Artistes, Playlists, Favoris) et contrôle vocal au volant.
+- **📱 Widgets Écran d'Accueil** : Widgets modernes et interactifs (Style Glace / Vinyle) avec pochettes et contrôles en temps réel.
+- **🎮 Discord Rich Presence** : Partagez en temps réel le titre et l'artiste en cours d'écoute sur votre profil Discord.
+- **🪄 Magic Capsule / Dynamic Island** : Intégration native des contrôles d'îlot sur les smartphones compatibles (MagicOS, etc.).
+- **📊 Scrobbling Last.fm** : Synchronisation fluide de vos statistiques d'écoute sur Last.fm.
+
+### 📚 Gestion Complète de la Bibliothèque
+- **Indexation Scoped Storage MediaStore** : Détection instantanée des nouveaux ajouts sans bloquer le téléphone.
+- **Éditeur de Tags ID3** : Modifiez titre, artiste, album et pochette directement dans l'application.
+- **Paroles Synchronisées (.LRC)** : Affichage automatique des paroles (fichiers `.lrc` locaux ou via l'API [LRCLIB](https://lrclib.net)).
+- **Playlists Intelligentes & Export M3U8** : Créez, triez, dupliquez et exportez vos listes d'écoute facilement.
+- **Webradios Intégrées** : Écoutez vos flux radio en direct directement depuis l'application.
+
+---
+
+## 📥 Installation & Téléchargement
+
+### Méthode 1 : Téléchargement direct (Recommandé)
+1. Rendez-vous sur la page des [**Dernières Versions (Releases)**](https://github.com/Gomze31/synxio-player/releases/latest).
+2. Téléchargez le fichier `app-release.apk`.
+3. Ouvrez le fichier sur votre appareil Android et autorisez l'installation depuis des sources inconnues si demandé.
+
+> 💡 **Mises à jour automatiques** : Synxio intègre un vérificateur de mise à jour direct. Vous recevrez une notification dès qu'une nouvelle version est disponible sur GitHub !
+
+---
+
+## 🚀 Démarrage & Compilation
+
+### Prérequis
+- **JDK 17**
+- **Android Studio Ladybug ou version plus récente**
+- **Android SDK Platform 36** (Compatibilité de Android 8.0 `minSdk 26` à Android 16 `targetSdk 36`)
+
+### Cloner et compiler en local
 
 ```bash
-./gradlew assembleDebug     # construit l'APK
-./gradlew installDebug      # installe sur l'appareil branché en débogage USB
+# 1. Cloner le dépôt
+git clone https://github.com/Gomze31/synxio-player.git
+
+# 2. Accéder au dossier du projet
+cd synxio-player
+
+# 3. Compiler l'APK de développement
+./gradlew assembleDebug
+
+# 4. Installer sur un appareil connecté (ADB USB / Wi-Fi)
+./gradlew installDebug
 ```
 
 ---
 
-## ✨ Ce que fait l'app
+## 🏗️ Architecture du Projet
 
-### Lecture
-- **Media3 / ExoPlayer** avec service en avant-plan : la lecture survit à la fermeture de l'app.
-- **Gapless natif** pour les albums live et les concept-albums.
-- **Fondu enchaîné** réglable de 0 à 12 s (fondu sortant / entrant sur un seul lecteur —
-  voir « Limites connues »).
-- **Vitesse et tonalité** indépendantes, de 0,5× à 2,5×.
-- **Ignorer les silences** en début et fin de piste.
-- **Minuterie de veille** : durée fixe ou « finir le morceau en cours », avec fondu à l'extinction.
-- **File d'attente persistée** : tu retrouves ta file exactement où tu l'avais laissée.
-- **Reprise Bluetooth / notification Android 13+** via `onPlaybackResumption`.
-- Coupure automatique au débranchement du casque, gestion du focus audio.
-
-### Bibliothèque
-- Scan **MediaStore** (le seul qui reste correct sous Scoped Storage), avec observation
-  temps réel : ajoute un fichier, il apparaît.
-- Vues **Titres / Albums / Artistes / Genres / Dossiers**.
-- **Tri** sur 10 critères pour les titres, 5 pour les albums, 3 pour les artistes.
-- **Recherche floue** insensible aux accents et tolérante aux fautes (`edith` trouve `Édith Piaf`).
-- **Filtre de durée minimale** pour écarter sonneries et notifications.
-- **Favoris**, **plus écoutés**, **écoutés récemment**, **ajoutés récemment**.
-- **Statistiques d'écoute** honnêtes : un morceau zappé avant la moitié compte comme skip,
-  pas comme écoute.
-- **Éditeur de tags ID3** (jaudiotagger), avec la demande de consentement système
-  qu'exige Android 11+ pour écrire dans un fichier qu'on ne possède pas.
-
-### Playlists
-- Création, renommage, duplication, suppression, réordonnancement.
-- **Import / export M3U8**, avec correspondance par chemin absolu puis par nom de fichier
-  (les playlists venues d'un autre appareil retombent sur leurs pieds).
-
-### Design
-- **Material 3** avec accent extrait de la pochette (Palette), transition de couleurs animée
-  à chaque changement de morceau.
-- Thèmes **Système / Clair / Sombre / AMOLED** (noir pur), ou **Material You** (fond d'écran).
-- **4 styles de lecteur** : Immersif, Vinyle (disque qui tourne), Carte, Minimal.
-- Fond flouté depuis la pochette, pochettes feuilletables au doigt pour changer de piste.
-- Mini-lecteur avec barre de progression, titres défilants, indicateur de lecture animé.
-
-### Extras
-- **Paroles synchronisées** : fichier `.lrc` à côté du morceau → tag `LYRICS` embarqué →
-  cache local → [LRCLIB](https://lrclib.net) (API publique, sans clé). Toucher une ligne
-  déplace la lecture.
-- **Égaliseur système** : bandes détectées dynamiquement, préréglages du constructeur,
-  bass boost, spatialisation, gain de volume.
-- **Android Auto** et **Assistant** : arborescence complète (albums, artistes, genres,
-  playlists, favoris) + « Ok Google, joue *tel artiste* ».
-- **Widget d'écran d'accueil** (Glance) avec contrôles précédent / lecture / suivant.
-- **Scrobbling Last.fm** (optionnel, voir ci-dessous).
-- **Magic Capsule (Honor) / Dynamic Island-like** : fonctionne sans une ligne de code
-  spécifique — voir ci-dessous.
-
-### 🔮 Magic Capsule
-
-Sur MagicOS, la capsule se nourrit de la `MediaSession` et de la notification média
-**standard** : icône de l'app à gauche, onde audio animée à droite, contrôles au déploiement.
-Media3 les fournit déjà, donc Synxio y apparaît nativement.
-
-Il n'existe **pas de SDK Honor tiers** à intégrer : vérification faite sur l'appareil, aucun
-paquet ni permission capsule n'est exposé aux applications. Le système gère seulement
-`capsule_off_pkgs` (liste d'exclusion, vide par défaut) et un jeu de règles serveur
-`hsm_capsule_data_version`. Autrement dit : une app média correctement construite est
-éligible d'office, et c'est le cas ici.
-
----
-
-## 📦 Publication Play Store
-
-La signature est configurée avec des clés de test, ou avec vos propres clés si vous remplacez `synxio-upload.jks` et `keystore.properties`. Les artefacts se construisent avec :
-
-```bash
-./gradlew bundleRelease    # AAB signé → à téléverser sur le Play Store
-./gradlew assembleRelease  # APK signé → pour tester en local
-```
-
-Sorties dans `app/build/outputs/` :
-`bundle/release/app-release.aab` et `apk/release/app-release.apk`.
-
-> ⚠️ **Sauvegardez soigneusement votre keystore.**
-> Perdre la clé de signature rend toute mise à jour de l'app impossible sur le Play Store —
-> il faudrait republier sous un nouveau nom de paquet. Les fichiers de clé sont ignorés par Git.
-
-### Avant le premier envoi
-
-- [ ] `versionCode` / `versionName` à incrémenter à chaque envoi (`app/build.gradle.kts`).
-- [ ] Fiche Play : captures d'écran, icône 512×512, bannière 1024×500, description.
-- [ ] Politique de confidentialité (obligatoire) — l'app ne collecte rien, mais la déclaration
-      « Data safety » reste à remplir.
-- [ ] Déclarer l'usage de `READ_MEDIA_AUDIO` dans le questionnaire des permissions sensibles.
-
-## 🔑 Scrobbling Last.fm (optionnel)
-
-L'option n'apparaît dans les réglages que si une clé d'API est compilée. Crée-en une sur
-[last.fm/api/account/create](https://www.last.fm/api/account/create), puis ajoute dans
-`~/.gradle/gradle.properties` :
-
-```properties
-lastfmApiKey=ta_cle
-lastfmSecret=ton_secret
-```
-
-Sans ces valeurs, l'app fonctionne normalement, l'option est simplement masquée.
-
----
-
-## 🏗 Architecture
+Le projet suit les principes de **Clean Architecture** et **MVVM** recommandés par Google pour Android :
 
 ```
 fr.synxio.player
 ├── core/
-│   ├── prefs/        DataStore : un objet Settings unique observable
-│   └── util/         formatage de durées, recherche floue
+│   ├── prefs/        # DataStore : Paramètres et préférences persistés
+│   └── util/         # Utilitaires (formatage, recherche floue, permissions)
 ├── data/
-│   ├── db/           Room : playlists, favoris, stats, file d'attente, cache paroles
-│   ├── media/        MediaStoreScanner (+ ContentObserver)
-│   ├── model/        Song, Album, Artist, Genre, Folder, Playlist, Lyrics
-│   ├── lastfm/       scrobbling
-│   └── repo/         MusicRepository, PlaylistRepository, LyricsRepository, TagEditor
+│   ├── db/           # Room Database : Playlists, favoris, historique, cache
+│   ├── media/        # MediaStore Scanner et observateur temps réel
+│   ├── model/        # Modèles de données (Song, Album, Artist, Lyrics, Radio)
+│   ├── lastfm/       # Client API Last.fm pour le scrobbling
+│   └── repo/         # Repositories (MusicRepository, TagEditor, LyricsRepository)
 ├── playback/
-│   ├── PlaybackService     MediaLibraryService : possède ExoPlayer
-│   ├── PlayerConnection    MediaController côté UI
-│   ├── MediaLibraryTree    arborescence Android Auto / Assistant
-│   ├── EqualizerController effets audio système
-│   ├── FadeController      fondu entre morceaux
-│   └── SleepTimer
+│   ├── PlaybackService     # MediaLibraryService Media3 gérant ExoPlayer
+│   ├── PlayerConnection    # MediaController reliant l'UI au Service
+│   ├── MediaLibraryTree    # Arborescence multimédia pour Android Auto
+│   ├── EqualizerController # Effets audio et égalisation
+│   └── SleepTimer          # Minuterie de sommeil programmable
 ├── ui/
-│   ├── theme/        couleurs, typo, formes, extraction Palette
-│   ├── components/   Artwork, SongRow, MiniPlayer, feuilles d'options
-│   ├── screens/      accueil, bibliothèque, playlists, recherche, réglages,
-│   │                 égaliseur, tags, détails, lecteur plein écran
-│   └── viewmodel/    AppViewModel (partagé) + VM spécialisés
-└── widget/           widget Glance
+│   ├── theme/        # Système de design Material 3 & Palette
+│   ├── components/   # Composants Jetpack Compose réutilisables
+│   ├── screens/      # Écrans (Bibliothèque, Playlists, Égaliseur, Radios, etc.)
+│   └── viewmodel/    # State Holders (AppViewModel, PlayerViewModel)
+└── widget/           # Widgets d'écran d'accueil Glance
 ```
 
-**Principes** :
-- L'UI ne touche jamais ExoPlayer directement : tout passe par un `MediaController`.
-  Une seule source de vérité, aucune fuite quand l'activité meurt.
-- La bibliothèque est **dérivée** d'un unique scan MediaStore : albums, artistes, genres
-  et dossiers sont des vues en mémoire, jamais des tables à resynchroniser.
-- Room ne stocke que ce que MediaStore ne sait pas : playlists, favoris, stats, file.
-  Les morceaux disparus s'évaporent automatiquement des playlists.
+---
+
+## 🔒 Vie Privée & Sécurité
+
+- **Zéro Pistage** : Aucune donnée de navigation ni identifiant personnel n'est collecté.
+- **Zéro Publicité** : Une expérience purement dédiée à la musique.
+- **Connexion Réseau Minimale** : Les seules requêtes réseau sont optionnelles et transparentes (téléchargement de paroles via LRCLIB, scrobbling Last.fm si activé, webradios et recherche de mises à jour GitHub).
 
 ---
 
-## ⚠️ Limites connues
+## 📄 Licence
 
-- **Le fondu enchaîné ne se chevauche pas.** Un vrai crossfade demande deux instances
-  d'ExoPlayer mixées ; ici c'est un fondu sortant suivi d'un fondu entrant. Réglé à 0,
-  le gapless natif reprend la main.
-- **Pas de visualiseur audio temps réel.** L'API `Visualizer` d'Android exige la permission
-  `RECORD_AUDIO`, disproportionnée pour un lecteur local. L'indicateur de lecture est animé,
-  pas branché sur le signal.
-- **Le réordonnancement de la file** se fait par flèches haut/bas plutôt que par glisser-déposer.
-- **Chromecast** n'est pas implémenté (nécessite `media3-cast` + Google Play Services).
-- L'égaliseur dépend du constructeur : certains appareils n'exposent aucun effet système.
+Ce projet est sous licence open-source **MIT**. Consultez le fichier [LICENSE](LICENSE) pour plus de détails.
 
 ---
 
-## 🔒 Vie privée
+<div align="center">
 
-Aucun compte, aucune analytics, aucune publicité. Les seules connexions réseau possibles :
-LRCLIB pour les paroles (désactivable) et Last.fm si tu l'as explicitement configuré.
-Le reste ne quitte jamais l'appareil.
+Développé avec passion pour les amoureux de musique.  
+⭐ **N'hésitez pas à laisser une étoile sur GitHub si le projet vous plaît !**
+
+</div>
