@@ -41,10 +41,24 @@ data class PlayerUiState(
     val speed: Float = 1f,
     val hasNext: Boolean = false,
     val hasPrevious: Boolean = false,
+    /** Début de la boucle A-B, null si aucun point posé. */
+    val loopStartMs: Long? = null,
+    /** Fin de la boucle A-B, null tant que le second point n'est pas posé. */
+    val loopEndMs: Long? = null,
 ) {
     val progress: Float
         get() = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+
+    val loopState: AbLoopState
+        get() = when {
+            loopStartMs != null && loopEndMs != null -> AbLoopState.LOOPING
+            loopStartMs != null -> AbLoopState.START_SET
+            else -> AbLoopState.OFF
+        }
 }
+
+/** Étapes du cycle de la répétition A-B, dans l'ordre où le bouton les parcourt. */
+enum class AbLoopState { OFF, START_SET, LOOPING }
 
 /**
  * Pont entre l'UI Compose et [PlaybackService].
@@ -99,28 +113,91 @@ class PlayerConnection @Inject constructor(
         )
     }
 
-    /** Position et buffer ne génèrent pas d'événements : on les échantillonne. */
+    /**
+     * Position et buffer ne génèrent pas d'événements : on les échantillonne.
+     *
+     * L'échantillonnage sert aussi à refermer la boucle A-B. La cadence passe à
+     * [LOOP_TICK_MS] quand une boucle est active : à 250 ms, on dépasserait le point B
+     * d'un quart de seconde audible avant de revenir.
+     */
     private suspend fun tickPosition() {
         while (scope.isActive) {
-            delay(if (_state.value.isPlaying) 250 else 1_000)
+            val looping = _state.value.loopState == AbLoopState.LOOPING
+            delay(
+                when {
+                    !_state.value.isPlaying -> 1_000
+                    looping -> LOOP_TICK_MS
+                    else -> 250
+                }
+            )
             withContext(Dispatchers.Main) {
                 val c = controller ?: return@withContext
+                val position = c.currentPosition.coerceAtLeast(0)
+
+                val start = _state.value.loopStartMs
+                val end = _state.value.loopEndMs
+                if (start != null && end != null && position >= end) {
+                    c.seekTo(start)
+                    _state.value = _state.value.copy(positionMs = start)
+                    return@withContext
+                }
+
                 _state.value = _state.value.copy(
-                    positionMs = c.currentPosition.coerceAtLeast(0),
+                    positionMs = position,
                     bufferedMs = c.bufferedPosition.coerceAtLeast(0),
                 )
             }
         }
     }
 
+    /**
+     * Parcourt le cycle : poser A, poser B, effacer.
+     *
+     * Si le second point tombe avant le premier, les deux sont échangés plutôt que
+     * refusés : reculer puis marquer la fin est un geste naturel, et produire une boucle
+     * vide serait une impasse silencieuse.
+     */
+    fun cycleAbLoop() {
+        val c = controller ?: return
+        val position = c.currentPosition.coerceAtLeast(0)
+        val state = _state.value
+
+        _state.value = when (state.loopState) {
+            AbLoopState.OFF -> state.copy(loopStartMs = position, loopEndMs = null)
+
+            AbLoopState.START_SET -> {
+                val start = state.loopStartMs ?: 0L
+                val low = minOf(start, position)
+                val high = maxOf(start, position)
+                // Une boucle plus courte qu'une seconde ne produirait qu'un hoquet.
+                if (high - low < MIN_LOOP_MS) {
+                    state.copy(loopStartMs = null, loopEndMs = null)
+                } else {
+                    state.copy(loopStartMs = low, loopEndMs = high)
+                }
+            }
+
+            AbLoopState.LOOPING -> state.copy(loopStartMs = null, loopEndMs = null)
+        }
+    }
+
     private fun syncState() {
         val c = controller ?: return
+        val previous = _state.value
         val queue = (0 until c.mediaItemCount).mapNotNull {
             musicRepository.songById(c.getMediaItemAt(it).songId)
         }
+        val current = c.currentMediaItem?.let { musicRepository.songById(it.songId) }
+
+        // Cet état est reconstruit à chaque événement du lecteur, y compris une simple
+        // pause. La boucle A-B n'existe que côté contrôleur : sans ce report explicite,
+        // le premier appui sur pause l'effacerait. Elle appartient en revanche à la
+        // piste, et ne survit donc pas à un changement de morceau.
+        val sameTrack = current != null && current.id == previous.currentSong?.id
+
         _state.value = PlayerUiState(
             connected = true,
-            currentSong = c.currentMediaItem?.let { musicRepository.songById(it.songId) },
+            currentSong = current,
             isPlaying = c.isPlaying,
             isBuffering = c.playbackState == Player.STATE_BUFFERING,
             positionMs = c.currentPosition.coerceAtLeast(0),
@@ -137,6 +214,8 @@ class PlayerConnection @Inject constructor(
             speed = c.playbackParameters.speed,
             hasNext = c.hasNextMediaItem(),
             hasPrevious = c.hasPreviousMediaItem(),
+            loopStartMs = previous.loopStartMs.takeIf { sameTrack },
+            loopEndMs = previous.loopEndMs.takeIf { sameTrack },
         )
     }
 
@@ -275,4 +354,11 @@ class PlayerConnection @Inject constructor(
 
     /** L'identifiant de session audio courant, pour brancher un visualiseur. */
     val currentMediaItem: MediaItem? get() = controller?.currentMediaItem
+
+    private companion object {
+        /** Cadence d'échantillonnage quand une boucle A-B est active. */
+        const val LOOP_TICK_MS = 60L
+        /** En dessous, la boucle ne produirait qu'un hoquet au lieu d'une phrase. */
+        const val MIN_LOOP_MS = 1_000L
+    }
 }

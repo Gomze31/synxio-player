@@ -75,6 +75,8 @@ import fr.synxio.player.ui.components.Artwork
 import fr.synxio.player.ui.components.MarqueeText
 import fr.synxio.player.ui.theme.LocalArtworkColors
 import fr.synxio.player.ui.viewmodel.AppViewModel
+import androidx.compose.ui.text.font.FontWeight
+import fr.synxio.player.playback.AbLoopState
 import fr.synxio.player.ui.viewmodel.LyricsViewModel
 
 /**
@@ -248,11 +250,13 @@ fun NowPlayingScreen(
                 lyricsActive = showLyrics,
                 sleepTimerActive = sleepTimer.active,
                 speed = state.speed,
+                loopState = state.loopState,
                 onLyrics = { showLyrics = !showLyrics },
                 onQueue = { showQueue = true },
                 onSleepTimer = { showSleepTimer = true },
                 onSpeed = { showSpeed = true },
                 onEqualizer = onOpenEqualizer,
+                onAbLoop = viewModel::cycleAbLoop,
             )
 
             Spacer(Modifier.height(16.dp))
@@ -562,17 +566,36 @@ private fun SecondaryControls(
     lyricsActive: Boolean,
     sleepTimerActive: Boolean,
     speed: Float,
+    loopState: AbLoopState,
     onLyrics: () -> Unit,
     onQueue: () -> Unit,
     onSleepTimer: () -> Unit,
     onSpeed: () -> Unit,
     onEqualizer: () -> Unit,
+    onAbLoop: () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceEvenly,
     ) {
+        // Répétition A-B : le libellé remplace l'icône, car c'est l'étape du cycle
+        // (« A » posé, boucle active) qui compte, pas le symbole.
+        IconButton(onClick = onAbLoop) {
+            Text(
+                text = when (loopState) {
+                    AbLoopState.OFF -> "A-B"
+                    AbLoopState.START_SET -> "A·"
+                    AbLoopState.LOOPING -> "A-B"
+                },
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = when (loopState) {
+                    AbLoopState.OFF -> scheme.onSurfaceVariant
+                    else -> scheme.primary
+                },
+            )
+        }
         IconButton(onClick = onLyrics) {
             Icon(
                 Icons.Rounded.Lyrics,

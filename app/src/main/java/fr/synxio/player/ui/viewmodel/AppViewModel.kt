@@ -20,6 +20,7 @@ import fr.synxio.player.data.repo.ShareCardRepository
 import fr.synxio.player.data.repo.SmartPlaylist
 import fr.synxio.player.data.repo.SmartPlaylistId
 import fr.synxio.player.data.repo.SmartPlaylistRepository
+import fr.synxio.player.playback.AbLoopState
 import fr.synxio.player.playback.PlayerConnection
 import fr.synxio.player.playback.PlayerUiState
 import fr.synxio.player.playback.SleepTimer
@@ -139,6 +140,23 @@ class AppViewModel @Inject constructor(
         player.shufflePlay(pool)
     }
     fun togglePlayPause() = player.togglePlayPause()
+
+    /**
+     * Parcourt la répétition A-B : poser A, poser B, effacer.
+     *
+     * Le message dit à chaque étape ce qui vient de se passer — sans lui, poser « A »
+     * ne produit aucun retour visible hors du bouton lui-même.
+     */
+    fun cycleAbLoop() {
+        player.cycleAbLoop()
+        emit(
+            when (playerState.value.loopState) {
+                AbLoopState.START_SET -> "Début de boucle posé — appuie à nouveau pour la fin"
+                AbLoopState.LOOPING -> "Boucle active"
+                AbLoopState.OFF -> "Boucle effacée"
+            }
+        )
+    }
     fun next() = player.next()
     fun previous() = player.previous()
     fun seekTo(positionMs: Long) = player.seekTo(positionMs)
