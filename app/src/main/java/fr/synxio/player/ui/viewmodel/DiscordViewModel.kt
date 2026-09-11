@@ -29,7 +29,9 @@ data class DiscordUiState(
             !presenceConfigured -> "Aucun identifiant d'application compile"
             !presenceEnabled -> "Affiche le morceau en cours sur ton profil Discord"
             else -> when (presenceStatus) {
-                PresenceStatus.CONNECTED -> "Connecte au client Discord"
+                PresenceStatus.PUBLISHING -> "Statut publie sur ton profil"
+                PresenceStatus.BOUND_NO_INTERFACE ->
+                    "Service Discord atteint - interface officielle manquante"
                 PresenceStatus.UNREACHABLE ->
                     "Client Discord injoignable - verifie qu'il est installe et connecte"
                 PresenceStatus.NOT_CONFIGURED -> "Aucun identifiant d'application compile"

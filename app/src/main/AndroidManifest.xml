@@ -36,6 +36,20 @@
         android:name="android.hardware.touchscreen"
         android:required="false" />
 
+    <!--
+        Visibilité du client Discord.
+
+        Depuis Android 11, une application ne voit pas les autres paquets installés sans
+        le déclarer. Sans ce bloc, `bindService` vers Discord échouerait silencieusement,
+        exactement comme si Discord n'était pas installé.
+    -->
+    <queries>
+        <package android:name="com.discord" />
+        <intent>
+            <action android:name="com.discord.socialsdk.rpc.IDiscordRpcService" />
+        </intent>
+    </queries>
+
     <application
         android:name=".SynxioApp"
         android:allowBackup="true"

@@ -1,167 +1,122 @@
 package fr.synxio.player.data.discord
 
-import android.net.LocalSocket
-import android.net.LocalSocketAddress
-import android.os.Process
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.ServiceConnection
+import android.os.IBinder
 import android.util.Log
-import org.json.JSONObject
-import java.io.DataInputStream
-import java.io.IOException
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import java.util.UUID
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * Client RPC local du client Discord Android.
+ * Liaison au service RPC du client Discord Android.
  *
- * ## Le protocole
+ * ## Le transport, établi par observation
  *
- * Identique au RPC de bureau, documenté par Discord : des trames composées d'un en-tête
- * de huit octets — opcode puis longueur, entiers 32 bits **petit-boutiste** — suivi d'une
- * charge utile JSON.
+ * Discord annonce depuis le SDK Social 1.10 un « transport RPC non authentifié » sur
+ * Android sans en documenter le point d'entrée. Trois hypothèses ont été confrontées à
+ * un appareil réel, client Discord 344.13 en cours d'exécution :
+ *
+ *  - socket locale abstraite `discord-ipc-N`, comme sur bureau → **absente** ;
+ *  - port TCP local dans la plage 6463-6472 du RPC bureau → **aucun** ;
+ *  - service lié Android → **trouvé**, et c'est celui-ci.
  *
  * ```
- * [4 o : opcode] [4 o : longueur] [JSON]
+ * com.discord.socialsdk.rpc.IDiscordRpcService
+ *   → com.discord/.socialrpc.DiscordRpcService
  * ```
  *
- * Seul un identifiant d'application est nécessaire. Aucun jeton de compte n'entre en jeu,
- * donc aucune automatisation de compte : on ne tombe pas sous l'interdiction des self-bots.
+ * Le service est exporté sans permission : n'importe quelle application peut s'y lier.
  *
- * ## Le transport, et ce qu'il a d'incertain
+ * ## Ce qui manque encore
  *
- * Discord annonce depuis le SDK 1.10 un « transport RPC non authentifié équivalent à celui
- * du bureau » sur Android, mais ne documente pas le point d'entrée. Sur bureau, c'est une
- * socket nommée (`discord-ipc-0`). L'équivalent Android est une socket locale en espace de
- * noms **abstrait**, et c'est ce que tente cette implémentation.
+ * Se lier au service donne un [IBinder], mais l'appeler demande la définition AIDL :
+ * les méthodes d'un binder sont adressées par **code de transaction positionnel**, pas
+ * par nom. Cette définition est livrée avec le SDK officiel de Discord.
  *
- * C'est une hypothèse, pas un fait établi : si elle est fausse, [connect] renvoie `false`
- * sans rien casser, et il faudra passer par le SDK natif de Discord.
+ * L'extraire de l'APK de Discord serait possible mais fragile : les codes de transaction
+ * changent au gré des versions, et une mise à jour de Discord casserait la fonctionnalité
+ * sans le moindre signal. [transact] reste donc à implémenter avec l'AIDL officiel.
  */
-class DiscordRpcClient(private val applicationId: String) {
+class DiscordRpcClient(private val context: Context) {
 
-    private var socket: LocalSocket? = null
-    private var input: DataInputStream? = null
+    private var binder: IBinder? = null
+    private var connection: ServiceConnection? = null
 
-    val isConnected: Boolean get() = socket?.isConnected == true
+    val isBound: Boolean get() = binder?.isBinderAlive == true
+
+    /** Descripteur annoncé par le service, une fois lié. Sert à vérifier l'interface. */
+    var interfaceDescriptor: String? = null
+        private set
 
     /**
-     * Ouvre la socket et effectue la poignée de main.
+     * Se lie au service RPC de Discord.
      *
-     * Plusieurs clients Discord peuvent coexister, numérotés de 0 à 9 sur bureau : on
-     * balaie la même plage plutôt que de supposer le premier libre.
+     * Renvoie `false` si Discord n'est pas installé, si le service a disparu d'une
+     * version à l'autre, ou si la liaison n'aboutit pas dans le délai imparti.
      */
-    fun connect(): Boolean {
-        if (isConnected) return true
+    suspend fun bind(): Boolean {
+        if (isBound) return true
 
-        for (index in 0 until MAX_SOCKETS) {
-            val name = "$SOCKET_PREFIX$index"
-            val candidate = runCatching {
-                LocalSocket().apply {
-                    connect(LocalSocketAddress(name, LocalSocketAddress.Namespace.ABSTRACT))
-                }
-            }.getOrNull() ?: continue
+        val intent = Intent(RPC_ACTION).setPackage(DISCORD_PACKAGE)
+        val ready = CompletableDeferred<IBinder?>()
 
-            socket = candidate
-            input = DataInputStream(candidate.inputStream)
-
-            val handshake = JSONObject().apply {
-                put("v", RPC_VERSION)
-                put("client_id", applicationId)
+        val conn = object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+                ready.complete(service)
             }
 
-            if (send(OP_HANDSHAKE, handshake) && awaitReady()) {
-                Log.i(TAG, "Connecté au client Discord via $name")
-                return true
+            override fun onServiceDisconnected(name: ComponentName?) {
+                binder = null
+                interfaceDescriptor = null
             }
 
-            close()
+            /** Le service existe mais refuse la liaison : à distinguer d'une absence. */
+            override fun onNullBinding(name: ComponentName?) {
+                Log.w(TAG, "Service Discord lié mais sans binder")
+                ready.complete(null)
+            }
         }
 
-        Log.i(TAG, "Aucune socket RPC Discord atteignable")
-        return false
-    }
-
-    /** Publie l'activité. `null` efface le statut. */
-    fun setActivity(activity: JSONObject?): Boolean {
-        val args = JSONObject().apply {
-            // Discord identifie l'émetteur par son pid, comme sur bureau.
-            put("pid", Process.myPid())
-            if (activity != null) put("activity", activity) else put("activity", JSONObject.NULL)
-        }
-        val frame = JSONObject().apply {
-            put("cmd", "SET_ACTIVITY")
-            put("nonce", UUID.randomUUID().toString())
-            put("args", args)
-        }
-        return send(OP_FRAME, frame)
-    }
-
-    fun close() {
-        runCatching { input?.close() }
-        runCatching { socket?.close() }
-        input = null
-        socket = null
-    }
-
-    // --- Trames ------------------------------------------------------------------------
-
-    private fun send(opcode: Int, payload: JSONObject): Boolean {
-        val out = socket?.outputStream ?: return false
-        val body = payload.toString().toByteArray(Charsets.UTF_8)
-
-        // Petit-boutiste explicite : l'ordre natif d'ARM l'est déjà, mais s'en remettre
-        // au hasard de l'architecture rendrait le format dépendant de l'appareil.
-        val header = ByteBuffer.allocate(HEADER_SIZE)
-            .order(ByteOrder.LITTLE_ENDIAN)
-            .putInt(opcode)
-            .putInt(body.size)
-            .array()
-
-        return runCatching {
-            out.write(header)
-            out.write(body)
-            out.flush()
-            true
+        val requested = runCatching {
+            context.bindService(intent, conn, Context.BIND_AUTO_CREATE)
         }.getOrElse {
-            Log.w(TAG, "Écriture RPC impossible", it)
-            close()
+            Log.w(TAG, "bindService a échoué — la déclaration <queries> est-elle présente ?", it)
             false
         }
+
+        if (!requested) {
+            runCatching { context.unbindService(conn) }
+            Log.i(TAG, "Service RPC Discord introuvable")
+            return false
+        }
+
+        val service = withTimeoutOrNull(BIND_TIMEOUT_MS) { ready.await() }
+        if (service == null) {
+            runCatching { context.unbindService(conn) }
+            Log.i(TAG, "Liaison au service Discord sans réponse")
+            return false
+        }
+
+        binder = service
+        connection = conn
+        interfaceDescriptor = runCatching { service.interfaceDescriptor }.getOrNull()
+        Log.i(TAG, "Lié au service Discord, interface = $interfaceDescriptor")
+        return true
     }
 
-    /** Attend la réponse à la poignée de main : un événement READY. */
-    private fun awaitReady(): Boolean = runCatching {
-        val response = readFrame() ?: return false
-        response.optString("evt") == "READY"
-    }.getOrElse {
-        Log.w(TAG, "Poignée de main sans réponse exploitable", it)
-        false
-    }
-
-    private fun readFrame(): JSONObject? {
-        val stream = input ?: return null
-        val header = ByteArray(HEADER_SIZE)
-        stream.readFully(header)
-
-        val buffer = ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN)
-        buffer.int // opcode, non utilisé ici
-        val length = buffer.int
-        if (length <= 0 || length > MAX_FRAME_BYTES) throw IOException("Trame de taille $length")
-
-        val body = ByteArray(length)
-        stream.readFully(body)
-        return JSONObject(String(body, Charsets.UTF_8))
+    fun unbind() {
+        connection?.let { conn -> runCatching { context.unbindService(conn) } }
+        connection = null
+        binder = null
+        interfaceDescriptor = null
     }
 
     private companion object {
         const val TAG = "DiscordRpc"
-        const val SOCKET_PREFIX = "discord-ipc-"
-        const val MAX_SOCKETS = 10
-        const val RPC_VERSION = 1
-        const val OP_HANDSHAKE = 0
-        const val OP_FRAME = 1
-        const val HEADER_SIZE = 8
-        /** Garde-fou : une trame RPC légitime est de l'ordre du kilo-octet. */
-        const val MAX_FRAME_BYTES = 64 * 1024
+        const val DISCORD_PACKAGE = "com.discord"
+        const val RPC_ACTION = "com.discord.socialsdk.rpc.IDiscordRpcService"
+        const val BIND_TIMEOUT_MS = 5_000L
     }
 }
