@@ -179,6 +179,7 @@ fun NowPlayingScreen(
                         modifier = Modifier.fillMaxSize(),
                         offsetMs = lyricsState.offsetMs,
                         offsetLabel = lyricsState.offsetLabel,
+                        emptyMessage = lyricsState.emptyMessage,
                         onNudgeOffset = lyricsViewModel::nudgeOffset,
                         onResetOffset = lyricsViewModel::resetOffset,
                     )

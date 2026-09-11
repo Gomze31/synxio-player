@@ -79,6 +79,7 @@ fun LyricsPane(
     modifier: Modifier = Modifier,
     offsetMs: Long = 0L,
     offsetLabel: String = "",
+    emptyMessage: String = "Aucune parole trouvée pour ce titre.",
     onNudgeOffset: (Long) -> Unit = {},
     onResetOffset: () -> Unit = {},
 ) {
@@ -90,10 +91,11 @@ fun LyricsPane(
     if (lyrics.lines.isEmpty()) {
         Box(modifier, Alignment.Center) {
             Text(
-                text = "Aucune parole trouvée pour ce titre.\nDépose un fichier .lrc à côté du morceau,\nou active la recherche en ligne dans les réglages.",
+                text = emptyMessage,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 32.dp),
             )
         }
         return

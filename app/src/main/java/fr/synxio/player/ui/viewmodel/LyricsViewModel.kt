@@ -8,6 +8,7 @@ import fr.synxio.player.data.db.LyricsOffsetDao
 import fr.synxio.player.data.db.LyricsOffsetEntity
 import fr.synxio.player.data.model.Lyrics
 import fr.synxio.player.data.model.Song
+import fr.synxio.player.data.repo.LyricsOutcome
 import fr.synxio.player.data.repo.LyricsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,7 +23,35 @@ data class LyricsUiState(
     val songId: Long = -1L,
     /** Décalage manuel, en ms. Positif = les paroles défilent plus tôt. */
     val offsetMs: Long = 0L,
+    val outcome: LyricsOutcome = LyricsOutcome.FOUND,
 ) {
+    /**
+     * Message affiché quand il n'y a rien à montrer.
+     *
+     * Chaque cas oriente vers une action différente : activer un réglage, corriger les
+     * tags, ou changer de réseau. Un texte unique les enverrait tous au même endroit.
+     */
+    val emptyMessage: String
+        get() = when (outcome) {
+            LyricsOutcome.ONLINE_DISABLED ->
+                "Aucun fichier .lrc à côté du morceau, et aucune parole dans ses tags.\n\n" +
+                    "Active « Chercher les paroles en ligne » dans les réglages pour " +
+                    "interroger LRCLIB."
+
+            LyricsOutcome.NOT_FOUND ->
+                "LRCLIB ne connaît pas ce morceau.\n\n" +
+                    "Ses tags sont peut-être trop approximatifs pour le retrouver : " +
+                    "« Réparer les tags » dans les réglages améliore souvent la recherche."
+
+            LyricsOutcome.UNREACHABLE ->
+                "LRCLIB est injoignable depuis ce réseau.\n\n" +
+                    "Certains réseaux d'entreprise ou d'école filtrent le domaine. " +
+                    "Réessaie en données mobiles."
+
+            LyricsOutcome.FOUND ->
+                "Aucune parole trouvée pour ce titre."
+        }
+
     /** Position à laquelle interroger les paroles, décalage appliqué. */
     fun adjustedPosition(positionMs: Long): Long = positionMs + offsetMs
 
@@ -59,12 +88,13 @@ class LyricsViewModel @Inject constructor(
         viewModelScope.launch {
             if (force) repository.clearCache(song)
             val allowOnline = settings.settings.first().lyricsOnlineEnabled
-            val lyrics = repository.lyricsFor(song, allowOnline)
+            val result = repository.lyricsFor(song, allowOnline)
             _state.value = LyricsUiState(
                 loading = false,
-                lyrics = lyrics,
+                lyrics = result.lyrics,
                 songId = song.id,
                 offsetMs = offsetDao.offsetFor(song.path) ?: 0L,
+                outcome = result.outcome,
             )
         }
     }

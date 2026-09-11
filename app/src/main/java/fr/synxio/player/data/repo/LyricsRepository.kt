@@ -19,6 +19,19 @@ import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** Pourquoi on n'a pas de paroles — ce qui détermine quoi proposer à l'utilisateur. */
+enum class LyricsOutcome {
+    FOUND,
+    /** La recherche en ligne est désactivée dans les réglages. */
+    ONLINE_DISABLED,
+    /** LRCLIB a répondu, mais ne connaît pas ce morceau (ou les tags sont trop faux). */
+    NOT_FOUND,
+    /** LRCLIB est injoignable : pas de réseau, ou filtrage DNS de l'opérateur. */
+    UNREACHABLE,
+}
+
+data class LyricsResult(val lyrics: Lyrics, val outcome: LyricsOutcome)
+
 /**
  * Paroles, par ordre de priorité :
  *  1. fichier `.lrc` à côté du morceau (synchronisées, ce que l'utilisateur a choisi) ;
@@ -32,13 +45,35 @@ class LyricsRepository @Inject constructor(
     private val http: OkHttpClient,
 ) {
 
-    suspend fun lyricsFor(song: Song, allowOnline: Boolean): Lyrics = withContext(Dispatchers.IO) {
-        sidecarLrc(song)
-            ?: embeddedLyrics(song)
-            ?: cached(song)
-            ?: (if (allowOnline) fetchOnline(song) else null)
-            ?: Lyrics.EMPTY
-    }
+    suspend fun lyricsFor(song: Song, allowOnline: Boolean): LyricsResult =
+        withContext(Dispatchers.IO) {
+            val local = sidecarLrc(song) ?: embeddedLyrics(song) ?: cached(song)
+            if (local != null) return@withContext LyricsResult(local, LyricsOutcome.FOUND)
+
+            if (!allowOnline) {
+                return@withContext LyricsResult(Lyrics.EMPTY, LyricsOutcome.ONLINE_DISABLED)
+            }
+
+            // On distingue « rien trouvé » de « serveur injoignable » : le premier cas
+            // invite à corriger les tags, le second à changer de réseau. Un message
+            // unique enverrait chercher au mauvais endroit.
+            networkFailed = false
+            val online = fetchOnline(song)
+            when {
+                online != null -> LyricsResult(online, LyricsOutcome.FOUND)
+                networkFailed -> LyricsResult(Lyrics.EMPTY, LyricsOutcome.UNREACHABLE)
+                else -> LyricsResult(Lyrics.EMPTY, LyricsOutcome.NOT_FOUND)
+            }
+        }
+
+    /**
+     * Vrai si le dernier appel réseau a échoué au niveau transport.
+     *
+     * Porté par le dépôt plutôt que remonté par chaque fonction : elles renvoient déjà
+     * `null` pour « pas de résultat », et les trois niveaux d'appel auraient tous dû
+     * changer de signature pour transporter la nuance.
+     */
+    private var networkFailed = false
 
     /** Paroles saisies à la main : écrites en `.lrc` à côté du fichier si possible. */
     suspend fun saveManual(song: Song, content: String): Result<Unit> = withContext(Dispatchers.IO) {
@@ -136,7 +171,13 @@ class LyricsRepository @Inject constructor(
             http.newCall(request).execute().use { r ->
                 if (r.isSuccessful) r.body?.string() else null
             }
-        }.getOrNull() ?: return null
+        }.getOrElse {
+            // Échec de transport (DNS filtré, pas de réseau, TLS refusé) : à distinguer
+            // d'une réponse vide, qui signifierait seulement « morceau inconnu ».
+            Log.w(TAG, "LRCLIB injoignable sur /api/search", it)
+            networkFailed = true
+            null
+        } ?: return null
 
         val array = runCatching { JSONArray(body) }.getOrNull() ?: return null
         if (array.length() == 0) return null
@@ -165,7 +206,8 @@ class LyricsRepository @Inject constructor(
             else JSONObject(response.body?.string().orEmpty())
         }
     }.getOrElse {
-        Log.w(TAG, "Requête LRCLIB échouée", it)
+        Log.w(TAG, "LRCLIB injoignable sur /api/get", it)
+        networkFailed = true
         null
     }
 

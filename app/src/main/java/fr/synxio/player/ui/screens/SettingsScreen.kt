@@ -485,8 +485,12 @@ fun SettingsScreen(
             
             item {
                 SwitchSetting(
-                    title = "Cacher les doublons",
-                    subtitle = "Masque les morceaux en double dans la bibliothèque",
+                    // Trois réglages parlaient de « doublons » pour trois choses
+                    // différentes. Les deux filtres d'affichage disent désormais
+                    // « masquer les copies », l'opération sur les fichiers dit
+                    // « supprimer les fichiers ».
+                    title = "Masquer les copies dans la bibliothèque",
+                    subtitle = "N'affiche qu'un exemplaire par morceau, sans rien supprimer",
                     icon = Icons.Rounded.DataSaverOn,
                     checked = settings.hideDuplicates,
                     onCheckedChange = settingsViewModel::setHideDuplicates
@@ -513,8 +517,8 @@ fun SettingsScreen(
 
             item {
                 ClickableSetting(
-                    title = "Chercher les doublons",
-                    subtitle = "Repère les copies multiples et libère de l'espace",
+                    title = "Supprimer les fichiers en double",
+                    subtitle = "Analyse tes fichiers et libère de l'espace de stockage",
                     icon = Icons.Rounded.ContentCopy,
                     onClick = onOpenDuplicates
                 )
@@ -598,8 +602,8 @@ fun SettingsScreen(
             
             item {
                 SwitchSetting(
-                    title = "Autoriser les doublons dans la recherche",
-                    subtitle = "Affiche les morceaux en double dans les résultats de recherche",
+                    title = "Afficher les copies dans la recherche",
+                    subtitle = "Montre chaque exemplaire d'un même morceau dans les résultats",
                     icon = Icons.Rounded.FilterList,
                     checked = settings.allowDuplicateSongs,
                     onCheckedChange = settingsViewModel::setAllowDuplicateSongs
