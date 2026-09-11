@@ -90,6 +90,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -109,6 +110,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.synxio.player.BuildConfig
 import fr.synxio.player.R
+import fr.synxio.player.core.util.asFileSize
+import fr.synxio.player.core.util.asFileSize
 import fr.synxio.player.core.util.asLongDuration
 import fr.synxio.player.core.util.pluralSongs
 import fr.synxio.player.data.model.AccentSource
@@ -125,6 +128,7 @@ import fr.synxio.player.data.repo.LoudnessProgress
 import fr.synxio.player.ui.viewmodel.AppViewModel
 import fr.synxio.player.ui.theme.ThemePreset
 import fr.synxio.player.ui.viewmodel.SettingsViewModel
+import fr.synxio.player.ui.viewmodel.UpdateViewModel
 
 // Fonctions utilitaires pour convertir String en enum
 private fun String.toThemeColor(): ThemeColor = ThemeColor.entries.firstOrNull { it.value == this } ?: ThemeColor.DEFAULT
@@ -743,9 +747,11 @@ fun SettingsScreen(
                     onClick = onNavigateToAbout
                 )
             }
+
+            item { UpdateSection(onMessage = viewModel::showMessage) }
         }
     }
-    
+
     // Modal Bottom Sheets
     if (showThemeSheet) {
         ThemeSettingsSheet(
@@ -1475,5 +1481,87 @@ private fun NormalizationSetting(
             onChange = onTarget,
             icon = Icons.Rounded.VolumeUp,
         )
+    }
+}
+
+/**
+ * Mises à jour depuis les releases GitHub.
+ *
+ * La section ne s'affiche que si un dépôt de publication est configuré à la compilation :
+ * sans lui, proposer « Rechercher une mise à jour » serait un bouton qui ne peut pas
+ * aboutir.
+ */
+@Composable
+private fun UpdateSection(onMessage: (String) -> Unit) {
+    val viewModel: UpdateViewModel = hiltViewModel()
+    if (!viewModel.isConfigured) return
+
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+
+    // Installation et autorisation système passent toutes deux par un intent : c'est
+    // Android qui affiche la confirmation finale, jamais l'application.
+    LaunchedEffect(state.pendingIntent) {
+        state.pendingIntent?.let {
+            runCatching { context.startActivity(it) }
+            viewModel.consumeIntent()
+        }
+    }
+
+    // Le message remonte au bandeau global : cet écran n'a pas de `Scaffold`, donc pas
+    // d'emplacement correct pour un `SnackbarHost` local.
+    LaunchedEffect(state.message) {
+        state.message?.let {
+            onMessage(it)
+            viewModel.consumeMessage()
+        }
+    }
+
+    Column {
+        val release = state.available
+        when {
+            state.downloading -> {
+                Column(Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
+                    Text(
+                        text = "Téléchargement · ${(state.progress * 100).toInt()} %",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    LinearProgressIndicator(
+                        progress = { state.progress },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = viewModel::cancel) { Text("Annuler") }
+                }
+            }
+
+            release != null -> {
+                ClickableSetting(
+                    title = "Mettre à jour vers ${release.versionName}",
+                    subtitle = buildString {
+                        append("Publiée le ${release.publishedAt}")
+                        if (release.sizeBytes > 0) {
+                            append(" · ${release.sizeBytes.asFileSize()}")
+                        }
+                        if (release.notes.isNotBlank()) {
+                            append("\n${release.notes.lineSequence().first()}")
+                        }
+                    },
+                    icon = Icons.Rounded.Backup,
+                    onClick = viewModel::downloadAndInstall,
+                )
+            }
+
+            else -> {
+                ClickableSetting(
+                    title = "Rechercher une mise à jour",
+                    subtitle = if (state.checking) "Vérification…"
+                    else "Version installée : ${state.currentVersion}",
+                    icon = Icons.Rounded.Sync,
+                    onClick = viewModel::checkNow,
+                )
+            }
+        }
     }
 }

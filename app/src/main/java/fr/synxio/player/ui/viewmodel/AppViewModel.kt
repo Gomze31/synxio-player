@@ -273,6 +273,15 @@ class AppViewModel @Inject constructor(
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
+    /**
+     * Point d'entrée public du bandeau de message.
+     *
+     * Les écrans imbriqués n'ont pas de `Scaffold` à eux : leur afficher un
+     * `SnackbarHost` local le rendrait au fil de la liste, et il disparaîtrait au
+     * défilement. Le seul host correctement positionné est celui de `MainScaffold`.
+     */
+    fun showMessage(text: String) = emit(text)
+
     private fun emit(message: String) {
         viewModelScope.launch { _messages.emit(message) }
     }

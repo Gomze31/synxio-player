@@ -20,6 +20,14 @@
     <!-- Égaliseur / effets audio -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
+    <!--
+        Mise à jour interne depuis les releases GitHub.
+
+        Google Play restreint fortement cette permission : une application publiée sur le
+        Store se met à jour par le Store. Elle vise ici la distribution directe de l'APK.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <!-- Scrobbling Last.fm + paroles en ligne -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />

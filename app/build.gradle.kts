@@ -27,9 +27,14 @@ android {
         // 36 = Android 16. L'API 37 n'existe qu'en canal preview du SDK : on ne cible pas
         // un SDK canary, ce serait impubliable et instable.
         targetSdk = 36
-        versionCode = 20241010
-        versionName = "2.0.0"
+        versionCode = 20241011
+        versionName = "2.1.0"
         vectorDrawables.useSupportLibrary = true
+
+        // Dépôt PUBLIC ne contenant que les binaires publiés. Le code reste privé, et
+        // l'application n'a donc aucun jeton à embarquer pour récupérer ses mises à jour :
+        // un jeton dans un APK est extractible par quiconque récupère le fichier.
+        buildConfigField("String", "UPDATE_REPO", "\"Gomze31/synxio-releases\"")
 
         // Scrobbling Last.fm : renseigne lastfmApiKey / lastfmSecret dans
         // ~/.gradle/gradle.properties. Vides = fonctionnalité masquée dans les réglages.

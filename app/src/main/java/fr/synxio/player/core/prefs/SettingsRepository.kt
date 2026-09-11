@@ -102,6 +102,10 @@ data class Settings(
     /** Ecarte de la lecture aleatoire les titres que l'on coupe systematiquement. */
     val shuffleSkipsDisliked: Boolean = false,
 
+    /** Verification automatique des mises a jour, au plus une fois par jour. */
+    val autoCheckUpdates: Boolean = true,
+    val lastUpdateCheck: Long = 0L,
+
     val lyricsOnlineEnabled: Boolean = true,
     val scrobbleEnabled: Boolean = false,
     val lastFmSessionKey: String = "",
@@ -189,6 +193,8 @@ class SettingsRepository @Inject constructor(
         val NORMALIZE_VOLUME = booleanPreferencesKey("normalize_volume")
         val NORMALIZE_TARGET_DBFS = floatPreferencesKey("normalize_target_dbfs")
         val SHUFFLE_SKIPS_DISLIKED = booleanPreferencesKey("shuffle_skips_disliked")
+        val AUTO_CHECK_UPDATES = booleanPreferencesKey("auto_check_updates")
+        val LAST_UPDATE_CHECK = longPreferencesKey("last_update_check")
 
         val LYRICS_ONLINE = booleanPreferencesKey("lyrics_online")
         val SCROBBLE = booleanPreferencesKey("scrobble")
@@ -275,6 +281,8 @@ class SettingsRepository @Inject constructor(
                 normalizeVolume = p[Keys.NORMALIZE_VOLUME] ?: false,
                 normalizeTargetDbfs = p[Keys.NORMALIZE_TARGET_DBFS] ?: -14f,
                 shuffleSkipsDisliked = p[Keys.SHUFFLE_SKIPS_DISLIKED] ?: false,
+                autoCheckUpdates = p[Keys.AUTO_CHECK_UPDATES] ?: true,
+                lastUpdateCheck = p[Keys.LAST_UPDATE_CHECK] ?: 0L,
 
                 lyricsOnlineEnabled = p[Keys.LYRICS_ONLINE] ?: true,
                 scrobbleEnabled = p[Keys.SCROBBLE] ?: false,
@@ -397,6 +405,8 @@ class SettingsRepository @Inject constructor(
     suspend fun setNormalizeVolume(value: Boolean) = put(Keys.NORMALIZE_VOLUME, value)
     suspend fun setNormalizeTargetDbfs(value: Float) = put(Keys.NORMALIZE_TARGET_DBFS, value)
     suspend fun setShuffleSkipsDisliked(value: Boolean) = put(Keys.SHUFFLE_SKIPS_DISLIKED, value)
+    suspend fun setAutoCheckUpdates(value: Boolean) = put(Keys.AUTO_CHECK_UPDATES, value)
+    suspend fun setLastUpdateCheck(value: Long) = put(Keys.LAST_UPDATE_CHECK, value)
     
     // Nouvelles options pour les playlists
     suspend fun setDefaultPlaylistSort(value: String) = put(Keys.DEFAULT_PLAYLIST_SORT, value)

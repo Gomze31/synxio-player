@@ -9,4 +9,7 @@
     <cache-path
         name="share"
         path="share/" />
+    <cache-path
+        name="updates"
+        path="updates/" />
 </paths>
