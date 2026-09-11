@@ -29,13 +29,8 @@ enum class PresenceStatus {
     /** Client Discord absent, ou service RPC injoignable. */
     UNREACHABLE,
 
-    /**
-     * Service atteint, mais l'interface AIDL officielle manque encore pour l'appeler.
-     *
-     * État transitoire du développement : la liaison fonctionne, la publication non.
-     * Distingué d'un succès pour ne pas laisser croire que le statut est affiché.
-     */
-    BOUND_NO_INTERFACE,
+    /** Discord a refusé la connexion — souvent une application non approuvée. */
+    REFUSED,
 
     /** Statut publié sur le profil. */
     PUBLISHING,
@@ -78,7 +73,7 @@ class DiscordPresenceRepository @Inject constructor(
             }
 
             mutex.withLock {
-                val rpc = ensureBound() ?: return@withLock
+                val rpc = ensureConnected() ?: return@withLock
                 publish(rpc, activityFor(song, positionMs, isPlaying))
             }
         }
@@ -86,50 +81,70 @@ class DiscordPresenceRepository @Inject constructor(
     /** Efface le statut : arrêt de la lecture, ou désactivation de l'option. */
     suspend fun clear() = withContext(Dispatchers.IO) {
         mutex.withLock {
-            client?.takeIf { it.isBound }?.let { publish(it, null) }
+            client?.takeIf { it.isReady }?.let { publish(it, null) }
         }
     }
 
     /** Ferme la liaison. Appelé quand le service de lecture s'arrête. */
     suspend fun disconnect() = withContext(Dispatchers.IO) {
         mutex.withLock {
-            client?.takeIf { it.isBound }?.let { publish(it, null) }
-            client?.unbind()
+            client?.takeIf { it.isReady }?.let { publish(it, null) }
+            client?.disconnect()
             client = null
             _status.value = PresenceStatus.IDLE
         }
     }
 
-    private suspend fun ensureBound(): DiscordRpcClient? {
-        client?.takeIf { it.isBound }?.let { return it }
+    private suspend fun ensureConnected(): DiscordRpcClient? {
+        client?.takeIf { it.isReady }?.let { return it }
 
-        val fresh = DiscordRpcClient(context)
-        return if (fresh.bind()) {
+        val id = BuildConfig.DISCORD_APPLICATION_ID.toLongOrNull()
+        if (id == null) {
+            _status.value = PresenceStatus.NOT_CONFIGURED
+            return null
+        }
+
+        val fresh = DiscordRpcClient(context, id)
+        return if (fresh.connect()) {
             client = fresh
             fresh
         } else {
             client = null
-            _status.value = PresenceStatus.UNREACHABLE
+            // Un refus explicite de Discord n'est pas une absence de client : le premier
+            // se corrige dans le portail développeur, le second en installant Discord.
+            _status.value = if (fresh.lastError?.contains("refusé") == true) {
+                PresenceStatus.REFUSED
+            } else {
+                PresenceStatus.UNREACHABLE
+            }
             null
         }
     }
 
     /**
-     * Transmet l'activité au service Discord.
+     * Transmet l'activité, dans une trame RPC identique à celle du bureau.
      *
-     * Le dernier maillon manquant : appeler une méthode d'un binder demande son code de
-     * transaction, fourni par la définition AIDL du SDK officiel. Tant qu'elle n'est pas
-     * intégrée, on signale honnêtement l'état plutôt que de prétendre publier.
+     * `activity` à `null` efface le statut — c'est la convention de Discord, et non un
+     * oubli : il n'existe pas de commande dédiée à l'effacement.
      */
-    @Suppress("UNUSED_PARAMETER")
     private fun publish(client: DiscordRpcClient, activity: JSONObject?): Boolean {
-        _status.value = PresenceStatus.BOUND_NO_INTERFACE
-        Log.i(
-            TAG,
-            "Service Discord lié (${client.interfaceDescriptor}) — " +
-                "publication en attente de l'AIDL officiel"
-        )
-        return false
+        val args = JSONObject().apply {
+            put("pid", android.os.Process.myPid())
+            put("activity", activity ?: JSONObject.NULL)
+        }
+        val frame = JSONObject().apply {
+            put("cmd", "SET_ACTIVITY")
+            put("nonce", java.util.UUID.randomUUID().toString())
+            put("args", args)
+        }
+
+        val sent = client.sendFrame(frame.toString())
+        _status.value = when {
+            sent && activity != null -> PresenceStatus.PUBLISHING
+            sent -> PresenceStatus.IDLE
+            else -> PresenceStatus.UNREACHABLE
+        }
+        return sent
     }
 
     /**
