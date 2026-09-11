@@ -15,6 +15,8 @@ import fr.synxio.player.data.model.SongSort
 import fr.synxio.player.data.repo.Library
 import fr.synxio.player.data.repo.MusicRepository
 import fr.synxio.player.data.repo.PlaylistRepository
+import fr.synxio.player.data.repo.RulePlaylist
+import fr.synxio.player.data.repo.RulePlaylistRepository
 import fr.synxio.player.data.repo.SearchResults
 import fr.synxio.player.data.repo.ShareCardRepository
 import fr.synxio.player.data.repo.SimilarityRepository
@@ -57,10 +59,12 @@ class AppViewModel @Inject constructor(
     private val sleepTimer: SleepTimer,
     private val shareCardRepository: ShareCardRepository,
     private val similarityRepository: SimilarityRepository,
+    private val rulePlaylistRepository: RulePlaylistRepository,
     smartPlaylistRepository: SmartPlaylistRepository,
 ) : ViewModel() {
 
     val smartPlaylists: StateFlow<List<SmartPlaylist>> = smartPlaylistRepository.playlists
+    val rulePlaylists: StateFlow<List<RulePlaylist>> = rulePlaylistRepository.rulePlaylists
 
     val library: StateFlow<Library> = musicRepository.library
     val playerState: StateFlow<PlayerUiState> = player.state
@@ -224,6 +228,16 @@ class AppViewModel @Inject constructor(
 
     fun smartPlaylist(id: SmartPlaylistId): SmartPlaylist? =
         smartPlaylists.value.firstOrNull { it.id == id }
+
+    // --- Playlists à règles ----------------------------------------------------------
+
+    fun rulePlaylist(id: Long): RulePlaylist? =
+        rulePlaylists.value.firstOrNull { it.id == id }
+
+    fun deleteRulePlaylist(playlist: RulePlaylist) = viewModelScope.launch {
+        rulePlaylistRepository.delete(playlist.id)
+        _messages.emit("Règle « ${playlist.name} » supprimée")
+    }
 
     // --- Favoris -------------------------------------------------------------------------
 

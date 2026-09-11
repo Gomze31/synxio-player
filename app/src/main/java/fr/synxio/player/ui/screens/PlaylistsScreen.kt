@@ -20,9 +20,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.FileUpload
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlaylistPlay
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -47,6 +51,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.synxio.player.data.model.Playlist
+import fr.synxio.player.data.repo.RulePlaylist
 import fr.synxio.player.data.repo.SmartPlaylist
 import fr.synxio.player.data.repo.SmartPlaylistId
 import fr.synxio.player.ui.components.ArtworkMosaic
@@ -61,13 +66,19 @@ fun PlaylistsScreen(
     viewModel: AppViewModel,
     onOpenPlaylist: (Long) -> Unit,
     onOpenSmartPlaylist: (SmartPlaylistId) -> Unit,
+    onOpenRulePlaylist: (Long) -> Unit,
+    onCreateRulePlaylist: () -> Unit,
+    onEditRulePlaylist: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val favorites by viewModel.favoriteSongs.collectAsStateWithLifecycle()
     val smartPlaylists by viewModel.smartPlaylists.collectAsStateWithLifecycle()
+    val rulePlaylists by viewModel.rulePlaylists.collectAsStateWithLifecycle()
     var creating by remember { mutableStateOf(false) }
     var menuFor by remember { mutableStateOf<Playlist?>(null) }
+    var ruleMenuFor by remember { mutableStateOf<RulePlaylist?>(null) }
+    var deletingRule by remember { mutableStateOf<RulePlaylist?>(null) }
 
     // Import M3U : le sélecteur système évite d'avoir à demander l'accès complet au stockage.
     val importLauncher = rememberLauncherForActivityResult(
@@ -130,6 +141,57 @@ fun PlaylistsScreen(
                         onClick = { onOpenSmartPlaylist(smart.id) },
                     )
                 }
+            }
+
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.weight(1f)) { SectionHeader("Mes règles") }
+                    IconButton(onClick = onCreateRulePlaylist) {
+                        Icon(Icons.Rounded.Add, contentDescription = "Nouvelle règle")
+                    }
+                }
+            }
+            if (rulePlaylists.isEmpty()) {
+                item {
+                    Text(
+                        text = "Compose ta propre playlist à partir de critères : genre, favoris, date d'ajout…",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    )
+                }
+            }
+            items(rulePlaylists, key = { "rule-${it.id}" }) { rule ->
+                Box {
+                    RulePlaylistRow(
+                        playlist = rule,
+                        onClick = { onOpenRulePlaylist(rule.id) },
+                        onMenuClick = { ruleMenuFor = rule },
+                    )
+                    DropdownMenu(
+                        expanded = ruleMenuFor?.id == rule.id,
+                        onDismissRequest = { ruleMenuFor = null },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Modifier") },
+                            leadingIcon = { Icon(Icons.Rounded.Edit, null) },
+                            onClick = { onEditRulePlaylist(rule.id); ruleMenuFor = null },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Supprimer") },
+                            leadingIcon = { Icon(Icons.Rounded.Delete, null) },
+                            onClick = { deletingRule = rule; ruleMenuFor = null },
+                        )
+                    }
+                }
+            }
+
+            if (smartPlaylists.isNotEmpty() || rulePlaylists.isNotEmpty()) {
                 item { SectionHeader("Tes playlists") }
             }
 
@@ -206,6 +268,23 @@ fun PlaylistsScreen(
             }
         }
     }
+
+    deletingRule?.let { rule ->
+        AlertDialog(
+            onDismissRequest = { deletingRule = null },
+            title = { Text("Supprimer la règle") },
+            text = { Text("Supprimer « ${rule.name} » ? Cette action ne peut pas être annulée.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteRulePlaylist(rule)
+                    deletingRule = null
+                }) { Text("Supprimer") }
+            },
+            dismissButton = {
+                TextButton(onClick = { deletingRule = null }) { Text("Annuler") }
+            },
+        )
+    }
 }
 
 /**
@@ -250,5 +329,58 @@ private fun SmartPlaylistRow(playlist: SmartPlaylist, onClick: () -> Unit) {
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.primary,
         )
+    }
+}
+
+/**
+ * Ligne d'une playlist à règles créée par l'utilisateur.
+ *
+ * Même langage visuel que [SmartPlaylistRow] pour rester cohérent avec les sélections
+ * automatiques : seul un bouton d'options s'y ajoute, ces playlists pouvant être
+ * modifiées et supprimées.
+ */
+@Composable
+private fun RulePlaylistRow(
+    playlist: RulePlaylist,
+    onClick: () -> Unit,
+    onMenuClick: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ArtworkMosaic(
+            models = playlist.songs.distinctBy { it.albumId }.take(4).map { it.artworkUri },
+            modifier = Modifier.size(56.dp),
+        )
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = playlist.name,
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = "${playlist.rules.rules.size} critère(s)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = playlist.songCount.toString(),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        IconButton(onClick = onMenuClick) {
+            Icon(Icons.Rounded.MoreVert, contentDescription = "Options")
+        }
     }
 }

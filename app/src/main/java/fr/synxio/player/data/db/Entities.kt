@@ -167,6 +167,22 @@ data class AudioFeatureEntity(
     val analysedAt: Long,
 )
 
+/**
+ * Une playlist à règles créée par l'utilisateur.
+ *
+ * [rulesJson] sérialise un `RulePlaylistRules` (data/model/RulePlaylistRules.kt) : les
+ * règles ne sont pas interrogées en SQL, l'évaluation se fait en mémoire via
+ * `RulePlaylistEngine`.
+ */
+@Entity(tableName = "rule_playlists")
+data class RulePlaylistEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val rulesJson: String,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
 /** Cache pour les couleurs des pochettes. */
 @Entity(tableName = "artwork_colors")
 data class ArtworkColorEntity(

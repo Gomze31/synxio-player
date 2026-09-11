@@ -18,3 +18,7 @@ keystore.properties
 .jdk/
 
 release/
+
+# Sorties generees et espaces de travail (non versionnes)
+graphify-out/
+.superpowers/

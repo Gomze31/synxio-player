@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
 // Les DAO qui embarquent des méthodes @Transaction sont des classes abstraites : Room
@@ -306,6 +307,28 @@ interface AudioFeatureDao {
 
     @Query("DELETE FROM audio_features")
     suspend fun clear()
+}
+
+@Dao
+interface RulePlaylistDao {
+
+    @Query("SELECT * FROM rule_playlists ORDER BY updatedAt DESC")
+    fun observeAll(): Flow<List<RulePlaylistEntity>>
+
+    @Query("SELECT * FROM rule_playlists WHERE id = :id")
+    fun observeById(id: Long): Flow<RulePlaylistEntity?>
+
+    @Query("SELECT * FROM rule_playlists WHERE id = :id")
+    suspend fun get(id: Long): RulePlaylistEntity?
+
+    @Insert
+    suspend fun insert(entity: RulePlaylistEntity): Long
+
+    @Update
+    suspend fun update(entity: RulePlaylistEntity)
+
+    @Query("DELETE FROM rule_playlists WHERE id = :id")
+    suspend fun delete(id: Long)
 }
 
 @Dao

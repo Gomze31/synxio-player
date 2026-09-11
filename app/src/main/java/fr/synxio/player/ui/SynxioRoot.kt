@@ -21,10 +21,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -33,6 +38,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -45,10 +51,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
@@ -69,6 +77,7 @@ import fr.synxio.player.ui.screens.PermissionScreen
 import fr.synxio.player.ui.screens.PlaylistDetailScreen
 import fr.synxio.player.ui.screens.PlaylistsScreen
 import fr.synxio.player.ui.screens.RepairScreen
+import fr.synxio.player.ui.screens.RulePlaylistEditorScreen
 import fr.synxio.player.ui.screens.SearchScreen
 import fr.synxio.player.ui.screens.SettingsScreen
 import fr.synxio.player.ui.screens.SongListScreen
@@ -107,9 +116,13 @@ object Routes {
     const val DUPLICATES = "duplicates"
     const val RECENTS = "recents"
     const val SMART = "smart/{smartId}"
+    const val RULE = "rule/{ruleId}"
+    const val RULE_EDITOR = "rule_editor/{ruleId}"
 
     fun album(id: Long) = "album/$id"
     fun smart(id: SmartPlaylistId) = "smart/${id.name}"
+    fun rule(id: Long) = "rule/$id"
+    fun ruleEditor(id: Long = -1L) = "rule_editor/$id"
     fun artist(name: String) = "artist/${name.encode()}"
     fun genre(name: String) = "genre/${name.encode()}"
     fun folder(path: String) = "folder/${path.encode()}"
@@ -270,6 +283,8 @@ private fun shouldShowBottomBar(navController: NavHostController): Boolean {
             route.startsWith("folder/") ||
             route.startsWith("playlist/") ||
             route.startsWith("smart/") ||
+            route.startsWith("rule/") ||
+            route.startsWith("rule_editor/") ||
             route.startsWith("tags/") ||
             route == Routes.EQUALIZER ||
             route == Routes.REPAIR ||
@@ -354,6 +369,9 @@ private fun AppNavHost(
                 viewModel = viewModel,
                 onOpenPlaylist = { navController.navigate(Routes.playlist(it)) },
                 onOpenSmartPlaylist = { navController.navigate(Routes.smart(it)) },
+                onOpenRulePlaylist = { navController.navigate(Routes.rule(it)) },
+                onCreateRulePlaylist = { navController.navigate(Routes.ruleEditor()) },
+                onEditRulePlaylist = { navController.navigate(Routes.ruleEditor(it)) },
             )
         }
 
@@ -475,6 +493,89 @@ private fun AppNavHost(
                 onEditTags = { navController.navigate(Routes.tags(it)) },
                 onOpenAlbum = { navController.navigate(Routes.album(it)) },
                 onOpenArtist = { navController.navigate(Routes.artist(it)) },
+            )
+        }
+
+        composable(
+            route = Routes.RULE,
+            arguments = listOf(navArgument("ruleId") { type = NavType.LongType }),
+        ) { entry ->
+            val id = entry.arguments?.getLong("ruleId") ?: -1L
+            val rulePlaylists by viewModel.rulePlaylists.collectAsStateWithLifecycle()
+            val rule = rulePlaylists.firstOrNull { it.id == id }
+            var menuExpanded by remember { mutableStateOf(false) }
+            var deleting by remember { mutableStateOf(false) }
+
+            SongListScreen(
+                viewModel = viewModel,
+                title = rule?.name ?: "Règle",
+                subtitle = "Playlist à règles",
+                songs = rule?.songs.orEmpty(),
+                artworkModel = rule?.songs?.distinctBy { it.albumId }?.take(4)?.map { it.artworkUri },
+                onBack = { navController.popBackStack() },
+                onEditTags = { navController.navigate(Routes.tags(it)) },
+                onOpenAlbum = { navController.navigate(Routes.album(it)) },
+                onOpenArtist = { navController.navigate(Routes.artist(it)) },
+                topBarActions = {
+                    Box {
+                        IconButton(onClick = { menuExpanded = true }) {
+                            Icon(Icons.Rounded.MoreVert, contentDescription = "Options de la règle")
+                        }
+                        DropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Modifier") },
+                                onClick = {
+                                    menuExpanded = false
+                                    navController.navigate(Routes.ruleEditor(id))
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Supprimer") },
+                                onClick = {
+                                    menuExpanded = false
+                                    deleting = true
+                                },
+                            )
+                        }
+                    }
+                },
+            )
+
+            if (deleting && rule != null) {
+                AlertDialog(
+                    onDismissRequest = { deleting = false },
+                    title = { Text("Supprimer la règle") },
+                    text = { Text("Supprimer « ${rule.name} » ? Cette action ne peut pas être annulée.") },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            viewModel.deleteRulePlaylist(rule)
+                            deleting = false
+                            navController.popBackStack()
+                        }) { Text("Supprimer") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { deleting = false }) { Text("Annuler") }
+                    },
+                )
+            }
+        }
+
+        composable(
+            route = Routes.RULE_EDITOR,
+            arguments = listOf(
+                navArgument("ruleId") {
+                    type = NavType.LongType
+                    defaultValue = -1L
+                },
+            ),
+        ) { entry ->
+            val id = entry.arguments?.getLong("ruleId") ?: -1L
+            RulePlaylistEditorScreen(
+                ruleId = id,
+                onBack = { navController.popBackStack() },
             )
         }
 
