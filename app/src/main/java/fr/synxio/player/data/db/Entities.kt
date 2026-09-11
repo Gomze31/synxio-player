@@ -145,6 +145,21 @@ data class LoudnessEntity(
     val analysedAt: Long,
 )
 
+/**
+ * Empreinte sonore d'un morceau, pour la recherche de titres similaires.
+ *
+ * Le vecteur est serialise en texte : Room ne stocke pas nativement un FloatArray, et un
+ * blob binaire rendrait la base illisible au debogage pour aucun gain a cette echelle.
+ */
+@Entity(tableName = "audio_features")
+data class AudioFeatureEntity(
+    @PrimaryKey val songPath: String,
+    /** Valeurs separees par des virgules. */
+    val vector: String,
+    val fileModifiedSec: Long,
+    val analysedAt: Long,
+)
+
 /** Cache pour les couleurs des pochettes. */
 @Entity(tableName = "artwork_colors")
 data class ArtworkColorEntity(

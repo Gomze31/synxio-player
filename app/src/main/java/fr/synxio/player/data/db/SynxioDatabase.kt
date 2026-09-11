@@ -18,8 +18,9 @@ import androidx.room.RoomDatabase
         DeviceProfileEntity::class,
         LyricsOffsetEntity::class,
         LoudnessEntity::class,
+        AudioFeatureEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class SynxioDatabase : RoomDatabase() {
@@ -34,6 +35,7 @@ abstract class SynxioDatabase : RoomDatabase() {
     abstract fun deviceProfileDao(): DeviceProfileDao
     abstract fun lyricsOffsetDao(): LyricsOffsetDao
     abstract fun loudnessDao(): LoudnessDao
+    abstract fun audioFeatureDao(): AudioFeatureDao
 
     companion object {
         const val NAME = "synxio.db"

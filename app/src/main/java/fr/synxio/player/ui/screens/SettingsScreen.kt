@@ -57,6 +57,7 @@ import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PhonelinkSetup
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.RadioButtonChecked
 import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.Restore
@@ -127,6 +128,7 @@ import fr.synxio.player.data.model.StatsPeriod
 import fr.synxio.player.data.model.TextSize
 import fr.synxio.player.data.model.ThemeColor
 import fr.synxio.player.data.model.ThemeMode
+import fr.synxio.player.data.repo.AnalysisProgress
 import fr.synxio.player.data.repo.LoudnessProgress
 import fr.synxio.player.ui.viewmodel.AppViewModel
 import fr.synxio.player.ui.theme.ThemePreset
@@ -333,6 +335,18 @@ fun SettingsScreen(
                     onAnalyse = settingsViewModel::analyseLoudness,
                     onCancel = settingsViewModel::cancelLoudnessAnalysis,
                     onReset = settingsViewModel::resetLoudness,
+                )
+            }
+
+            item {
+                val fingerprints by settingsViewModel.similarityProgress
+                    .collectAsStateWithLifecycle()
+                FingerprintSetting(
+                    progress = fingerprints,
+                    pendingCount = settingsViewModel.pendingFingerprintCount(),
+                    onAnalyse = settingsViewModel::analyseFingerprints,
+                    onCancel = settingsViewModel::cancelFingerprints,
+                    onReset = settingsViewModel::resetFingerprints,
                 )
             }
 
@@ -1662,6 +1676,60 @@ private fun DiscordSection(onMessage: (String) -> Unit) {
                     viewModel.setUrl(draft.trim())
                     editing = false
                 }) { Text("Enregistrer") }
+            }
+        }
+    }
+}
+
+/**
+ * Analyse du son pour la fonction « radio ».
+ *
+ * Présentée comme une action et non comme un interrupteur : il n'y a rien à activer, il
+ * y a un travail à faire une fois. Tant qu'il n'est pas fait, « Lancer une radio » ne
+ * peut rien proposer.
+ */
+@Composable
+private fun FingerprintSetting(
+    progress: AnalysisProgress,
+    pendingCount: Int,
+    onAnalyse: () -> Unit,
+    onCancel: () -> Unit,
+    onReset: () -> Unit,
+) {
+    Column {
+        when {
+            progress.running -> {
+                Column(Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
+                    Text(
+                        text = "Écoute de ta bibliothèque · ${progress.done} / ${progress.total}",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    LinearProgressIndicator(
+                        progress = { progress.fraction },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = onCancel) { Text("Arrêter") }
+                }
+            }
+
+            pendingCount > 0 -> {
+                ClickableSetting(
+                    title = "Analyser le son de $pendingCount titre${if (pendingCount > 1) "s" else ""}",
+                    subtitle = "Nécessaire pour proposer des morceaux qui se ressemblent",
+                    icon = Icons.Rounded.Radio,
+                    onClick = onAnalyse,
+                )
+            }
+
+            else -> {
+                ClickableSetting(
+                    title = "Tous les titres sont analysés",
+                    subtitle = "« Lancer une radio » est disponible dans le menu d'un titre",
+                    icon = Icons.Rounded.Radio,
+                    onClick = onReset,
+                )
             }
         }
     }

@@ -282,6 +282,22 @@ interface LoudnessDao {
 }
 
 @Dao
+interface AudioFeatureDao {
+
+    @Query("SELECT * FROM audio_features")
+    fun observeAll(): Flow<List<AudioFeatureEntity>>
+
+    @Query("SELECT * FROM audio_features")
+    suspend fun all(): List<AudioFeatureEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun put(entry: AudioFeatureEntity)
+
+    @Query("DELETE FROM audio_features")
+    suspend fun clear()
+}
+
+@Dao
 interface ArtworkColorDao {
 
     @Query("SELECT * FROM artwork_colors WHERE artworkUri = :uri")

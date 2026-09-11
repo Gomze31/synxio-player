@@ -38,6 +38,7 @@ fun SongMenuHost(
         actions = SongActions(
             onPlayNext = { viewModel.playNext(listOf(song)) },
             onAddToQueue = { viewModel.addToQueue(listOf(song)) },
+            onStartRadio = { viewModel.startRadio(song) },
             onToggleFavorite = { viewModel.toggleFavorite(song) },
             onAddToPlaylist = { showPlaylistPicker = true },
             onOpenAlbum = onOpenAlbum?.let { { it(song.albumId) } },

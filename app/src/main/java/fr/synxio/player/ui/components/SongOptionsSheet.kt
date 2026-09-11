@@ -27,6 +27,7 @@ import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material3.AlertDialog
@@ -68,6 +69,7 @@ data class SongActions(
     val onOpenArtist: (() -> Unit)? = null,
     val onEditTags: (() -> Unit)? = null,
     val onShare: (() -> Unit)? = null,
+    val onStartRadio: (() -> Unit)? = null,
     val onRemoveFromPlaylist: (() -> Unit)? = null,
 )
 
@@ -111,6 +113,9 @@ fun SongOptionsSheet(
             }
             SheetAction(Icons.Rounded.QueueMusic, "Ajouter à la file") {
                 actions.onAddToQueue(); onDismiss()
+            }
+            actions.onStartRadio?.let {
+                SheetAction(Icons.Rounded.Radio, "Lancer une radio") { it(); onDismiss() }
             }
             SheetAction(
                 icon = if (isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,

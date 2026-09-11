@@ -13,6 +13,7 @@ import fr.synxio.player.data.db.DeviceProfileDao
 import fr.synxio.player.data.db.ExcludedFolderDao
 import fr.synxio.player.data.db.FavoriteDao
 import fr.synxio.player.data.db.LyricsDao
+import fr.synxio.player.data.db.AudioFeatureDao
 import fr.synxio.player.data.db.LoudnessDao
 import fr.synxio.player.data.db.LyricsOffsetDao
 import fr.synxio.player.data.db.PlayHistoryDao
@@ -67,6 +68,8 @@ object AppModule {
     @Provides fun provideLyricsOffsetDao(db: SynxioDatabase): LyricsOffsetDao =
         db.lyricsOffsetDao()
     @Provides fun provideLoudnessDao(db: SynxioDatabase): LoudnessDao = db.loudnessDao()
+    @Provides fun provideAudioFeatureDao(db: SynxioDatabase): AudioFeatureDao =
+        db.audioFeatureDao()
 
     @Provides
     @Singleton

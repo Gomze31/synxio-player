@@ -17,6 +17,7 @@ import fr.synxio.player.data.repo.MusicRepository
 import fr.synxio.player.data.repo.PlaylistRepository
 import fr.synxio.player.data.repo.SearchResults
 import fr.synxio.player.data.repo.ShareCardRepository
+import fr.synxio.player.data.repo.SimilarityRepository
 import fr.synxio.player.data.repo.SmartPlaylist
 import fr.synxio.player.data.repo.SmartPlaylistId
 import fr.synxio.player.data.repo.SmartPlaylistRepository
@@ -55,6 +56,7 @@ class AppViewModel @Inject constructor(
     private val player: PlayerConnection,
     private val sleepTimer: SleepTimer,
     private val shareCardRepository: ShareCardRepository,
+    private val similarityRepository: SimilarityRepository,
     smartPlaylistRepository: SmartPlaylistRepository,
 ) : ViewModel() {
 
@@ -184,6 +186,30 @@ class AppViewModel @Inject constructor(
             settingsRepository.setSpeed(speed)
             settingsRepository.setPitch(pitch)
         }
+    }
+
+    // --- Radio : morceaux au son proche ---------------------------------------------------
+
+    /**
+     * Lance une file de morceaux qui ressemblent a [seed].
+     *
+     * Le morceau de depart ouvre la file : partir directement sur un voisin donnerait
+     * l'impression d'avoir saute une piste.
+     */
+    fun startRadio(seed: Song) = viewModelScope.launch {
+        if (!similarityRepository.hasFingerprint(seed)) {
+            _messages.emit("Ce morceau n'a pas encore ete analyse")
+            return@launch
+        }
+
+        val similar = similarityRepository.similarTo(seed, library.value.songs)
+        if (similar.isEmpty()) {
+            _messages.emit("Analyse trop peu de morceaux pour trouver des voisins")
+            return@launch
+        }
+
+        player.play(listOf(seed) + similar, 0)
+        _messages.emit("Radio lancee : ${similar.size} titres proches")
     }
 
     // --- Partage -------------------------------------------------------------------------

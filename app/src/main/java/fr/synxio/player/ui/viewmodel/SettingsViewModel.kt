@@ -15,9 +15,11 @@ import fr.synxio.player.data.model.ThemeColor
 import fr.synxio.player.data.model.ThemeMode
 import fr.synxio.player.data.model.TextSize
 import fr.synxio.player.data.repo.ArtworkColorRepository
+import fr.synxio.player.data.repo.AnalysisProgress
 import fr.synxio.player.data.repo.LoudnessProgress
 import fr.synxio.player.data.repo.LoudnessRepository
 import fr.synxio.player.data.repo.MusicRepository
+import fr.synxio.player.data.repo.SimilarityRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,8 +33,27 @@ class SettingsViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val artworkColorRepository: ArtworkColorRepository,
     private val loudness: LoudnessRepository,
+    private val similarity: SimilarityRepository,
     private val music: MusicRepository,
 ) : ViewModel() {
+
+    // ========================================================================
+    // EMPREINTES SONORES
+    // ========================================================================
+
+    val similarityProgress: StateFlow<AnalysisProgress> = similarity.progress
+
+    fun pendingFingerprintCount(): Int = similarity.pendingCount(music.library.value.songs)
+
+    fun analyseFingerprints() = similarity.analyseLibrary(music.library.value.songs)
+
+    fun cancelFingerprints() = similarity.cancel()
+
+    /** Efface et relance : garder des empreintes perimees n'aurait aucun interet. */
+    fun resetFingerprints() = viewModelScope.launch {
+        similarity.clear()
+        similarity.analyseLibrary(music.library.value.songs)
+    }
 
     // ========================================================================
     // NORMALISATION DU VOLUME
