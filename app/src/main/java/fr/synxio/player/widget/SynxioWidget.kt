@@ -3,12 +3,15 @@ package fr.synxio.player.widget
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.view.KeyEvent
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.glance.ColorFilter
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
@@ -32,24 +35,30 @@ import androidx.glance.layout.Alignment
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
+import androidx.glance.layout.fillMaxHeight
 import androidx.glance.layout.fillMaxSize
-import androidx.glance.layout.fillMaxWidth
+import androidx.glance.layout.height
 import androidx.glance.layout.padding
 import androidx.glance.layout.size
 import androidx.glance.layout.width
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
+import androidx.glance.unit.ColorProvider
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 import fr.synxio.player.MainActivity
 import fr.synxio.player.R
+import fr.synxio.player.core.prefs.SettingsRepository
 import fr.synxio.player.data.db.QueueDao
 import fr.synxio.player.data.model.Song
+import fr.synxio.player.data.model.ThemeMode
 import fr.synxio.player.data.repo.MusicRepository
 import fr.synxio.player.playback.PlaybackService
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 
 /**
  * Widget d'écran d'accueil.
@@ -65,7 +74,7 @@ import fr.synxio.player.playback.PlaybackService
  */
 class SynxioWidget : GlanceAppWidget() {
 
-    /** Sous une certaine largeur, la pochette mangerait la place des commandes. */
+    /** On adapte la mise en page à la taille réelle posée par l'utilisateur. */
     override val sizeMode = SizeMode.Exact
 
     @EntryPoint
@@ -73,6 +82,7 @@ class SynxioWidget : GlanceAppWidget() {
     interface WidgetEntryPoint {
         fun musicRepository(): MusicRepository
         fun queueDao(): QueueDao
+        fun settingsRepository(): SettingsRepository
     }
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
@@ -85,9 +95,25 @@ class SynxioWidget : GlanceAppWidget() {
         val queue = entryPoint.queueDao().queue().sortedBy { it.position }
         val song = state?.currentIndex
             ?.let { queue.getOrNull(it) }
-            ?.let { entryPoint.musicRepository().songById(it.songId) }
+            ?.let { entryPoint.musicRepository().resolveSong(it.songId) }
         val isPlaying = state?.isPlaying == true
         val artwork = song?.let { loadArtwork(context, it) }
+
+        // Le widget suit le thème choisi DANS Synxio, pas celui du système.
+        //
+        // Avec un mode nuit système réglé sur « auto », un fond clair s'affichait en
+        // pleine journée sur un fond d'écran sombre et une application en AMOLED : le
+        // widget était le seul élément clair de l'écran d'accueil. Suivre le réglage de
+        // l'application est ce qu'on attend d'un widget de Synxio.
+        val theme = entryPoint.settingsRepository().settings.first().themeMode
+        val palette = Palette(
+            dark = when (theme) {
+                ThemeMode.LIGHT -> false
+                ThemeMode.DARK, ThemeMode.AMOLED -> true
+                ThemeMode.SYSTEM -> context.isSystemInDarkMode()
+            },
+            amoled = theme == ThemeMode.AMOLED,
+        )
 
         provideContent {
             GlanceTheme {
@@ -96,9 +122,9 @@ class SynxioWidget : GlanceAppWidget() {
                 Row(
                     modifier = GlanceModifier
                         .fillMaxSize()
-                        .background(GlanceTheme.colors.widgetBackground)
-                        .cornerRadius(20.dp)
-                        .padding(12.dp)
+                        .background(palette.background)
+                        .cornerRadius(24.dp)
+                        .padding(10.dp)
                         .clickable(actionStartActivity<MainActivity>()),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -106,30 +132,35 @@ class SynxioWidget : GlanceAppWidget() {
                         Image(
                             provider = ImageProvider(artwork),
                             contentDescription = null,
-                            modifier = GlanceModifier.size(64.dp).cornerRadius(12.dp),
+                            // Remplit la hauteur : à 64 dp fixes, la pochette flottait au
+                            // milieu d'un widget deux fois plus haut.
+                            modifier = GlanceModifier.fillMaxHeight().cornerRadius(16.dp),
                         )
                         Spacer(GlanceModifier.width(12.dp))
                     }
 
+                    // Les commandes sont SOUS le texte, pas à côté.
+                    //
+                    // Placées à droite, elles réservaient 130 dp et étranglaient la
+                    // colonne : les titres partaient en césure sur deux lignes
+                    // (« Le Re-nouvea… ») et l'artiste se réduisait à trois lettres.
+                    // Empilées, le texte récupère toute la largeur restante.
                     Column(
-                        modifier = GlanceModifier.fillMaxSize(),
+                        modifier = GlanceModifier.defaultWeight(),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         if (song == null) {
                             Text(
-                                text = "Synxio — aucune lecture",
-                                style = TextStyle(
-                                    color = GlanceTheme.colors.onSurface,
-                                    fontSize = 14.sp,
-                                ),
+                                text = "Aucune lecture",
+                                style = TextStyle(color = palette.onSurface, fontSize = 15.sp),
                             )
                         } else {
                             Text(
                                 text = song.title,
                                 maxLines = 1,
                                 style = TextStyle(
-                                    color = GlanceTheme.colors.onSurface,
-                                    fontSize = 15.sp,
+                                    color = palette.onSurface,
+                                    fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold,
                                 ),
                             )
@@ -137,12 +168,12 @@ class SynxioWidget : GlanceAppWidget() {
                                 text = song.displayArtist,
                                 maxLines = 1,
                                 style = TextStyle(
-                                    color = GlanceTheme.colors.onSurfaceVariant,
-                                    fontSize = 12.sp,
+                                    color = palette.onSurfaceVariant,
+                                    fontSize = 13.sp,
                                 ),
                             )
-                            Spacer(GlanceModifier.size(8.dp))
-                            Controls(isPlaying)
+                            Spacer(GlanceModifier.height(4.dp))
+                            Controls(isPlaying, palette)
                         }
                     }
                 }
@@ -151,36 +182,47 @@ class SynxioWidget : GlanceAppWidget() {
     }
 
     @Composable
-    private fun Controls(isPlaying: Boolean) {
-        Row(
-            modifier = GlanceModifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+    private fun Controls(isPlaying: Boolean, palette: Palette) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             WidgetButton(
                 R.drawable.ic_widget_previous,
                 "Précédent",
                 KeyEvent.KEYCODE_MEDIA_PREVIOUS,
+                palette,
             )
-            Spacer(GlanceModifier.width(10.dp))
             WidgetButton(
                 // L'icône reflète l'état réel : un bouton « lecture » affiché pendant la
                 // lecture laisse croire que le widget n'a pas pris en compte l'appui.
                 iconRes = if (isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play,
                 description = if (isPlaying) "Pause" else "Lecture",
                 keyCode = KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+                palette = palette,
             )
-            Spacer(GlanceModifier.width(10.dp))
-            WidgetButton(R.drawable.ic_widget_next, "Suivant", KeyEvent.KEYCODE_MEDIA_NEXT)
+            WidgetButton(
+                R.drawable.ic_widget_next,
+                "Suivant",
+                KeyEvent.KEYCODE_MEDIA_NEXT,
+                palette,
+            )
         }
     }
 
     @Composable
-    private fun WidgetButton(iconRes: Int, description: String, keyCode: Int) {
+    private fun WidgetButton(
+        iconRes: Int,
+        description: String,
+        keyCode: Int,
+        palette: Palette,
+    ) {
         Image(
             provider = ImageProvider(iconRes),
             contentDescription = description,
+            // Les icônes sont monochromes : sans teinte, elles restent noires et
+            // disparaissent sur un fond sombre.
+            colorFilter = ColorFilter.tint(palette.onSurface),
             modifier = GlanceModifier
-                .size(34.dp)
+                .size(40.dp)
+                .padding(5.dp)
                 .clickable(
                     actionRunCallback<MediaKeyAction>(
                         actionParametersOf(MediaKeyAction.KEY_CODE to keyCode)
@@ -212,6 +254,19 @@ class SynxioWidget : GlanceAppWidget() {
         }
     }.getOrNull()
 
+    /** Couleurs du widget, dérivées du thème choisi dans l'application. */
+    private class Palette(dark: Boolean, amoled: Boolean) {
+        val background = ColorProvider(
+            when {
+                amoled -> Color(0xFF000000)
+                dark -> Color(0xFF15131C)
+                else -> Color(0xFFF6F3FB)
+            }
+        )
+        val onSurface = ColorProvider(if (dark) Color(0xFFF2EFFA) else Color(0xFF1B1A20))
+        val onSurfaceVariant = ColorProvider(if (dark) Color(0xFFB9B3C7) else Color(0xFF5C5768))
+    }
+
     private companion object {
         /** En dessous, la pochette prendrait la place des commandes. */
         val ARTWORK_MIN_WIDTH = 220.dp
@@ -236,7 +291,7 @@ class MediaKeyAction : ActionCallback {
 
         // Le service persiste son état de façon asynchrone : sans ce délai, on redessine
         // à partir de l'état d'avant l'appui et le widget paraît ne pas répondre.
-        kotlinx.coroutines.delay(SETTLE_MS)
+        delay(SETTLE_MS)
         SynxioWidget().updateAll(context)
     }
 
@@ -249,3 +304,8 @@ class MediaKeyAction : ActionCallback {
 class SynxioWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = SynxioWidget()
 }
+
+/** Vrai si le système est en mode sombre, pour le réglage « Système ». */
+private fun Context.isSystemInDarkMode(): Boolean =
+    resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
+        Configuration.UI_MODE_NIGHT_YES

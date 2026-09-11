@@ -185,6 +185,27 @@ class MusicRepository @Inject constructor(
 
     fun songById(id: Long): Song? = _songsById.value[id]
 
+    /**
+     * Résout un morceau même quand l'index en mémoire est vide.
+     *
+     * [songById] lit un index peuplé par le scan MediaStore, qui n'existe qu'une fois
+     * l'application démarrée et la bibliothèque chargée. Le widget, lui, peut être
+     * redessiné avant — il affichait alors « Aucune lecture » alors qu'un morceau était
+     * bien en file, et le restait jusqu'au changement de piste suivant.
+     *
+     * Le repli relit MediaStore. C'est coûteux pour un seul morceau, mais il ne se
+     * déclenche que dans cette fenêtre étroite, et réutiliser le scanner évite de
+     * maintenir une seconde requête en parallèle.
+     */
+    suspend fun resolveSong(id: Long): Song? {
+        songById(id)?.let { return it }
+        return withContext(Dispatchers.IO) {
+            val minDurationSec = settingsRepository.settings.first().minDurationSec
+            scanner.scan(minDurationSec * 1000L, excludedFolderDao.paths().toSet())
+                .firstOrNull { it.id == id }
+        }
+    }
+
     fun songsByIds(ids: List<Long>): List<Song> {
         val index = _songsById.value
         return ids.mapNotNull { index[it] }

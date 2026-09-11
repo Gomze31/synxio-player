@@ -155,6 +155,17 @@ abstract class QueueDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun saveState(state: PlaybackStateEntity)
 
+    /**
+     * Met a jour le seul drapeau de lecture.
+     *
+     * Le widget le lit pour choisir entre icone lecture et icone pause. Le rafraichir
+     * juste avant de redessiner evite de dependre de l instant ou un callback du lecteur
+     * a pris son instantane : selon l ordre des evenements, la derniere persistance
+     * pouvait capturer un etat transitoire faux.
+     */
+    @Query("UPDATE playback_state SET isPlaying = :playing WHERE id = 0")
+    abstract suspend fun setPlaying(playing: Boolean)
+
     /** File d'attente et position enregistrées d'un bloc : jamais l'une sans l'autre. */
     @Transaction
     open suspend fun persist(songIds: List<Long>, state: PlaybackStateEntity) {

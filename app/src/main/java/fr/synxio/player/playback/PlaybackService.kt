@@ -88,6 +88,7 @@ class PlaybackService : MediaLibraryService() {
     private var lastResumeUptime: Long = 0L
     private var trackStartedAtSec: Long = 0L
     private var persistJob: Job? = null
+    private var widgetJob: Job? = null
 
     /**
      * Derniers réglages connus.
@@ -255,18 +256,39 @@ class PlaybackService : MediaLibraryService() {
             queueTitle = player.currentMediaItem?.mediaMetadata?.albumTitle?.toString().orEmpty(),
             isPlaying = player.isPlaying,
         )
-        persistJob = serviceScope.launch(Dispatchers.IO) {
-            queueDao.persist(ids, state)
-            // Le widget lit cet etat mais ne surveille pas la base : sans ce reveil, il
-            // reste fige sur le morceau precedent des que la lecture change ailleurs.
-            refreshWidget()
-        }
+        persistJob = serviceScope.launch(Dispatchers.IO) { queueDao.persist(ids, state) }
+        refreshWidgetSoon()
     }
 
-    /** Redessine le widget d'ecran d'accueil apres un changement d'etat. */
-    private suspend fun refreshWidget() {
-        runCatching { SynxioWidget().updateAll(this@PlaybackService) }
-            .onFailure { android.util.Log.d("SynxioWidget", "Widget non rafraichi", it) }
+    /**
+     * Redessine le widget d'écran d'accueil, une fois la rafale retombée.
+     *
+     * Ce travail a sa propre tâche, distincte de celle de persistance.
+     *
+     * Il y vivait au départ, et n'aboutissait presque jamais : `persistQueue` annule sa
+     * tâche précédente à chaque appel, et un changement de piste en déclenche plusieurs
+     * coup sur coup. Le rafraîchissement partait donc systématiquement à la poubelle
+     * avec elle — « v1 was cancelled » dans le journal.
+     *
+     * Le délai sert aussi de temporisation : il laisse la persistance écrire l'état que
+     * le widget va relire, et absorbe les appels groupés.
+     */
+    private fun refreshWidgetSoon() {
+        widgetJob?.cancel()
+        widgetJob = serviceScope.launch {
+            delay(WIDGET_REFRESH_DELAY_MS)
+
+            // L'état de lecture est relu ici, au dernier moment, et non repris de
+            // l'instantané pris par le callback qui a déclenché la persistance. Selon
+            // l'ordre des événements — une transition de piste peut suivre le passage en
+            // lecture — ce dernier écrivait parfois un état transitoire faux, et le
+            // widget affichait « lecture » alors que la musique tournait.
+            val playing = player.isPlaying
+            runCatching {
+                queueDao.setPlaying(playing)
+                SynxioWidget().updateAll(this@PlaybackService)
+            }.onFailure { android.util.Log.d("SynxioWidget", "Widget non rafraichi", it) }
+        }
     }
 
     // --- Suivi d'écoute ----------------------------------------------------------------
@@ -382,8 +404,16 @@ class PlaybackService : MediaLibraryService() {
                 if (trackedSongId < 0) startTracking(player.currentMediaItem)
             } else {
                 accumulate()
-                persistQueue()
             }
+
+            // Persisté dans les deux sens, et non à la seule pause.
+            //
+            // C'est ici que `isPlaying` est écrit, et le widget s'en sert pour choisir
+            // entre l'icône lecture et l'icône pause. En ne persistant qu'à la pause, la
+            // valeur ne repassait jamais à vrai : appuyer sur lecture depuis le widget
+            // démarrait bien la musique, mais le bouton restait « lecture ».
+            persistQueue()
+
             // Le statut doit suivre la pause, sinon Discord continue d'afficher une
             // progression qui avance alors que la lecture est arrêtée.
             publishPresence(null)
@@ -682,6 +712,9 @@ class PlaybackService : MediaLibraryService() {
         const val CMD_CANCEL_SLEEP_TIMER = "fr.synxio.player.CANCEL_SLEEP_TIMER"
         const val ARG_DURATION_MS = "duration_ms"
         const val ARG_FINISH_TRACK = "finish_track"
+
+        /** Laisse la persistance écrire, et absorbe les appels groupés. */
+        private const val WIDGET_REFRESH_DELAY_MS = 400L
 
         /** Sorties considérées comme « un casque » pour la reprise automatique. */
         private val HEADSET_TYPES = setOf(
