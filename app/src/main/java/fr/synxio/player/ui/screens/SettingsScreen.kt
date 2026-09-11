@@ -77,7 +77,9 @@ import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.SystemSecurityUpdate
 import androidx.compose.material.icons.rounded.SmartDisplay
+import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.Backup
+import androidx.compose.material.icons.rounded.NewReleases
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
@@ -207,6 +209,11 @@ enum class SettingsSubMenu(
         "Mises à jour, purge du cache, performances et version",
         Icons.Rounded.Info,
     ),
+    COMING_SOON(
+        "Prochainement",
+        "Nouvelles fonctionnalités à venir",
+        Icons.Rounded.NewReleases,
+    )
 }
 
 private fun SettingsSubMenu.getSummary(
@@ -233,6 +240,8 @@ private fun SettingsSubMenu.getSummary(
         "Export et import JSON des données"
     SettingsSubMenu.SYSTEM_AND_ABOUT ->
         "Synxio v${BuildConfig.VERSION_NAME} • Mises à jour & Cache"
+    SettingsSubMenu.COMING_SOON ->
+        "Découvrir ce qui arrive bientôt"
 }
 
 @Composable
@@ -401,6 +410,7 @@ fun SettingsScreen(
     onNavigateToBackup: () -> Unit,
     onNavigateToAbout: () -> Unit,
     onNavigateToAdvancedSearch: () -> Unit,
+    onNavigateToComingSoon: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val settingsViewModel: SettingsViewModel = hiltViewModel()
@@ -468,11 +478,18 @@ fun SettingsScreen(
                         title = subMenu.title,
                         subtitle = subMenu.getSummary(settings, library),
                         icon = subMenu.icon,
-                        onClick = { currentSubMenu = subMenu }
+                        onClick = {
+                            if (subMenu == SettingsSubMenu.COMING_SOON) {
+                                onNavigateToComingSoon()
+                            } else {
+                                currentSubMenu = subMenu
+                            }
+                        }
                     )
                 }
             } else {
                 when (currentSubMenu) {
+                    SettingsSubMenu.COMING_SOON -> {}
                     // ================================================================
                     // SOUS-MENU : APPARENCE
                     // ================================================================

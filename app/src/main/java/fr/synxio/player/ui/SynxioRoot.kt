@@ -115,6 +115,7 @@ object Routes {
     const val ADVANCED_SEARCH = "advanced_search"
     const val DUPLICATES = "duplicates"
     const val RECENTS = "recents"
+    const val COMING_SOON = "coming_soon"
     const val DRIVE_MODE = "drive_mode"
     const val SMART = "smart/{smartId}"
     const val RULE = "rule/{ruleId}"
@@ -400,7 +401,14 @@ private fun AppNavHost(
                 onNavigateToHistory = { navController.navigate(Routes.HISTORY) },
                 onNavigateToBackup = { navController.navigate(Routes.BACKUP) },
                 onNavigateToAbout = { navController.navigate(Routes.ABOUT) },
-                onNavigateToAdvancedSearch = { navController.navigate(Routes.ADVANCED_SEARCH) }
+                onNavigateToAdvancedSearch = { navController.navigate(Routes.ADVANCED_SEARCH) },
+                onNavigateToComingSoon = { navController.navigate(Routes.COMING_SOON) }
+            )
+        }
+        
+        composable(Routes.COMING_SOON) {
+            fr.synxio.player.ui.screens.ComingSoonScreen(
+                onBack = { navController.popBackStack() }
             )
         }
 
