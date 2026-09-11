@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import fr.synxio.player.core.prefs.SettingsRepository
+import fr.synxio.player.data.discord.DiscordPresenceRepository
+import fr.synxio.player.data.discord.PresenceStatus
 import fr.synxio.player.data.repo.DiscordRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,7 +19,24 @@ data class DiscordUiState(
     val webhookUrl: String = "",
     val testing: Boolean = false,
     val message: String? = null,
+    val presenceEnabled: Boolean = false,
+    val presenceConfigured: Boolean = false,
+    val presenceStatus: PresenceStatus = PresenceStatus.IDLE,
 ) {
+    /** Ce que l'ecran doit dire de la liaison au client Discord. */
+    val presenceSubtitle: String
+        get() = when {
+            !presenceConfigured -> "Aucun identifiant d'application compile"
+            !presenceEnabled -> "Affiche le morceau en cours sur ton profil Discord"
+            else -> when (presenceStatus) {
+                PresenceStatus.CONNECTED -> "Connecte au client Discord"
+                PresenceStatus.UNREACHABLE ->
+                    "Client Discord injoignable - verifie qu'il est installe et connecte"
+                PresenceStatus.NOT_CONFIGURED -> "Aucun identifiant d'application compile"
+                PresenceStatus.IDLE -> "En attente de la premiere lecture"
+            }
+        }
+
     val urlLooksValid: Boolean
         get() = webhookUrl.startsWith("https://discord.com/api/webhooks/") ||
             webhookUrl.startsWith("https://discordapp.com/api/webhooks/")
@@ -36,6 +55,7 @@ data class DiscordUiState(
 @HiltViewModel
 class DiscordViewModel @Inject constructor(
     private val discord: DiscordRepository,
+    private val presence: DiscordPresenceRepository,
     private val settings: SettingsRepository,
 ) : ViewModel() {
 
@@ -48,7 +68,22 @@ class DiscordViewModel @Inject constructor(
             _state.value = _state.value.copy(
                 enabled = s.discordEnabled,
                 webhookUrl = s.discordWebhookUrl,
+                presenceEnabled = s.discordPresenceEnabled,
+                presenceConfigured = presence.isConfigured,
             )
+        }
+        viewModelScope.launch {
+            presence.status.collect { _state.value = _state.value.copy(presenceStatus = it) }
+        }
+    }
+
+    fun setPresenceEnabled(value: Boolean) {
+        _state.value = _state.value.copy(presenceEnabled = value)
+        viewModelScope.launch {
+            settings.setDiscordPresenceEnabled(value)
+            // Desactiver doit effacer le statut : le laisser affiche apres coup ferait
+            // croire que Synxio joue encore.
+            if (!value) presence.clear()
         }
     }
 

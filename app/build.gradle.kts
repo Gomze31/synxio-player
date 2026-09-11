@@ -36,6 +36,10 @@ android {
         // un jeton dans un APK est extractible par quiconque récupère le fichier.
         buildConfigField("String", "UPDATE_REPO", "\"Gomze31/synxio-releases\"")
 
+        // Identifiant d'application Discord. Contrairement au client secret, il est
+        // public par conception : il est embarqué dans tout client qui l'utilise.
+        buildConfigField("String", "DISCORD_APPLICATION_ID", "\"1547937346253492415\"")
+
         // Scrobbling Last.fm : renseigne lastfmApiKey / lastfmSecret dans
         // ~/.gradle/gradle.properties. Vides = fonctionnalité masquée dans les réglages.
         buildConfigField("String", "LASTFM_API_KEY", "\"${properties["lastfmApiKey"] ?: ""}\"")

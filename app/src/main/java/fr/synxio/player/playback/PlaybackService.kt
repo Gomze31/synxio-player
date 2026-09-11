@@ -35,6 +35,7 @@ import fr.synxio.player.data.db.QueueDao
 import fr.synxio.player.data.model.EqCurves
 import fr.synxio.player.data.lastfm.LastFmScrobbler
 import fr.synxio.player.data.model.Song
+import fr.synxio.player.data.discord.DiscordPresenceRepository
 import fr.synxio.player.data.repo.DiscordRepository
 import fr.synxio.player.data.repo.LoudnessRepository
 import fr.synxio.player.data.repo.MusicRepository
@@ -71,6 +72,7 @@ class PlaybackService : MediaLibraryService() {
     @Inject lateinit var deviceProfileDao: DeviceProfileDao
     @Inject lateinit var loudnessRepository: LoudnessRepository
     @Inject lateinit var discord: DiscordRepository
+    @Inject lateinit var discordPresence: DiscordPresenceRepository
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -158,6 +160,12 @@ class PlaybackService : MediaLibraryService() {
         headsetCallback = null
         fade.stop()
         sleepTimer.cancel()
+
+        // Sans cet effacement, le statut Discord resterait figé sur le dernier morceau
+        // bien après l'arrêt de Synxio. Exécuté hors du scope du service, qui est annulé
+        // quelques lignes plus bas.
+        val presence = discordPresence
+        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch { presence.disconnect() }
         equalizer.release()
         session.release()
         player.release()
@@ -258,6 +266,7 @@ class PlaybackService : MediaLibraryService() {
         val song = musicRepository.songById(trackedSongId) ?: return
         serviceScope.launch { scrobbler.updateNowPlaying(song) }
         serviceScope.launch { discord.announce(song) }
+        publishPresence(song)
     }
 
     private fun accumulate() {
@@ -322,6 +331,20 @@ class PlaybackService : MediaLibraryService() {
         return musicRepository.songById(id)
     }
 
+    /**
+     * Publie le statut d'activité Discord.
+     *
+     * La position est lue au moment de l'appel pour que la barre de progression du statut
+     * reflète l'endroit réel du morceau — reprendre une lecture à mi-parcours afficherait
+     * sinon une progression repartie de zéro.
+     */
+    private fun publishPresence(song: Song?) {
+        val current = song ?: currentSong() ?: return
+        val position = player.currentPosition.coerceAtLeast(0)
+        val playing = player.isPlaying
+        serviceScope.launch { discordPresence.update(current, position, playing) }
+    }
+
     private inner class PlayerListener : Player.Listener {
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -347,6 +370,9 @@ class PlaybackService : MediaLibraryService() {
                 accumulate()
                 persistQueue()
             }
+            // Le statut doit suivre la pause, sinon Discord continue d'afficher une
+            // progression qui avance alors que la lecture est arrêtée.
+            publishPresence(null)
         }
 
         override fun onPositionDiscontinuity(

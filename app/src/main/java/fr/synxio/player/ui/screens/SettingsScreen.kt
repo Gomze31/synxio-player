@@ -1595,6 +1595,14 @@ private fun DiscordSection(onMessage: (String) -> Unit) {
 
     Column {
         SwitchSetting(
+            title = "Statut d'activité Discord",
+            subtitle = state.presenceSubtitle,
+            icon = Icons.Rounded.Person,
+            checked = state.presenceEnabled,
+            onCheckedChange = viewModel::setPresenceEnabled,
+        )
+
+        SwitchSetting(
             title = "Annoncer sur Discord",
             subtitle = "Publie chaque morceau dans un salon via un webhook",
             icon = Icons.Rounded.Forum,
