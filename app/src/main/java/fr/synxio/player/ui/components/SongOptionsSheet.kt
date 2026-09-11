@@ -51,6 +51,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import fr.synxio.player.ui.viewmodel.SongInsightsViewModel
 import fr.synxio.player.core.util.asDuration
 import fr.synxio.player.core.util.asFileSize
 import fr.synxio.player.data.model.Playlist
@@ -164,12 +166,36 @@ private fun SheetAction(icon: ImageVector, label: String, onClick: () -> Unit) {
 
 @Composable
 fun SongDetailsDialog(song: Song, onDismiss: () -> Unit) {
+    val insightsViewModel: SongInsightsViewModel = hiltViewModel()
+    // Recalculé seulement si le morceau change : ce sont des lectures de map en mémoire,
+    // mais les refaire à chaque recomposition du dialogue n'aurait aucun intérêt.
+    val insights = remember(song.id) { insightsViewModel.insightsFor(song) }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = { TextButton(onClick = onDismiss) { Text("Fermer") } },
         title = { Text("Détails") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
+                // Les écoutes d'abord : c'est ce qu'on ne peut lire nulle part ailleurs,
+                // alors que le reste se retrouve dans n'importe quel explorateur.
+                if (insights.hasHistory) {
+                    DetailLine(
+                        label = "Écoutes",
+                        value = buildString {
+                            append("${insights.playCount} lecture")
+                            if (insights.playCount > 1) append("s")
+                            if (insights.skipCount > 0) {
+                                append(" · ${insights.skipCount} coupure")
+                                if (insights.skipCount > 1) append("s")
+                            }
+                        },
+                    )
+                    insights.completionLabel?.let { DetailLine("Écouté en moyenne", it) }
+                    insights.lastPlayedLabel?.let { DetailLine("Dernière écoute", it) }
+                }
+                insights.loudnessLabel?.let { DetailLine("Niveau mesuré", it) }
+
                 DetailLine("Titre", song.title)
                 DetailLine("Artiste", song.displayArtist)
                 DetailLine("Album", song.displayAlbum)
