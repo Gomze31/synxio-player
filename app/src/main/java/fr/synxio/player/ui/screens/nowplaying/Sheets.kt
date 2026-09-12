@@ -66,6 +66,7 @@ import fr.synxio.player.playback.SleepTimerState
 import fr.synxio.player.ui.components.Artwork
 import fr.synxio.player.ui.components.SongRow
 import fr.synxio.player.ui.theme.LyricsTextStyle
+import kotlinx.coroutines.launch
 
 /**
  * Paroles synchronisées. La ligne active grossit et s'éclaire ; toucher une ligne
@@ -514,7 +515,7 @@ fun NowPlayingMenuSheet(
             val scope = androidx.compose.runtime.rememberCoroutineScope()
             MenuRow(Icons.Rounded.Refresh, "Définir comme sonnerie") {
                 if (fr.synxio.player.core.util.RingtoneHelper.hasWriteSettingsPermission(context)) {
-                    kotlinx.coroutines.runBlocking {
+                    scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                         fr.synxio.player.core.util.RingtoneHelper.setAsRingtone(context, song)
                     }
                 } else {
