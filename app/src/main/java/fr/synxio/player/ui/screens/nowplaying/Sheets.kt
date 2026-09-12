@@ -509,6 +509,20 @@ fun NowPlayingMenuSheet(
             MenuRow(Icons.Rounded.Refresh, "Rechercher les paroles") { onRefreshLyrics(); onDismiss() }
             MenuRow(Icons.Rounded.DirectionsCar, "Mode Voiture") { onOpenDriveMode(); onDismiss() }
             MenuRow(Icons.Rounded.Share, "Partager une carte") { onShare(); onDismiss() }
+            
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val scope = androidx.compose.runtime.rememberCoroutineScope()
+            MenuRow(Icons.Rounded.Refresh, "Définir comme sonnerie") {
+                if (fr.synxio.player.core.util.RingtoneHelper.hasWriteSettingsPermission(context)) {
+                    kotlinx.coroutines.runBlocking {
+                        fr.synxio.player.core.util.RingtoneHelper.setAsRingtone(context, song)
+                    }
+                } else {
+                    context.startActivity(fr.synxio.player.core.util.RingtoneHelper.getWriteSettingsIntent(context))
+                    android.widget.Toast.makeText(context, "Veuillez autoriser l'application à modifier les paramètres", android.widget.Toast.LENGTH_LONG).show()
+                }
+                onDismiss()
+            }
         }
     }
 }
