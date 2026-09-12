@@ -129,100 +129,60 @@ class SynxioWidget : GlanceAppWidget() {
                 val size = LocalSize.current
                 val compact = size.width < ARTWORK_MIN_WIDTH
 
-                // Le fond est un bitmap et non une couleur : Glance se resout en
-                // RemoteViews, qui n'offre ni flou ni degrade ni dessin libre.
-                val backdrop = entryPoint.artRenderer().render(
-                    widthPx = (size.width.value * density).toInt(),
-                    heightPx = (size.height.value * density).toInt(),
-                    artwork = artwork,
-                    bands = bands,
-                    dark = palette.dark,
-                    showWave = settings.widgetShowWave,
-                    glassOpacity = settings.widgetGlassOpacity,
-                    waveTint = settings.widgetWaveTint,
-                )
-
                 Box(modifier = GlanceModifier.fillMaxSize()) {
-                    if (backdrop != null) {
-                        Image(
-                            provider = ImageProvider(backdrop),
-                            contentDescription = null,
-                            contentScale = ContentScale.FillBounds,
-                            modifier = GlanceModifier.fillMaxSize().cornerRadius(24.dp),
-                        )
-                    }
-
                     Row(
                         modifier = GlanceModifier
                             .fillMaxSize()
-                            .then(
-                                // Le bitmap fait deja office de fond : la couleur unie
-                                // n'est utilisee qu'en cas d'echec du rendu.
-                                if (backdrop == null) {
-                                    GlanceModifier.background(palette.background)
-                                } else {
-                                    GlanceModifier
-                                }
-                            )
+                            .background(GlanceTheme.colors.widgetBackground)
                             .cornerRadius(24.dp)
-                            .padding(12.dp)
+                            .padding(16.dp)
                             .clickable(actionStartActivity<MainActivity>()),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                    if (artwork != null && !compact) {
-                        Image(
-                            provider = ImageProvider(artwork),
-                            contentDescription = null,
-                            // Remplit la hauteur : à 64 dp fixes, la pochette flottait au
-                            // milieu d'un widget deux fois plus haut. Le fond derrière
-                            // elle étant sa propre version floutée, elle s'y fondait :
-                            // l'arrondi marqué lui redonne un contour.
-                            modifier = GlanceModifier.fillMaxHeight().cornerRadius(18.dp),
-                        )
-                        Spacer(GlanceModifier.width(12.dp))
-                    }
-
-                    // Les commandes sont SOUS le texte, pas à côté.
-                    //
-                    // Placées à droite, elles réservaient 130 dp et étranglaient la
-                    // colonne : les titres partaient en césure sur deux lignes
-                    // (« Le Re-nouvea… ») et l'artiste se réduisait à trois lettres.
-                    // Empilées, le texte récupère toute la largeur restante.
-                    Column(
-                        modifier = GlanceModifier
-                            .defaultWeight()
-                            .background(ColorProvider(if (palette.dark) Color(0x28FFFFFF) else Color(0x18000000)))
-                            .cornerRadius(20.dp)
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (song == null) {
-                            Text(
-                                text = "Aucune lecture",
-                                style = TextStyle(color = palette.onSurface, fontSize = 15.sp),
+                        if (artwork != null && !compact) {
+                            Image(
+                                provider = ImageProvider(artwork),
+                                contentDescription = null,
+                                modifier = GlanceModifier.fillMaxHeight().width(size.height - 32.dp).cornerRadius(16.dp),
+                                contentScale = ContentScale.Crop
                             )
-                        } else {
-                            Text(
-                                text = song.title,
-                                maxLines = 1,
-                                style = TextStyle(
-                                    color = palette.onSurface,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                ),
-                            )
-                            Text(
-                                text = song.displayArtist,
-                                maxLines = 1,
-                                style = TextStyle(
-                                    color = palette.onSurfaceVariant,
-                                    fontSize = 13.sp,
-                                ),
-                            )
-                            Spacer(GlanceModifier.height(6.dp))
-                            Controls(isPlaying, palette)
+                            Spacer(GlanceModifier.width(16.dp))
                         }
-                    }
+
+                        Column(
+                            modifier = GlanceModifier
+                                .defaultWeight()
+                                .fillMaxHeight(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (song == null) {
+                                Text(
+                                    text = "Aucune lecture",
+                                    style = TextStyle(color = GlanceTheme.colors.onSurface, fontSize = 16.sp),
+                                )
+                            } else {
+                                Text(
+                                    text = song.title,
+                                    maxLines = 1,
+                                    style = TextStyle(
+                                        color = GlanceTheme.colors.onSurface,
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    ),
+                                )
+                                Spacer(GlanceModifier.height(2.dp))
+                                Text(
+                                    text = song.displayArtist,
+                                    maxLines = 1,
+                                    style = TextStyle(
+                                        color = GlanceTheme.colors.onSurfaceVariant,
+                                        fontSize = 14.sp,
+                                    ),
+                                )
+                                Spacer(GlanceModifier.height(12.dp))
+                                Controls(isPlaying)
+                            }
+                        }
                     }
                 }
             }
@@ -230,32 +190,29 @@ class SynxioWidget : GlanceAppWidget() {
     }
 
     @Composable
-    private fun Controls(isPlaying: Boolean, palette: Palette) {
+    private fun Controls(isPlaying: Boolean) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = GlanceModifier.padding(vertical = 2.dp)
+            modifier = GlanceModifier.padding(vertical = 4.dp)
         ) {
             WidgetButton(
                 R.drawable.ic_widget_previous,
                 "Précédent",
                 KeyEvent.KEYCODE_MEDIA_PREVIOUS,
-                palette,
                 isPrimary = false,
             )
-            Spacer(GlanceModifier.width(4.dp))
+            Spacer(GlanceModifier.width(16.dp))
             WidgetButton(
                 iconRes = if (isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play,
                 description = if (isPlaying) "Pause" else "Lecture",
                 keyCode = KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
-                palette = palette,
                 isPrimary = true,
             )
-            Spacer(GlanceModifier.width(4.dp))
+            Spacer(GlanceModifier.width(16.dp))
             WidgetButton(
                 R.drawable.ic_widget_next,
                 "Suivant",
                 KeyEvent.KEYCODE_MEDIA_NEXT,
-                palette,
                 isPrimary = false,
             )
         }
@@ -266,16 +223,14 @@ class SynxioWidget : GlanceAppWidget() {
         iconRes: Int,
         description: String,
         keyCode: Int,
-        palette: Palette,
         isPrimary: Boolean = false,
     ) {
         Image(
             provider = ImageProvider(iconRes),
             contentDescription = description,
-            colorFilter = ColorFilter.tint(if (isPrimary) palette.accent else palette.onSurface),
+            colorFilter = ColorFilter.tint(if (isPrimary) GlanceTheme.colors.primary else GlanceTheme.colors.onSurfaceVariant),
             modifier = GlanceModifier
-                .size(if (isPrimary) 44.dp else 36.dp)
-                .padding(if (isPrimary) 4.dp else 6.dp)
+                .size(if (isPrimary) 48.dp else 40.dp)
                 .clickable(
                     actionRunCallback<MediaKeyAction>(
                         actionParametersOf(MediaKeyAction.KEY_CODE to keyCode)
@@ -351,17 +306,10 @@ class MediaKeyAction : ActionCallback {
             }
             context.sendBroadcast(intentUp)
         }
-
-        // Le service persiste son état de façon asynchrone : sans ce délai, on redessine
-        // à partir de l'état d'avant l'appui et le widget paraît ne pas répondre.
-        delay(SETTLE_MS)
-        SynxioWidget().updateAll(context)
-        SynxioLargeWidget().updateAll(context)
     }
 
     companion object {
         val KEY_CODE = ActionParameters.Key<Int>("key_code")
-        private const val SETTLE_MS = 350L
     }
 }
 

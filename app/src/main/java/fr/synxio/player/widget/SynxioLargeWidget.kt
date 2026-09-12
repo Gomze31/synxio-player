@@ -39,6 +39,7 @@ import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
 import androidx.glance.layout.fillMaxHeight
 import androidx.glance.layout.fillMaxSize
+import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
 import androidx.glance.layout.padding
 import androidx.glance.layout.size
@@ -109,39 +110,13 @@ class SynxioLargeWidget : GlanceAppWidget() {
             GlanceTheme {
                 val size = LocalSize.current
                 
-                val backdrop = entryPoint.artRenderer().render(
-                    widthPx = (size.width.value * density).toInt(),
-                    heightPx = (size.height.value * density).toInt(),
-                    artwork = artwork,
-                    bands = bands,
-                    dark = palette.dark,
-                    showWave = settings.widgetShowWave,
-                    glassOpacity = settings.widgetGlassOpacity,
-                    waveTint = settings.widgetWaveTint,
-                )
-
                 Box(modifier = GlanceModifier.fillMaxSize()) {
-                    if (backdrop != null) {
-                        Image(
-                            provider = ImageProvider(backdrop),
-                            contentDescription = null,
-                            contentScale = ContentScale.FillBounds,
-                            modifier = GlanceModifier.fillMaxSize().cornerRadius(24.dp),
-                        )
-                    }
-
                     Column(
                         modifier = GlanceModifier
                             .fillMaxSize()
-                            .then(
-                                if (backdrop == null) {
-                                    GlanceModifier.background(palette.background)
-                                } else {
-                                    GlanceModifier
-                                }
-                            )
+                            .background(GlanceTheme.colors.widgetBackground)
                             .cornerRadius(24.dp)
-                            .padding(16.dp)
+                            .padding(24.dp)
                             .clickable(actionStartActivity<MainActivity>()),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalAlignment = Alignment.CenterVertically
@@ -151,47 +126,45 @@ class SynxioLargeWidget : GlanceAppWidget() {
                                 provider = ImageProvider(artwork),
                                 contentDescription = null,
                                 modifier = GlanceModifier
-                                    .size(140.dp)
-                                    .cornerRadius(18.dp),
+                                    .size(160.dp)
+                                    .cornerRadius(24.dp),
+                                contentScale = ContentScale.Crop
                             )
-                            Spacer(GlanceModifier.height(16.dp))
+                            Spacer(GlanceModifier.height(24.dp))
                         }
 
                         if (song == null) {
                             Text(
                                 text = "Aucune lecture",
-                                style = TextStyle(color = palette.onSurface, fontSize = 16.sp),
+                                style = TextStyle(color = GlanceTheme.colors.onSurface, fontSize = 18.sp),
                             )
                         } else {
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = GlanceModifier
-                                    .background(ColorProvider(if (palette.dark) Color(0x33FFFFFF) else Color(0x22000000)))
-                                    .cornerRadius(20.dp)
-                                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                                modifier = GlanceModifier.fillMaxWidth()
                             ) {
                                 Text(
                                     text = song.title,
                                     maxLines = 1,
                                     style = TextStyle(
-                                        color = palette.onSurface,
-                                        fontSize = 18.sp,
+                                        color = GlanceTheme.colors.onSurface,
+                                        fontSize = 22.sp,
                                         fontWeight = FontWeight.Bold,
                                         textAlign = TextAlign.Center
                                     ),
                                 )
-                                Spacer(GlanceModifier.height(4.dp))
+                                Spacer(GlanceModifier.height(8.dp))
                                 Text(
                                     text = song.displayArtist,
                                     maxLines = 1,
                                     style = TextStyle(
-                                        color = palette.onSurfaceVariant,
-                                        fontSize = 14.sp,
+                                        color = GlanceTheme.colors.onSurfaceVariant,
+                                        fontSize = 16.sp,
                                         textAlign = TextAlign.Center
                                     ),
                                 )
-                                Spacer(GlanceModifier.height(12.dp))
-                                Controls(isPlaying, palette)
+                                Spacer(GlanceModifier.height(24.dp))
+                                Controls(isPlaying)
                             }
                         }
                     }
@@ -201,7 +174,7 @@ class SynxioLargeWidget : GlanceAppWidget() {
     }
 
     @Composable
-    private fun Controls(isPlaying: Boolean, palette: Palette) {
+    private fun Controls(isPlaying: Boolean) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalAlignment = Alignment.CenterHorizontally
@@ -210,23 +183,20 @@ class SynxioLargeWidget : GlanceAppWidget() {
                 R.drawable.ic_widget_previous,
                 "Précédent",
                 KeyEvent.KEYCODE_MEDIA_PREVIOUS,
-                palette,
                 isPrimary = false,
             )
-            Spacer(GlanceModifier.width(16.dp))
+            Spacer(GlanceModifier.width(24.dp))
             WidgetButton(
                 iconRes = if (isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play,
                 description = if (isPlaying) "Pause" else "Lecture",
                 keyCode = KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
-                palette = palette,
                 isPrimary = true,
             )
-            Spacer(GlanceModifier.width(16.dp))
+            Spacer(GlanceModifier.width(24.dp))
             WidgetButton(
                 R.drawable.ic_widget_next,
                 "Suivant",
                 KeyEvent.KEYCODE_MEDIA_NEXT,
-                palette,
                 isPrimary = false,
             )
         }
@@ -237,16 +207,14 @@ class SynxioLargeWidget : GlanceAppWidget() {
         iconRes: Int,
         description: String,
         keyCode: Int,
-        palette: Palette,
         isPrimary: Boolean = false,
     ) {
         Image(
             provider = ImageProvider(iconRes),
             contentDescription = description,
-            colorFilter = ColorFilter.tint(if (isPrimary) palette.accent else palette.onSurface),
+            colorFilter = ColorFilter.tint(if (isPrimary) GlanceTheme.colors.primary else GlanceTheme.colors.onSurfaceVariant),
             modifier = GlanceModifier
-                .size(if (isPrimary) 56.dp else 44.dp)
-                .padding(if (isPrimary) 8.dp else 10.dp)
+                .size(if (isPrimary) 64.dp else 48.dp)
                 .clickable(
                     actionRunCallback<MediaKeyAction>(
                         actionParametersOf(MediaKeyAction.KEY_CODE to keyCode)
