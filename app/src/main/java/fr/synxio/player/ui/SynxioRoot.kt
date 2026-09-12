@@ -23,6 +23,7 @@ import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlaylistPlay
+import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.AlertDialog
@@ -94,9 +95,10 @@ import fr.synxio.player.ui.viewmodel.AppViewModel
 enum class TopLevel(val route: String, val label: String, val icon: ImageVector) {
     HOME("home", "Accueil", Icons.Rounded.Home),
     LIBRARY("library", "Musique", Icons.Rounded.LibraryMusic),
-    PLAYLISTS("playlists", "Listes", Icons.Rounded.PlaylistPlay),
-    SEARCH("search", "Chercher", Icons.Rounded.Search),
-    SETTINGS("settings", "Réglages", Icons.Rounded.Settings),
+    PLAYLISTS("playlists", "Playlists", Icons.Rounded.PlaylistPlay),
+    SEARCH("search", "Recherche", Icons.Rounded.Search),
+    RADIOS("radios", "Radios", Icons.Rounded.Radio),
+    SETTINGS("settings", "Paramètres", Icons.Rounded.Settings),
 }
 
 object Routes {
@@ -388,6 +390,12 @@ private fun AppNavHost(
                 onOpenAlbum = { navController.navigate(Routes.album(it)) },
                 onOpenArtist = { navController.navigate(Routes.artist(it)) },
                 onOpenGenre = { navController.navigate(Routes.genre(it)) },
+            )
+        }
+
+        composable(TopLevel.RADIOS.route) {
+            fr.synxio.player.ui.screens.RadiosScreen(
+                viewModel = viewModel,
             )
         }
 

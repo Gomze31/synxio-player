@@ -100,7 +100,6 @@ fun LibraryScreen(
                 LibraryTab.ARTISTS -> ArtistsTab(viewModel, onOpenArtist)
                 LibraryTab.GENRES -> GenresTab(viewModel, onOpenGenre)
                 LibraryTab.FOLDERS -> FoldersTab(viewModel, onOpenFolder)
-                LibraryTab.RADIOS -> RadiosTab(viewModel)
             }
         }
     }
