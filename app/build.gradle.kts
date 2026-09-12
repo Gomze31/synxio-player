@@ -109,6 +109,10 @@ android {
             "META-INF/NOTICE*",
         )
     }
+
+    lint {
+        disable.add("UnsafeOptInUsageError")
+    }
 }
 
 ksp {

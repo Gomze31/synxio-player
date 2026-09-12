@@ -16,6 +16,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,8 +39,9 @@ fun AdvancedSearchScreen(
 ) {
     var query by remember { mutableStateOf("") }
 
-    val allSongs = viewModel.library.value.songs
-    val filteredSongs = remember(query) {
+    val library by viewModel.library.collectAsState()
+    val allSongs = library.songs
+    val filteredSongs = remember(query, allSongs) {
         if (query.isBlank()) allSongs
         else allSongs.filter { song ->
             song.title.contains(query, ignoreCase = true) ||

@@ -638,7 +638,7 @@ class PlaybackService : MediaLibraryService() {
                 CMD_CANCEL_SLEEP_TIMER -> sleepTimer.cancel()
 
                 else -> return Futures.immediateFuture(
-                    SessionResult(SessionResult.RESULT_ERROR_NOT_SUPPORTED)
+                    SessionResult(androidx.media3.session.SessionError.ERROR_NOT_SUPPORTED)
                 )
             }
             return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
@@ -674,7 +674,7 @@ class PlaybackService : MediaLibraryService() {
             val item = libraryTree.itemById(mediaId)
             return Futures.immediateFuture(
                 if (item != null) LibraryResult.ofItem(item, null)
-                else LibraryResult.ofError(SessionResult.RESULT_ERROR_BAD_VALUE)
+                else LibraryResult.ofError(androidx.media3.session.SessionError.ERROR_BAD_VALUE)
             )
         }
 

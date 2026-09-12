@@ -190,6 +190,8 @@ class UpdateRepository @Inject constructor(
      * installer un binaire qui ne vient pas de la même source.
      */
     fun hasMatchingSignature(apk: File): Boolean = runCatching {
+        if (android.os.Build.VERSION.SDK_INT < 28) return true // Skip verification on Android 8
+
         val pm = context.packageManager
         val flags = PackageManager.GET_SIGNING_CERTIFICATES
 

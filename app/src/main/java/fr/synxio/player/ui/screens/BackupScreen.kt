@@ -48,6 +48,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -150,12 +151,13 @@ fun BackupScreen(
             item { Spacer(Modifier.height(8.dp)) }
             
             item {
+                val playlists by viewModel.playlists.collectAsState()
                 BackupActionCard(
                     title = "Exporter une playlist (M3U8)",
                     description = "Exporte une playlist au format M3U8 compatible avec d'autres lecteurs",
                     icon = Icons.Rounded.FormatListBulleted,
                     onClick = { /* TODO: Implement playlist export */ },
-                    enabled = viewModel.playlists.value.isNotEmpty()
+                    enabled = playlists.isNotEmpty()
                 )
             }
             
