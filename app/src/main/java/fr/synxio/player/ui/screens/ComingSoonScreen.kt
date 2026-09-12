@@ -56,41 +56,51 @@ fun ComingSoonScreen(onBack: () -> Unit) {
 
             item {
                 FeatureCard(
-                    icon = Icons.Rounded.Cast,
-                    title = "Support Google Cast",
-                    description = "Diffusez votre musique locale directement sur vos appareils compatibles Chromecast et enceintes intelligentes.",
-                    progress = 0.7f,
+                    icon = Icons.Rounded.DirectionsCar,
+                    title = "Support complet Android Auto",
+                    description = "Interface repensée et optimisée pour la conduite, avec commandes vocales avancées et accès rapide à vos playlists.",
+                    progress = 0.6f,
                     status = "En développement"
                 )
             }
 
             item {
                 FeatureCard(
-                    icon = Icons.Rounded.Lyrics,
-                    title = "Éditeur de paroles synchronisées",
-                    description = "Créez, modifiez et synchronisez vos propres paroles LRC directement depuis l'application pour vos morceaux préférés.",
-                    progress = 0.4f,
+                    icon = Icons.Rounded.AutoAwesome,
+                    title = "Radios intelligentes (IA)",
+                    description = "Génération de mix dynamiques basés sur votre humeur (sport, détente, concentration) grâce à une analyse audio locale.",
+                    progress = 0.3f,
                     status = "Planifié"
                 )
             }
 
             item {
                 FeatureCard(
-                    icon = Icons.Rounded.CloudSync,
-                    title = "Synchronisation Cloud",
-                    description = "Sauvegardez vos playlists, statistiques et paramètres dans le cloud pour les retrouver sur tous vos appareils.",
-                    progress = 0.1f,
+                    icon = Icons.Rounded.Groups,
+                    title = "Mode Soirée (Party Mode)",
+                    description = "Permettez à vos amis connectés sur le même Wi-Fi de voter pour les prochains morceaux de la file d'attente !",
+                    progress = 0.15f,
                     status = "À l'étude"
+                )
+            }
+
+            item {
+                FeatureCard(
+                    icon = Icons.Rounded.Podcasts,
+                    title = "Podcasts & Livres Audio",
+                    description = "Section dédiée avec mémorisation de la progression, vitesse de lecture ajustable et suppression intelligente des silences.",
+                    progress = 0.4f,
+                    status = "Planifié"
                 )
             }
             
             item {
                 FeatureCard(
-                    icon = Icons.Rounded.FormatColorFill,
-                    title = "Thèmes avancés personnalisables",
-                    description = "Créez vos propres palettes de couleurs ou importez des thèmes communautaires.",
-                    progress = 0.8f,
-                    status = "Bientôt disponible"
+                    icon = Icons.Rounded.CloudSync,
+                    title = "Synchronisation Cloud Automatique",
+                    description = "Sauvegardez vos playlists, vos favoris et vos statistiques de lecture pour les retrouver sur tous vos appareils.",
+                    progress = 0.2f,
+                    status = "À l'étude"
                 )
             }
         }
