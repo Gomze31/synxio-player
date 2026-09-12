@@ -46,6 +46,7 @@ import androidx.glance.layout.width
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
+import androidx.glance.text.TextAlign
 import androidx.glance.unit.ColorProvider
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -59,25 +60,11 @@ import fr.synxio.player.data.model.Song
 import fr.synxio.player.data.model.ThemeMode
 import fr.synxio.player.data.repo.MusicRepository
 import fr.synxio.player.data.repo.SimilarityRepository
-import fr.synxio.player.playback.PlaybackService
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 
-/**
- * Widget d'écran d'accueil.
- *
- * Il ne se connecte pas à la session média — un `MediaController` ne survit pas à un
- * widget — mais lit l'état persisté en base et pilote la lecture par intents de boutons
- * média, exactement comme un casque Bluetooth.
- *
- * Le corollaire : le widget ne sait pas de lui-même que la lecture a changé. C'est le
- * service de lecture qui le réveille à chaque persistance d'état. Sans cela, changer de
- * morceau depuis l'application ou le casque laissait le widget figé sur le titre
- * précédent — `updatePeriodMillis` valant zéro, rien ne le rafraîchissait non plus.
- */
-class SynxioWidget : GlanceAppWidget() {
+class SynxioLargeWidget : GlanceAppWidget() {
 
-    /** On adapte la mise en page à la taille réelle posée par l'utilisateur. */
     override val sizeMode = SizeMode.Exact
 
     @EntryPoint
@@ -104,12 +91,6 @@ class SynxioWidget : GlanceAppWidget() {
         val isPlaying = state?.isPlaying == true
         val artwork = song?.let { loadArtwork(context, it) }
 
-        // Le widget suit le thème choisi DANS Synxio, pas celui du système.
-        //
-        // Avec un mode nuit système réglé sur « auto », un fond clair s'affichait en
-        // pleine journée sur un fond d'écran sombre et une application en AMOLED : le
-        // widget était le seul élément clair de l'écran d'accueil. Suivre le réglage de
-        // l'application est ce qu'on attend d'un widget de Synxio.
         val settings = entryPoint.settingsRepository().settings.first()
         val theme = settings.themeMode
         val palette = Palette(
@@ -127,10 +108,7 @@ class SynxioWidget : GlanceAppWidget() {
         provideContent {
             GlanceTheme {
                 val size = LocalSize.current
-                val compact = size.width < ARTWORK_MIN_WIDTH
-
-                // Le fond est un bitmap et non une couleur : Glance se resout en
-                // RemoteViews, qui n'offre ni flou ni degrade ni dessin libre.
+                
                 val backdrop = entryPoint.artRenderer().render(
                     widthPx = (size.width.value * density).toInt(),
                     heightPx = (size.height.value * density).toInt(),
@@ -152,12 +130,10 @@ class SynxioWidget : GlanceAppWidget() {
                         )
                     }
 
-                    Row(
+                    Column(
                         modifier = GlanceModifier
                             .fillMaxSize()
                             .then(
-                                // Le bitmap fait deja office de fond : la couleur unie
-                                // n'est utilisee qu'en cas d'echec du rendu.
                                 if (backdrop == null) {
                                     GlanceModifier.background(palette.background)
                                 } else {
@@ -165,64 +141,59 @@ class SynxioWidget : GlanceAppWidget() {
                                 }
                             )
                             .cornerRadius(24.dp)
-                            .padding(12.dp)
+                            .padding(16.dp)
                             .clickable(actionStartActivity<MainActivity>()),
-                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                    if (artwork != null && !compact) {
-                        Image(
-                            provider = ImageProvider(artwork),
-                            contentDescription = null,
-                            // Remplit la hauteur : à 64 dp fixes, la pochette flottait au
-                            // milieu d'un widget deux fois plus haut. Le fond derrière
-                            // elle étant sa propre version floutée, elle s'y fondait :
-                            // l'arrondi marqué lui redonne un contour.
-                            modifier = GlanceModifier.fillMaxHeight().cornerRadius(18.dp),
-                        )
-                        Spacer(GlanceModifier.width(12.dp))
-                    }
+                        if (artwork != null) {
+                            Image(
+                                provider = ImageProvider(artwork),
+                                contentDescription = null,
+                                modifier = GlanceModifier
+                                    .size(140.dp)
+                                    .cornerRadius(18.dp),
+                            )
+                            Spacer(GlanceModifier.height(16.dp))
+                        }
 
-                    // Les commandes sont SOUS le texte, pas à côté.
-                    //
-                    // Placées à droite, elles réservaient 130 dp et étranglaient la
-                    // colonne : les titres partaient en césure sur deux lignes
-                    // (« Le Re-nouvea… ») et l'artiste se réduisait à trois lettres.
-                    // Empilées, le texte récupère toute la largeur restante.
-                    Column(
-                        modifier = GlanceModifier
-                            .defaultWeight()
-                            .background(ColorProvider(if (palette.dark) Color(0x28FFFFFF) else Color(0x18000000)))
-                            .cornerRadius(20.dp)
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
                         if (song == null) {
                             Text(
                                 text = "Aucune lecture",
-                                style = TextStyle(color = palette.onSurface, fontSize = 15.sp),
+                                style = TextStyle(color = palette.onSurface, fontSize = 16.sp),
                             )
                         } else {
-                            Text(
-                                text = song.title,
-                                maxLines = 1,
-                                style = TextStyle(
-                                    color = palette.onSurface,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                ),
-                            )
-                            Text(
-                                text = song.displayArtist,
-                                maxLines = 1,
-                                style = TextStyle(
-                                    color = palette.onSurfaceVariant,
-                                    fontSize = 13.sp,
-                                ),
-                            )
-                            Spacer(GlanceModifier.height(6.dp))
-                            Controls(isPlaying, palette)
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = GlanceModifier
+                                    .background(ColorProvider(if (palette.dark) Color(0x33FFFFFF) else Color(0x22000000)))
+                                    .cornerRadius(20.dp)
+                                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                            ) {
+                                Text(
+                                    text = song.title,
+                                    maxLines = 1,
+                                    style = TextStyle(
+                                        color = palette.onSurface,
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        textAlign = TextAlign.Center
+                                    ),
+                                )
+                                Spacer(GlanceModifier.height(4.dp))
+                                Text(
+                                    text = song.displayArtist,
+                                    maxLines = 1,
+                                    style = TextStyle(
+                                        color = palette.onSurfaceVariant,
+                                        fontSize = 14.sp,
+                                        textAlign = TextAlign.Center
+                                    ),
+                                )
+                                Spacer(GlanceModifier.height(12.dp))
+                                Controls(isPlaying, palette)
+                            }
                         }
-                    }
                     }
                 }
             }
@@ -233,7 +204,7 @@ class SynxioWidget : GlanceAppWidget() {
     private fun Controls(isPlaying: Boolean, palette: Palette) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = GlanceModifier.padding(vertical = 2.dp)
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             WidgetButton(
                 R.drawable.ic_widget_previous,
@@ -242,7 +213,7 @@ class SynxioWidget : GlanceAppWidget() {
                 palette,
                 isPrimary = false,
             )
-            Spacer(GlanceModifier.width(4.dp))
+            Spacer(GlanceModifier.width(16.dp))
             WidgetButton(
                 iconRes = if (isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play,
                 description = if (isPlaying) "Pause" else "Lecture",
@@ -250,7 +221,7 @@ class SynxioWidget : GlanceAppWidget() {
                 palette = palette,
                 isPrimary = true,
             )
-            Spacer(GlanceModifier.width(4.dp))
+            Spacer(GlanceModifier.width(16.dp))
             WidgetButton(
                 R.drawable.ic_widget_next,
                 "Suivant",
@@ -274,8 +245,8 @@ class SynxioWidget : GlanceAppWidget() {
             contentDescription = description,
             colorFilter = ColorFilter.tint(if (isPrimary) palette.accent else palette.onSurface),
             modifier = GlanceModifier
-                .size(if (isPrimary) 44.dp else 36.dp)
-                .padding(if (isPrimary) 4.dp else 6.dp)
+                .size(if (isPrimary) 56.dp else 44.dp)
+                .padding(if (isPrimary) 8.dp else 10.dp)
                 .clickable(
                     actionRunCallback<MediaKeyAction>(
                         actionParametersOf(MediaKeyAction.KEY_CODE to keyCode)
@@ -284,13 +255,6 @@ class SynxioWidget : GlanceAppWidget() {
         )
     }
 
-    /**
-     * Charge la pochette, réduite avant décodage.
-     *
-     * Un widget transite par un `RemoteViews`, dont la transaction Binder est plafonnée
-     * autour du mégaoctet : une pochette 1000×1000 décodée en ARGB pèse quatre
-     * mégaoctets et ferait disparaître le widget sans erreur visible.
-     */
     private fun loadArtwork(context: Context, song: Song): Bitmap? = runCatching {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         context.contentResolver.openInputStream(song.artworkUri)?.use {
@@ -299,7 +263,7 @@ class SynxioWidget : GlanceAppWidget() {
         if (bounds.outWidth <= 0) return null
 
         var sample = 1
-        while (bounds.outWidth / sample > ARTWORK_PIXELS) sample *= 2
+        while (bounds.outWidth / sample > 256) sample *= 2 // Plus grand pour le grand widget
 
         val options = BitmapFactory.Options().apply { inSampleSize = sample }
         context.contentResolver.openInputStream(song.artworkUri)?.use {
@@ -307,7 +271,6 @@ class SynxioWidget : GlanceAppWidget() {
         }
     }.getOrNull()
 
-    /** Couleurs du widget, dérivées du thème choisi dans l'application. */
     private class Palette(val dark: Boolean, amoled: Boolean) {
         val background = ColorProvider(
             when {
@@ -320,55 +283,12 @@ class SynxioWidget : GlanceAppWidget() {
         val onSurfaceVariant = ColorProvider(if (dark) Color(0xFFB9B3C7) else Color(0xFF5C5768))
         val accent = ColorProvider(if (dark) Color(0xFF9D8DF8) else Color(0xFF6C5CE7))
     }
-
-    private companion object {
-        /** En dessous, la pochette prendrait la place des commandes. */
-        val ARTWORK_MIN_WIDTH = 220.dp
-        const val ARTWORK_PIXELS = 128
-    }
 }
 
-/** Envoie une touche média au service, comme le ferait un casque. */
-class MediaKeyAction : ActionCallback {
-
-    override suspend fun onAction(
-        context: Context,
-        glanceId: GlanceId,
-        parameters: ActionParameters,
-    ) {
-        val keyCode = parameters[KEY_CODE] ?: return
-        
-        runCatching {
-            val intentDown = Intent(Intent.ACTION_MEDIA_BUTTON).apply {
-                component = ComponentName(context, androidx.media3.session.MediaButtonReceiver::class.java)
-                putExtra(Intent.EXTRA_KEY_EVENT, KeyEvent(KeyEvent.ACTION_DOWN, keyCode))
-            }
-            context.sendBroadcast(intentDown)
-            
-            val intentUp = Intent(Intent.ACTION_MEDIA_BUTTON).apply {
-                component = ComponentName(context, androidx.media3.session.MediaButtonReceiver::class.java)
-                putExtra(Intent.EXTRA_KEY_EVENT, KeyEvent(KeyEvent.ACTION_UP, keyCode))
-            }
-            context.sendBroadcast(intentUp)
-        }
-
-        // Le service persiste son état de façon asynchrone : sans ce délai, on redessine
-        // à partir de l'état d'avant l'appui et le widget paraît ne pas répondre.
-        delay(SETTLE_MS)
-        SynxioWidget().updateAll(context)
-    }
-
-    companion object {
-        val KEY_CODE = ActionParameters.Key<Int>("key_code")
-        private const val SETTLE_MS = 350L
-    }
+class SynxioLargeWidgetReceiver : GlanceAppWidgetReceiver() {
+    override val glanceAppWidget: GlanceAppWidget = SynxioLargeWidget()
 }
 
-class SynxioWidgetReceiver : GlanceAppWidgetReceiver() {
-    override val glanceAppWidget: GlanceAppWidget = SynxioWidget()
-}
-
-/** Vrai si le système est en mode sombre, pour le réglage « Système ». */
 private fun Context.isSystemInDarkMode(): Boolean =
     resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
         Configuration.UI_MODE_NIGHT_YES

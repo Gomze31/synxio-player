@@ -145,6 +145,8 @@ dependencies {
     implementation(libs.androidx.media3.session)
     implementation(libs.androidx.media3.ui)
     implementation(libs.androidx.media3.common)
+    implementation(libs.androidx.media3.cast)
+    implementation(libs.play.services.cast.framework)
 
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
