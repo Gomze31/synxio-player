@@ -356,6 +356,7 @@ class MediaKeyAction : ActionCallback {
         // à partir de l'état d'avant l'appui et le widget paraît ne pas répondre.
         delay(SETTLE_MS)
         SynxioWidget().updateAll(context)
+        SynxioLargeWidget().updateAll(context)
     }
 
     companion object {

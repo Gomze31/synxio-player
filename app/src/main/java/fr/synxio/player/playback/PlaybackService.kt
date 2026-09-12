@@ -341,7 +341,8 @@ class PlaybackService : MediaLibraryService() {
             val playing = activePlayer.isPlaying
             runCatching {
                 queueDao.setPlaying(playing)
-                SynxioWidget().updateAll(this@PlaybackService)
+                fr.synxio.player.widget.SynxioWidget().updateAll(this@PlaybackService)
+                fr.synxio.player.widget.SynxioLargeWidget().updateAll(this@PlaybackService)
             }.onFailure { android.util.Log.d("SynxioWidget", "Widget non rafraichi", it) }
         }
     }
