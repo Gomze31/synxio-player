@@ -18,8 +18,10 @@ class RadioRepository @Inject constructor() {
     private val baseUrl = "https://de1.api.radio-browser.info/json"
 
     suspend fun getTopRadios(limit: Int = 100): List<RadioStation> = withContext(Dispatchers.IO) {
+        // Recherche des stations françaises les plus cliquées
+        val url = "$baseUrl/stations/search?country=France&limit=$limit&order=clickcount&reverse=true"
         val request = Request.Builder()
-            .url("$baseUrl/stations/topvote/$limit")
+            .url(url)
             .header("User-Agent", "SynxioMediaPlayer/2.6.0")
             .build()
             
@@ -33,7 +35,7 @@ class RadioRepository @Inject constructor() {
     }
     
     suspend fun searchRadios(query: String, limit: Int = 50): List<RadioStation> = withContext(Dispatchers.IO) {
-        val url = "$baseUrl/stations/search?name=$query&limit=$limit&order=clickcount&reverse=true"
+        val url = "$baseUrl/stations/search?name=$query&country=France&limit=$limit&order=clickcount&reverse=true"
         val request = Request.Builder()
             .url(url)
             .header("User-Agent", "SynxioMediaPlayer/2.6.0")
