@@ -2,6 +2,7 @@ package fr.synxio.player
 
 import android.content.Context
 import android.os.Bundle
+import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -51,16 +52,13 @@ fun hasSeenOnboarding(context: Context): Boolean {
     return prefs.getBoolean("onboarding_seen", false)
 }
 
-/**
- * Fonction utilitaire pour marquer l'onboarding comme vu.
- */
 fun markOnboardingSeen(context: Context) {
     val prefs = context.getSharedPreferences("synxio_prefs", Context.MODE_PRIVATE)
     prefs.edit().putBoolean("onboarding_seen", true).apply()
 }
 
 @AndroidEntryPoint
-class MainActivity : ComponentActivity() {
+class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // Le splash statique du thème laisse place à l'UI Compose dès le premier frame.
