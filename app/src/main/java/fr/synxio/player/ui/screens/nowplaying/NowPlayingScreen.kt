@@ -354,6 +354,15 @@ private fun TopRow(queueLabel: String, onCollapse: () -> Unit, onMenu: () -> Uni
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.weight(1f))
+        
+        androidx.compose.ui.viewinterop.AndroidView(
+            factory = { ctx ->
+                androidx.mediarouter.app.MediaRouteButton(ctx).apply {
+                    com.google.android.gms.cast.framework.CastButtonFactory.setUpMediaRouteButton(ctx.applicationContext, this)
+                }
+            }
+        )
+
         IconButton(onClick = onMenu) {
             Icon(Icons.Rounded.MoreVert, contentDescription = "Plus d'options")
         }

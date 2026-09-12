@@ -80,6 +80,8 @@ class PlaybackService : MediaLibraryService() {
 
     private lateinit var player: ExoPlayer
     private lateinit var session: MediaLibrarySession
+    private var castPlayer: androidx.media3.cast.CastPlayer? = null
+    private val activePlayer: Player get() = session.player
     private lateinit var fade: FadeController
 
     // Suivi d'écoute pour les statistiques et le scrobbling.
@@ -144,6 +146,52 @@ class PlaybackService : MediaLibraryService() {
                 fade.sleepGain = state.fadeMultiplier
             }
         }
+        
+        initCastPlayer()
+    }
+
+    private fun initCastPlayer() {
+        try {
+            val executor = androidx.core.content.ContextCompat.getMainExecutor(this)
+            com.google.android.gms.cast.framework.CastContext.getSharedInstance(this, executor).addOnSuccessListener { castContext ->
+                castPlayer = androidx.media3.cast.CastPlayer(castContext).apply {
+                    setSessionAvailabilityListener(object : androidx.media3.cast.SessionAvailabilityListener {
+                        override fun onCastSessionAvailable() {
+                            val pos = player.currentPosition.coerceAtLeast(0)
+                            val playWhenReady = player.playWhenReady
+                            val idx = player.currentMediaItemIndex.coerceAtLeast(0)
+                            
+                            player.pause()
+                            
+                            val items = (0 until player.mediaItemCount).map { player.getMediaItemAt(it) }
+                            this@apply.setMediaItems(items, idx, pos)
+                            this@apply.playWhenReady = playWhenReady
+                            this@apply.prepare()
+                            
+                            session.player = this@apply
+                            this@apply.addListener(PlayerListener())
+                        }
+
+                        override fun onCastSessionUnavailable() {
+                            val cp = castPlayer ?: return
+                            val pos = cp.currentPosition.coerceAtLeast(0)
+                            val playWhenReady = cp.playWhenReady
+                            val idx = cp.currentMediaItemIndex.coerceAtLeast(0)
+                            
+                            cp.stop()
+                            
+                            player.seekTo(idx, pos)
+                            player.playWhenReady = playWhenReady
+                            player.prepare()
+                            
+                            session.player = player
+                        }
+                    })
+                }
+            }
+        } catch (e: Exception) {
+            // Ignorer si Google Play Services n'est pas dispo
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession =
@@ -151,7 +199,7 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         // Si rien ne joue quand l'utilisateur balaie l'app, inutile de garder le service.
-        if (!player.playWhenReady || player.mediaItemCount == 0) {
+        if (!activePlayer.playWhenReady || activePlayer.mediaItemCount == 0) {
             persistQueue()
             stopSelf()
         }
@@ -177,6 +225,7 @@ class PlaybackService : MediaLibraryService() {
         kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch { presence.disconnect() }
         equalizer.release()
         session.release()
+        castPlayer?.release()
         player.release()
         serviceScope.cancel()
         super.onDestroy()
@@ -190,7 +239,7 @@ class PlaybackService : MediaLibraryService() {
                 val previous = latestSettings
                 latestSettings = s
                 player.skipSilenceEnabled = s.skipSilence
-                player.playbackParameters = PlaybackParameters(s.playbackSpeed, s.playbackPitch)
+                activePlayer.playbackParameters = PlaybackParameters(s.playbackSpeed, s.playbackPitch)
                 // 0 ms = gapless natif d'ExoPlayer, sans manipulation de volume.
                 fade.durationMs = if (s.gaplessEnabled) s.crossfadeMs else s.crossfadeMs.coerceAtLeast(300)
 
@@ -225,7 +274,7 @@ class PlaybackService : MediaLibraryService() {
     /** Le bouton « favori » de la notification doit refléter le morceau courant. */
     private fun observeFavoriteForCustomLayout() {
         musicRepository.favoriteIds
-            .map { favorites -> player.currentMediaItem?.songId?.let { it in favorites } ?: false }
+            .map { favorites -> activePlayer.currentMediaItem?.songId?.let { it in favorites } ?: false }
             .distinctUntilChanged()
             .onEach { isFavorite ->
                 session.setCustomLayout(ImmutableList.of(favoriteButton(isFavorite)))
@@ -243,24 +292,24 @@ class PlaybackService : MediaLibraryService() {
         if (songs.isEmpty()) return
 
         val state = queueDao.state()
-        player.setMediaItems(songs.toMediaItems(), state?.currentIndex ?: 0, state?.positionMs ?: 0L)
-        player.shuffleModeEnabled = state?.shuffle ?: false
-        player.repeatMode = state?.repeatMode ?: Player.REPEAT_MODE_OFF
-        player.prepare()
+        activePlayer.setMediaItems(songs.toMediaItems(), state?.currentIndex ?: 0, state?.positionMs ?: 0L)
+        activePlayer.shuffleModeEnabled = state?.shuffle ?: false
+        activePlayer.repeatMode = state?.repeatMode ?: Player.REPEAT_MODE_OFF
+        activePlayer.prepare()
         // On restaure en pause : reprendre tout seul au démarrage est intrusif.
     }
 
     private fun persistQueue() {
         persistJob?.cancel()
-        if (player.mediaItemCount == 0) return
-        val ids = (0 until player.mediaItemCount).map { player.getMediaItemAt(it).songId }
+        if (activePlayer.mediaItemCount == 0) return
+        val ids = (0 until activePlayer.mediaItemCount).map { activePlayer.getMediaItemAt(it).songId }
         val state = PlaybackStateEntity(
-            currentIndex = player.currentMediaItemIndex,
-            positionMs = player.currentPosition,
-            shuffle = player.shuffleModeEnabled,
-            repeatMode = player.repeatMode,
-            queueTitle = player.currentMediaItem?.mediaMetadata?.albumTitle?.toString().orEmpty(),
-            isPlaying = player.isPlaying,
+            currentIndex = activePlayer.currentMediaItemIndex,
+            positionMs = activePlayer.currentPosition,
+            shuffle = activePlayer.shuffleModeEnabled,
+            repeatMode = activePlayer.repeatMode,
+            queueTitle = activePlayer.currentMediaItem?.mediaMetadata?.albumTitle?.toString().orEmpty(),
+            isPlaying = activePlayer.isPlaying,
         )
         persistJob = serviceScope.launch(Dispatchers.IO) { queueDao.persist(ids, state) }
         refreshWidgetSoon()
@@ -289,7 +338,7 @@ class PlaybackService : MediaLibraryService() {
             // l'ordre des événements — une transition de piste peut suivre le passage en
             // lecture — ce dernier écrivait parfois un état transitoire faux, et le
             // widget affichait « lecture » alors que la musique tournait.
-            val playing = player.isPlaying
+            val playing = activePlayer.isPlaying
             runCatching {
                 queueDao.setPlaying(playing)
                 SynxioWidget().updateAll(this@PlaybackService)
@@ -302,7 +351,7 @@ class PlaybackService : MediaLibraryService() {
     private fun startTracking(item: MediaItem?) {
         trackedSongId = item?.songId ?: -1L
         listenedMs = 0L
-        lastResumeUptime = if (player.isPlaying) SystemClock.elapsedRealtime() else 0L
+        lastResumeUptime = if (activePlayer.isPlaying) SystemClock.elapsedRealtime() else 0L
         trackStartedAtSec = System.currentTimeMillis() / 1000
 
         val song = musicRepository.songById(trackedSongId) ?: return
@@ -369,7 +418,7 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private fun currentSong(): Song? {
-        val id = player.currentMediaItem?.mediaId?.toLongOrNull() ?: return null
+        val id = activePlayer.currentMediaItem?.mediaId?.toLongOrNull() ?: return null
         return musicRepository.songById(id)
     }
 
@@ -382,8 +431,8 @@ class PlaybackService : MediaLibraryService() {
      */
     private fun publishPresence(song: Song?) {
         val current = song ?: currentSong() ?: return
-        val position = player.currentPosition.coerceAtLeast(0)
-        val playing = player.isPlaying
+        val position = activePlayer.currentPosition.coerceAtLeast(0)
+        val playing = activePlayer.isPlaying
         serviceScope.launch { discordPresence.update(current, position, playing) }
     }
 
@@ -407,7 +456,7 @@ class PlaybackService : MediaLibraryService() {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             if (isPlaying) {
                 lastResumeUptime = SystemClock.elapsedRealtime()
-                if (trackedSongId < 0) startTracking(player.currentMediaItem)
+                if (trackedSongId < 0) startTracking(activePlayer.currentMediaItem)
             } else {
                 accumulate()
             }
@@ -463,13 +512,13 @@ class PlaybackService : MediaLibraryService() {
 
                 serviceScope.launch {
                     if (!settingsRepository.settings.first().resumeOnHeadsetConnect) return@launch
-                    if (player.mediaItemCount == 0 || player.playWhenReady) return@launch
+                    if (activePlayer.mediaItemCount == 0 || activePlayer.playWhenReady) return@launch
 
                     // Court délai : la route audio n'est pas encore basculée sur le
                     // casque à l'instant où le périphérique est signalé.
                     delay(600)
-                    if (player.playbackState == Player.STATE_IDLE) player.prepare()
-                    player.play()
+                    if (activePlayer.playbackState == Player.STATE_IDLE) activePlayer.prepare()
+                    activePlayer.play()
                 }
             }
         }
@@ -576,7 +625,7 @@ class PlaybackService : MediaLibraryService() {
         ): ListenableFuture<SessionResult> {
             when (customCommand.customAction) {
                 CMD_TOGGLE_FAVORITE -> {
-                    val song = musicRepository.songById(player.currentMediaItem?.songId ?: -1L)
+                    val song = musicRepository.songById(activePlayer.currentMediaItem?.songId ?: -1L)
                     if (song != null) serviceScope.launch { musicRepository.toggleFavorite(song) }
                 }
 
