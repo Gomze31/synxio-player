@@ -1,9 +1,15 @@
-name: Build and Release on Main
+name: Build and Release
 
 on:
   push:
-    branches:
-      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag name for the release (e.g. v2.5.0)'
+        required: true
+        default: 'v2.5.0'
 
 permissions:
   contents: write
@@ -54,7 +60,12 @@ jobs:
       - name: Determine Release Tag
         id: tag
         run: |
-          echo "tag_name=build-${{ github.run_number }}" >> $GITHUB_OUTPUT
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            RELEASE_TAG="${{ inputs.tag_name }}"
+          else
+            RELEASE_TAG="${GITHUB_REF_NAME}"
+          fi
+          echo "tag_name=${RELEASE_TAG}" >> $GITHUB_OUTPUT
 
       - name: Prepare Release APK Artifact
         run: |
@@ -65,7 +76,7 @@ jobs:
             done
           fi
 
-      - name: Publish Release to this repository
+      - name: Publish Release to GitHub
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ github.token }}
