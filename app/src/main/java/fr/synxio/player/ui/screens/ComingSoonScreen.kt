@@ -75,6 +75,46 @@ fun ComingSoonScreen(onBack: () -> Unit) {
                     status = "À l'étude"
                 )
             }
+
+            item {
+                FeatureCard(
+                    icon = Icons.Rounded.GraphicEq,
+                    title = "Crossfade & Gapless",
+                    description = "Un fondu enchaîné ultra-fluide entre les morceaux et une lecture sans blanc pour les albums live.",
+                    progress = 0.4f,
+                    status = "En développement"
+                )
+            }
+
+            item {
+                FeatureCard(
+                    icon = Icons.Rounded.AutoAwesome,
+                    title = "Recommandations IA",
+                    description = "Des mixes et des suggestions encore plus intelligents basés sur vos habitudes d'écoute grâce à l'IA embarquée.",
+                    progress = 0.1f,
+                    status = "À l'étude"
+                )
+            }
+
+            item {
+                FeatureCard(
+                    icon = Icons.Rounded.DirectionsCar,
+                    title = "Support Android Auto Avancé",
+                    description = "Une interface Android Auto complètement repensée avec navigation complète de votre bibliothèque.",
+                    progress = 0.3f,
+                    status = "Planifié"
+                )
+            }
+
+            item {
+                FeatureCard(
+                    icon = Icons.Rounded.Lyrics,
+                    title = "Éditeur de Paroles Synchronisées",
+                    description = "Créez et éditez directement vos propres paroles synchronisées (.lrc) depuis l'application.",
+                    progress = 0.5f,
+                    status = "En développement"
+                )
+            }
         }
     }
 }
