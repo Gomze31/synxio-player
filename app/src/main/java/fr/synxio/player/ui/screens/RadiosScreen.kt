@@ -79,7 +79,14 @@ fun RadiosScreen(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
-                            val subtitle = station.tags.ifBlank { station.country }
+                            val subtitle = buildString {
+                                if (station.codec.isNotBlank()) append(station.codec.uppercase())
+                                if (station.bitrate > 0) {
+                                    if (isNotEmpty()) append(" • ")
+                                    append("${station.bitrate} kbps")
+                                }
+                            }.ifBlank { "Web Radio" }
+                            
                             if (subtitle.isNotBlank()) {
                                 Text(
                                     text = subtitle,
