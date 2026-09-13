@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Synxio</string>
-    <string name="widget_label">Synxio — Lecteur</string>
+    <string name="app_name">Synxio Player</string>
+    <string name="widget_label">Synxio Player — Lecteur</string>
 
     <string name="nav_home">Accueil</string>
     <string name="nav_library">Bibliothèque</string>
