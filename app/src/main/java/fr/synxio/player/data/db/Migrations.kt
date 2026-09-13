@@ -122,6 +122,22 @@ val MIGRATION_7_8 = object : Migration(7, 8) {
     }
 }
 
+/** v8 -> v9 : progression de lecture des podcasts. */
+val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `podcast_progress` (
+                `songId` INTEGER NOT NULL,
+                `positionMs` INTEGER NOT NULL,
+                `lastPlayedSec` INTEGER NOT NULL,
+                PRIMARY KEY(`songId`)
+            )
+            """.trimIndent()
+        )
+    }
+}
+
 val ALL_MIGRATIONS = arrayOf(
-    MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
+    MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9,
 )
