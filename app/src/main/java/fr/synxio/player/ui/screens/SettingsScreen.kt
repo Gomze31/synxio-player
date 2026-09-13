@@ -418,7 +418,7 @@ fun SettingsScreen(
     val library by viewModel.library.collectAsStateWithLifecycle()
     val lastFmAvailable = remember { settingsViewModel.lastFmAvailable }
     var currentSubMenu by rememberSaveable { mutableStateOf<SettingsSubMenu?>(null) }
-    var showThemeSheet by remember { mutableStateOf(false) }
+
     var showColorSheet by remember { mutableStateOf(false) }
     var showTextSizeSheet by remember { mutableStateOf(false) }
 
@@ -495,20 +495,11 @@ fun SettingsScreen(
                     // ================================================================
                     SettingsSubMenu.APPEARANCE -> {
                         item {
-                            ClickableSetting(
-                                title = "Thème",
-                                subtitle = "${settings.themeMode.label} - ${settings.accentSource.label}",
-                                icon = Icons.Rounded.Brightness6,
-                                onClick = { showThemeSheet = true }
-                            )
-                        }
-                        
-                        item {
-                            ClickableSetting(
-                                title = "Couleurs",
-                                subtitle = "Personnalise les couleurs de l'application",
-                                icon = Icons.Rounded.ColorLens,
-                                onClick = { showColorSheet = true }
+                            ChipSetting(
+                                title = "Mode de thème",
+                                options = ThemeMode.entries.map { it.label },
+                                selectedIndex = ThemeMode.entries.indexOf(settings.themeMode),
+                                onSelect = { settingsViewModel.setThemeMode(ThemeMode.entries[it]) }
                             )
                         }
                         
@@ -529,6 +520,15 @@ fun SettingsScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
+                            )
+                        }
+
+                        item {
+                            ClickableSetting(
+                                title = "Couleurs de l'application",
+                                subtitle = settings.accentSource.label,
+                                icon = Icons.Rounded.ColorLens,
+                                onClick = { showColorSheet = true }
                             )
                         }
 
@@ -1156,21 +1156,14 @@ fun SettingsScreen(
     }
 
     // Modal Bottom Sheets
-    if (showThemeSheet) {
-        ThemeSettingsSheet(
-            currentThemeMode = settings.themeMode,
-            currentAccentSource = settings.accentSource,
-            onDismiss = { showThemeSheet = false },
-            onThemeChange = settingsViewModel::setThemeMode,
-            onAccentChange = settingsViewModel::setAccentSource
-        )
-    }
-    
+
     if (showColorSheet) {
         ColorSettingsSheet(
+            currentAccentSource = settings.accentSource,
             currentPrimary = settings.primaryColor.toThemeColor(),
             currentSecondary = settings.secondaryColor.toThemeColor(),
             onDismiss = { showColorSheet = false },
+            onAccentChange = settingsViewModel::setAccentSource,
             onPrimaryChange = settingsViewModel::setPrimaryColor,
             onSecondaryChange = settingsViewModel::setSecondaryColor
         )
@@ -1485,16 +1478,20 @@ private fun ChipSetting(
     }
 }
 
+
+
 /**
- * Sheet de paramètres de thème.
+ * Sheet de paramètres de couleurs.
  */
 @Composable
-private fun ThemeSettingsSheet(
-    currentThemeMode: ThemeMode,
+private fun ColorSettingsSheet(
     currentAccentSource: AccentSource,
+    currentPrimary: ThemeColor,
+    currentSecondary: ThemeColor,
     onDismiss: () -> Unit,
-    onThemeChange: (ThemeMode) -> Unit,
-    onAccentChange: (AccentSource) -> Unit
+    onAccentChange: (AccentSource) -> Unit,
+    onPrimaryChange: (ThemeColor) -> Unit,
+    onSecondaryChange: (ThemeColor) -> Unit
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss
@@ -1503,9 +1500,10 @@ private fun ThemeSettingsSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(20.dp)
+                .verticalScroll(rememberScrollState())
         ) {
             Text(
-                text = "Paramètres de thème",
+                text = "Couleurs de l'application",
                 style = MaterialTheme.typography.headlineSmall.copy(
                     fontWeight = FontWeight.Bold
                 ),
@@ -1513,37 +1511,6 @@ private fun ThemeSettingsSheet(
             )
             
             Spacer(Modifier.height(20.dp))
-            
-            Text(
-                text = "Mode de thème",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-            
-            Spacer(Modifier.height(8.dp))
-            
-            ThemeMode.entries.forEach { mode ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onThemeChange(mode) }
-                        .padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    RadioButton(
-                        selected = mode == currentThemeMode,
-                        onClick = { onThemeChange(mode) }
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = mode.label,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                }
-            }
-            
-            Spacer(Modifier.height(24.dp))
             
             Text(
                 text = "Source de la couleur d'accent",
@@ -1582,100 +1549,68 @@ private fun ThemeSettingsSheet(
                     }
                 }
             }
-            
-            Spacer(Modifier.height(24.dp))
-            
-            Button(
-                onClick = onDismiss,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Terminé")
-            }
-        }
-    }
-}
 
-/**
- * Sheet de paramètres de couleurs.
- */
-@Composable
-private fun ColorSettingsSheet(
-    currentPrimary: ThemeColor,
-    currentSecondary: ThemeColor,
-    onDismiss: () -> Unit,
-    onPrimaryChange: (ThemeColor) -> Unit,
-    onSecondaryChange: (ThemeColor) -> Unit
-) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp)
-                .verticalScroll(rememberScrollState())
-        ) {
-            Text(
-                text = "Personnalisation des couleurs",
-                style = MaterialTheme.typography.headlineSmall.copy(
-                    fontWeight = FontWeight.Bold
-                ),
-                color = MaterialTheme.colorScheme.onBackground
-            )
-            
-            Spacer(Modifier.height(20.dp))
-            
-            Text(
-                text = "Couleur principale",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-            
-            Spacer(Modifier.height(12.dp))
-            
-            ThemeColor.entries.chunked(4).forEach { row ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    row.forEach { color ->
-                        ColorOption(
-                            color = color,
-                            isSelected = color == currentPrimary,
-                            onSelect = { onPrimaryChange(color) }
-                        )
+            if (currentAccentSource == AccentSource.CUSTOM) {
+                Spacer(Modifier.height(24.dp))
+                
+                Text(
+                    text = "Couleur principale",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                
+                Spacer(Modifier.height(12.dp))
+                
+                ThemeColor.entries.chunked(4).forEach { row ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        row.forEach { color ->
+                            ColorOption(
+                                color = color,
+                                isSelected = color == currentPrimary,
+                                onSelect = { 
+                                    onPrimaryChange(color)
+                                    onAccentChange(AccentSource.CUSTOM)
+                                }
+                            )
+                        }
                     }
+                    Spacer(Modifier.height(8.dp))
                 }
-                Spacer(Modifier.height(8.dp))
-            }
-            
-            Spacer(Modifier.height(24.dp))
-            
-            Text(
-                text = "Couleur secondaire",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-            
-            Spacer(Modifier.height(12.dp))
-            
-            ThemeColor.entries.chunked(4).forEach { row ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    row.forEach { color ->
-                        ColorOption(
-                            color = color,
-                            isSelected = color == currentSecondary,
-                            onSelect = { onSecondaryChange(color) }
-                        )
+                
+                Spacer(Modifier.height(24.dp))
+                
+                Text(
+                    text = "Couleur secondaire",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                
+                Spacer(Modifier.height(12.dp))
+                
+                ThemeColor.entries.chunked(4).forEach { row ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        row.forEach { color ->
+                            ColorOption(
+                                color = color,
+                                isSelected = color == currentSecondary,
+                                onSelect = { 
+                                    onSecondaryChange(color)
+                                    onAccentChange(AccentSource.CUSTOM)
+                                }
+                            )
+                        }
                     }
+                    Spacer(Modifier.height(8.dp))
                 }
-                Spacer(Modifier.height(8.dp))
+                
+                Spacer(Modifier.height(24.dp))
             }
-            
-            Spacer(Modifier.height(24.dp))
             
             Button(
                 onClick = onDismiss,

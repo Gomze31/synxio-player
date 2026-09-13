@@ -42,10 +42,9 @@ fun SynxioTheme(
         accentSource == AccentSource.WALLPAPER && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
             if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
 
-        // CUSTOM n'était pas géré : la couleur choisie dans les réglages n'avait
-        // jusqu'ici aucun effet visible.
+        // CUSTOM : On utilise la couleur choisie par-dessus le preset de thème actuel
         accentSource == AccentSource.CUSTOM && customAccent.toColorOrNull() != null ->
-            ThemePreset.customScheme(customAccent.toColorOrNull()!!, dark, amoled)
+            ThemePreset.customScheme(customAccent.toColorOrNull()!!, themePreset, dark, amoled)
 
         else -> themePreset.scheme(dark, amoled)
     }

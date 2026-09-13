@@ -168,9 +168,8 @@ enum class ThemePreset(
         fun fromName(name: String?): ThemePreset =
             entries.firstOrNull { it.name.equals(name, ignoreCase = true) } ?: SYNXIO
 
-        /** Schéma dérivé d'une couleur libre choisie par l'utilisateur. */
-        fun customScheme(accent: Color, dark: Boolean, amoled: Boolean): ColorScheme {
-            val preset = SYNXIO
+        /** Schéma dérivé d'une couleur libre choisie par l'utilisateur, combiné avec le preset actuel. */
+        fun customScheme(accent: Color, preset: ThemePreset, dark: Boolean, amoled: Boolean): ColorScheme {
             val base = preset.darkScheme(amoled)
             return if (dark) {
                 base.copy(
