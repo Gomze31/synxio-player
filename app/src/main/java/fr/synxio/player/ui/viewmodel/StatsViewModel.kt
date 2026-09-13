@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.util.Locale
 import javax.inject.Inject
 
 /**
@@ -110,8 +111,8 @@ class StatsViewModel @Inject constructor(
             val hours = ms / (1000 * 60 * 60)
             val minutes = (ms % (1000 * 60 * 60)) / (1000 * 60)
             when {
-                hours > 0 -> String.format("%d h %02d min", hours, minutes)
-                minutes > 0 -> String.format("%d min", minutes)
+                hours > 0 -> String.format(Locale.getDefault(), "%d h %02d min", hours, minutes)
+                minutes > 0 -> String.format(Locale.getDefault(), "%d min", minutes)
                 else -> "0 min"
             }
         }
@@ -188,8 +189,8 @@ class StatsViewModel @Inject constructor(
                 val avgMs = summary.totalPlayTimeMs / summary.totalPlayCount
                 val minutes = avgMs / (1000 * 60)
                 val seconds = (avgMs % (1000 * 60)) / 1000
-                if (minutes > 0) String.format("%d min %02d s", minutes, seconds)
-                else String.format("%d s", seconds)
+                if (minutes > 0) String.format(Locale.getDefault(), "%d min %02d s", minutes, seconds)
+                else String.format(Locale.getDefault(), "%d s", seconds)
             } else {
                 "0 s"
             }

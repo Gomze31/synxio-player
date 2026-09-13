@@ -2,6 +2,7 @@ package fr.synxio.player.data.model
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import java.util.Locale
 
 // ============================================================================
 // NOUVEAUX MODÈLES POUR LES STATISTIQUES ET L'HISTORIQUE
@@ -225,9 +226,9 @@ fun Long.asDuration(): String {
     val minutes = (this % (1000 * 60 * 60)) / (1000 * 60)
     val seconds = (this % (1000 * 60)) / 1000
     return when {
-        hours > 0 -> String.format("%dh %02dmin %02ds", hours, minutes, seconds)
-        minutes > 0 -> String.format("%dmin %02ds", minutes, seconds)
-        else -> String.format("%ds", seconds)
+        hours > 0 -> String.format(Locale.getDefault(), "%dh %02dmin %02ds", hours, minutes, seconds)
+        minutes > 0 -> String.format(Locale.getDefault(), "%dmin %02ds", minutes, seconds)
+        else -> String.format(Locale.getDefault(), "%ds", seconds)
     }
 }
 

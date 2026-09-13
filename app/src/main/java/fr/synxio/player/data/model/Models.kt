@@ -3,6 +3,7 @@ package fr.synxio.player.data.model
 import android.content.ContentUris
 import android.net.Uri
 import android.provider.MediaStore
+import androidx.compose.runtime.Immutable
 
 /** URI de base des pochettes d'album exposées par MediaStore. */
 private val ALBUM_ART_BASE: Uri = Uri.parse("content://media/external/audio/albumart")
@@ -13,6 +14,7 @@ private val ALBUM_ART_BASE: Uri = Uri.parse("content://media/external/audio/albu
  * On garde volontairement le modèle plat et immuable : le scanner produit une liste
  * complète en mémoire, tout le reste (albums, artistes, genres, dossiers) en est dérivé.
  */
+@Immutable
 data class Song(
     val id: Long,
     val title: String,
@@ -99,6 +101,7 @@ fun splitArtistTag(raw: String): List<String> {
         .ifEmpty { listOf(trimmed) }
 }
 
+@Immutable
 data class Album(
     val id: Long,
     val title: String,
@@ -113,6 +116,7 @@ data class Album(
     val dateAddedSec: Long get() = songs.maxOfOrNull { it.dateAddedSec } ?: 0L
 }
 
+@Immutable
 data class Artist(
     val id: Long,
     val name: String,
@@ -126,6 +130,7 @@ data class Artist(
     val artworkUri: Uri? get() = albums.maxByOrNull { it.year }?.artworkUri
 }
 
+@Immutable
 data class Genre(
     val name: String,
     val songs: List<Song>,
@@ -135,6 +140,7 @@ data class Genre(
 }
 
 /** Un dossier du système de fichiers contenant au moins un morceau. */
+@Immutable
 data class Folder(
     val path: String,
     val songs: List<Song>,
@@ -143,6 +149,7 @@ data class Folder(
     val songCount: Int get() = songs.size
 }
 
+@Immutable
 data class Playlist(
     val id: Long,
     val name: String,
@@ -156,8 +163,10 @@ data class Playlist(
 }
 
 /** Une ligne de paroles ; [timeMs] vaut null pour des paroles non synchronisées. */
+@Immutable
 data class LyricLine(val timeMs: Long?, val text: String)
 
+@Immutable
 data class Lyrics(
     val lines: List<LyricLine>,
     val synced: Boolean,
