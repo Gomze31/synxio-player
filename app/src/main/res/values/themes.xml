@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Thème minimal : tout le rendu est piloté par Compose / Material 3. -->
-    <style name="Theme.Synxio" parent="android:Theme.Material.NoActionBar" />
+    <style name="Theme.Synxio" parent="Theme.AppCompat.NoActionBar" />
 
     <style name="Theme.Synxio.Splash" parent="Theme.Synxio">
         <item name="android:windowBackground">@color/splash_background</item>
