@@ -38,14 +38,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import fr.synxio.player.data.model.Folder
 import fr.synxio.player.ui.components.EmptyState
-import fr.synxio.player.ui.components.SongRow
+import fr.synxio.player.ui.components.FolderRow
 import fr.synxio.player.ui.viewmodel.AppViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AudiobooksScreen(
     viewModel: AppViewModel,
+    onOpenFolder: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val audiobooks by viewModel.audiobooks.collectAsStateWithLifecycle()
@@ -76,16 +78,21 @@ fun AudiobooksScreen(
                     .padding(padding)
             )
         } else {
+            val audiobookFoldersList = remember(audiobooks) {
+                audiobooks.groupBy { it.folderPath }.map { (path, songs) ->
+                    Folder(path, songs.sortedBy { it.track })
+                }.sortedBy { it.name }
+            }
+            
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
             ) {
-                items(audiobooks, key = { it.id }) { song ->
-                    SongRow(
-                        song = song,
-                        onClick = { viewModel.playSong(song, audiobooks) },
-                        onMenuClick = {}
+                items(audiobookFoldersList, key = { it.path }) { folder ->
+                    FolderRow(
+                        folder = folder,
+                        onClick = { onOpenFolder(folder.path) }
                     )
                 }
             }

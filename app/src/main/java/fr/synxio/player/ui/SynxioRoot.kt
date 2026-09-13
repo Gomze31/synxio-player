@@ -384,6 +384,7 @@ private fun AppNavHost(
         composable(TopLevel.AUDIOBOOKS.route) {
             AudiobooksScreen(
                 viewModel = viewModel,
+                onOpenFolder = { navController.navigate(Routes.folder(it)) },
             )
         }
 

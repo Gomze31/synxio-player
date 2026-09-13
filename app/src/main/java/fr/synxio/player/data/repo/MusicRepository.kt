@@ -231,8 +231,17 @@ class MusicRepository @Inject constructor(
     fun genreByName(name: String): Genre? =
         _library.value.genres.firstOrNull { it.name.equals(name, ignoreCase = true) }
 
-    fun folderByPath(path: String): Folder? =
-        _library.value.folders.firstOrNull { it.path == path }
+    fun folderByPath(path: String): Folder? {
+        val lib = _library.value
+        val musicFolder = lib.folders.firstOrNull { it.path == path }
+        if (musicFolder != null) return musicFolder
+
+        val audiobookSongs = lib.audiobooks.filter { it.folderPath == path }
+        if (audiobookSongs.isNotEmpty()) {
+            return Folder(path, audiobookSongs.sortedBy { it.track })
+        }
+        return null
+    }
 
     // --- Favoris ---------------------------------------------------------------------
 
