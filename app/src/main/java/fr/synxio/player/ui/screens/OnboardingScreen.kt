@@ -18,31 +18,35 @@ import androidx.compose.ui.unit.dp
 /**
  * Écran d'onboarding simplifié.
  */
+import androidx.compose.material3.Scaffold
+
 @Composable
 fun OnboardingScreen(
     onBack: () -> Unit,
     onFinish: () -> Unit
 ) {
-    Column(
-        modifier = Modifier.fillMaxSize()
-    ) {
-        TopAppBar(
-            title = { Text("Bienvenue") },
-            navigationIcon = {
-                if (onBack != null) {
-                    androidx.compose.material3.IconButton(onClick = onBack) {
-                        androidx.compose.material3.Icon(
-                            Icons.Rounded.ArrowBack,
-                            contentDescription = "Retour"
-                        )
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        topBar = {
+            TopAppBar(
+                title = { Text("Bienvenue") },
+                navigationIcon = {
+                    if (onBack != null) {
+                        androidx.compose.material3.IconButton(onClick = onBack) {
+                            androidx.compose.material3.Icon(
+                                Icons.Rounded.ArrowBack,
+                                contentDescription = "Retour"
+                            )
+                        }
                     }
                 }
-            }
-        )
-
+            )
+        }
+    ) { paddingValues ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .padding(paddingValues)
                 .padding(16.dp),
             horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
         ) {
