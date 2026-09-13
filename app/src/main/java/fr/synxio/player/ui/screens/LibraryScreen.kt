@@ -62,6 +62,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.synxio.player.data.model.AlbumSort
 import fr.synxio.player.data.model.ArtistSort
 import fr.synxio.player.data.model.LibraryTab
+import fr.synxio.player.data.repo.SmartPlaylistId
 import fr.synxio.player.data.model.Song
 import fr.synxio.player.data.model.SongSort
 import fr.synxio.player.ui.components.AlbumCard
@@ -83,7 +84,7 @@ fun LibraryScreen(
     onOpenFolder: (String) -> Unit,
     onEditTags: (Long) -> Unit,
     onOpenPlaylist: (Long) -> Unit,
-    onOpenSmartPlaylist: (String) -> Unit,
+    onOpenSmartPlaylist: (SmartPlaylistId) -> Unit,
     onOpenRulePlaylist: (Long) -> Unit,
     onCreateRulePlaylist: () -> Unit,
     onEditRulePlaylist: (Long) -> Unit,

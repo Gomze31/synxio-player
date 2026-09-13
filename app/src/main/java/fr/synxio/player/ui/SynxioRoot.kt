@@ -20,7 +20,9 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.LibraryMusic
+import androidx.compose.material.icons.rounded.MenuBook
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.Radio
@@ -76,7 +78,7 @@ import fr.synxio.player.ui.screens.HomeScreen
 import fr.synxio.player.ui.screens.LibraryScreen
 import fr.synxio.player.ui.screens.PermissionScreen
 import fr.synxio.player.ui.screens.PlaylistDetailScreen
-import fr.synxio.player.ui.screens.PlaylistsScreen
+import fr.synxio.player.ui.screens.AudiobooksScreen
 import fr.synxio.player.ui.screens.RepairScreen
 import fr.synxio.player.ui.screens.RulePlaylistEditorScreen
 import fr.synxio.player.ui.screens.SearchScreen
@@ -667,13 +669,6 @@ private fun AppNavHost(
                 },
                 onOpenArtist = { navController.navigate(Routes.artist(it)) },
                 onOpenAlbum = { navController.navigate(Routes.album(it)) }
-            )
-        }
-
-        composable(Routes.AUDIOBOOKS) {
-            fr.synxio.player.ui.screens.AudiobooksScreen(
-                viewModel = viewModel,
-                onBack = { navController.popBackStack() },
             )
         }
     }
