@@ -30,6 +30,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.net.Uri
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -111,7 +114,26 @@ fun ManageAudiobookFoldersDialog(
     onRemove: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var newPath by remember { mutableStateOf("/storage/emulated/0/Audiobooks") }
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val path = uri.path
+            if (path != null && path.contains(":")) {
+                val segments = path.split(":")
+                if (segments.size == 2) {
+                    val volumeId = segments[0].substringAfterLast("/")
+                    val folder = segments[1]
+                    val realPath = if (volumeId.equals("primary", ignoreCase = true)) {
+                        "/storage/emulated/0/$folder"
+                    } else {
+                        "/storage/$volumeId/$folder"
+                    }
+                    onAdd(realPath)
+                }
+            }
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -146,29 +168,18 @@ fun ManageAudiobookFoldersDialog(
                     }
                 }
 
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = newPath,
-                    onValueChange = { newPath = it },
-                    label = { Text("Chemin du dossier") },
-                    singleLine = true,
+                Spacer(Modifier.height(16.dp))
+                TextButton(
+                    onClick = { launcher.launch(null) },
                     modifier = Modifier.fillMaxWidth()
-                )
+                ) {
+                    Icon(Icons.Rounded.FolderOpen, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Ajouter un dossier...")
+                }
             }
         },
         confirmButton = {
-            TextButton(
-                onClick = {
-                    if (newPath.isNotBlank()) {
-                        onAdd(newPath.trim())
-                        newPath = ""
-                    }
-                }
-            ) {
-                Text("Ajouter")
-            }
-        },
-        dismissButton = {
             TextButton(onClick = onDismiss) { Text("Fermer") }
         }
     )
