@@ -73,6 +73,8 @@ object AppModule {
         db.audioFeatureDao()
     @Provides fun provideRulePlaylistDao(db: SynxioDatabase): RulePlaylistDao =
         db.rulePlaylistDao()
+    @Provides fun providePodcastProgressDao(db: SynxioDatabase): fr.synxio.player.data.db.PodcastProgressDao =
+        db.podcastProgressDao()
 
     @Provides
     @Singleton

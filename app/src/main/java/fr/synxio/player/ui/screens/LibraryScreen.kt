@@ -100,8 +100,52 @@ fun LibraryScreen(
                 LibraryTab.ARTISTS -> ArtistsTab(viewModel, onOpenArtist)
                 LibraryTab.GENRES -> GenresTab(viewModel, onOpenGenre)
                 LibraryTab.FOLDERS -> FoldersTab(viewModel, onOpenFolder)
+                LibraryTab.PODCASTS -> PodcastsTab(viewModel, onOpenAlbum, onOpenArtist, onEditTags)
             }
         }
+    }
+}
+
+@Composable
+private fun PodcastsTab(
+    viewModel: AppViewModel,
+    onOpenAlbum: (Long) -> Unit,
+    onOpenArtist: (String) -> Unit,
+    onEditTags: (Long) -> Unit,
+) {
+    val podcasts by viewModel.podcasts.collectAsStateWithLifecycle()
+    val playerState by viewModel.playerState.collectAsStateWithLifecycle()
+    var menuSong by remember { mutableStateOf<Song?>(null) }
+
+    if (podcasts.isEmpty()) {
+        EmptyState("Aucun podcast", "Ta bibliothèque de podcasts et livres audio est vide pour le moment.")
+        return
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+    ) {
+        itemsIndexed(podcasts, key = { _, s -> s.id }) { index, song ->
+            SongRow(
+                song = song,
+                isActive = song.id == playerState.currentSong?.id,
+                isPlaying = playerState.isPlaying && song.id == playerState.currentSong?.id,
+                onClick = { viewModel.playAll(podcasts, index) },
+                onMenu = { menuSong = song },
+            )
+        }
+    }
+
+    menuSong?.let { song ->
+        SongOptionsSheet(
+            song = song,
+            onOpenAlbum = { onOpenAlbum(song.albumId) },
+            onOpenArtist = { onOpenArtist(song.displayArtist) },
+            onEditTags = { onEditTags(song.id) },
+            onDelete = { viewModel.deleteSong(song) },
+            onDismiss = { menuSong = null },
+        )
     }
 }
 

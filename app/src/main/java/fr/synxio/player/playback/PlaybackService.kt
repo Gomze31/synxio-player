@@ -75,6 +75,7 @@ class PlaybackService : MediaLibraryService() {
     @Inject lateinit var loudnessRepository: LoudnessRepository
     @Inject lateinit var discord: DiscordRepository
     @Inject lateinit var discordPresence: DiscordPresenceRepository
+    @Inject lateinit var podcastProgressDao: fr.synxio.player.data.db.PodcastProgressDao
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -374,6 +375,8 @@ class PlaybackService : MediaLibraryService() {
      */
     private fun finalizeCurrentTrack(skipped: Boolean) {
         accumulate()
+        persistPodcastProgress(finished = !skipped)
+        
         val song: Song = musicRepository.songById(trackedSongId) ?: return
         val listened = listenedMs
         val startedAt = trackStartedAtSec
@@ -387,6 +390,22 @@ class PlaybackService : MediaLibraryService() {
             if (scrobbler.qualifies(song, listened)) scrobbler.scrobble(song, startedAt)
         }
         listenedMs = 0L
+    }
+    
+    private fun persistPodcastProgress(finished: Boolean = false) {
+        val song = musicRepository.songById(trackedSongId) ?: return
+        if (!song.isPodcast) return
+        
+        val position = if (finished) 0L else activePlayer.currentPosition.coerceAtLeast(0)
+        serviceScope.launch(Dispatchers.IO) {
+            podcastProgressDao.saveProgress(
+                fr.synxio.player.data.db.PodcastProgressEntity(
+                    songId = song.id,
+                    positionMs = position,
+                    lastPlayedSec = System.currentTimeMillis() / 1000
+                )
+            )
+        }
     }
 
     private fun fadeOutAndPause() {
@@ -449,6 +468,20 @@ class PlaybackService : MediaLibraryService() {
             }
 
             startTracking(mediaItem)
+            
+            // Restore podcast progress
+            val current = currentSong()
+            if (current != null && current.isPodcast && reason != Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) {
+                serviceScope.launch(Dispatchers.IO) {
+                    val progress = podcastProgressDao.getProgress(current.id)
+                    if (progress != null && progress.positionMs > 0) {
+                        withContext(Dispatchers.Main) {
+                            player.seekTo(progress.positionMs)
+                        }
+                    }
+                }
+            }
+
             applyNormalization()
             fade.resetVolume()
             persistQueue()
@@ -460,6 +493,7 @@ class PlaybackService : MediaLibraryService() {
                 if (trackedSongId < 0) startTracking(activePlayer.currentMediaItem)
             } else {
                 accumulate()
+                persistPodcastProgress()
             }
 
             // Persisté dans les deux sens, et non à la seule pause.

@@ -100,6 +100,10 @@ class AppViewModel @Inject constructor(
     val sortedSongs: StateFlow<List<Song>> = combine(library, settings) { lib, s ->
         musicRepository.sortSongs(lib.songs, s.songSort, s.songSortDescending)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    
+    val podcasts: StateFlow<List<Song>> = library
+        .map { it.podcasts }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val sortedAlbums = combine(library, settings) { lib, s ->
         musicRepository.sortAlbums(lib.albums, s.albumSort, s.albumSortDescending)

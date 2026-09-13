@@ -73,16 +73,6 @@ fun ComingSoonScreen(onBack: () -> Unit) {
                     status = "À l'étude"
                 )
             }
-
-            item {
-                FeatureCard(
-                    icon = Icons.Rounded.Podcasts,
-                    title = "Podcasts & Livres Audio",
-                    description = "Section dédiée avec mémorisation de la progression, vitesse de lecture ajustable et suppression intelligente des silences.",
-                    progress = 0.4f,
-                    status = "Planifié"
-                )
-            }
             
             item {
                 FeatureCard(

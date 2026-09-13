@@ -44,11 +44,12 @@ data class Library(
     val artists: List<Artist> = emptyList(),
     val genres: List<Genre> = emptyList(),
     val folders: List<Folder> = emptyList(),
+    val podcasts: List<Song> = emptyList(),
     val isLoading: Boolean = true,
     val hasScanned: Boolean = false,
 ) {
-    val isEmpty: Boolean get() = songs.isEmpty()
-    val totalDurationMs: Long get() = songs.sumOf { it.durationMs }
+    val isEmpty: Boolean get() = songs.isEmpty() && podcasts.isEmpty()
+    val totalDurationMs: Long get() = songs.sumOf { it.durationMs } + podcasts.sumOf { it.durationMs }
 }
 
 data class SearchResults(
@@ -169,13 +170,16 @@ class MusicRepository @Inject constructor(
             .groupBy { it.folderPath }
             .map { (path, folderSongs) -> Folder(path, folderSongs) }
             .sortedBy { it.path.lowercase() }
+            
+        val podcasts = songs.filter { it.isPodcast }.sortedBy { it.title.lowercase() }
 
         return Library(
-            songs = songs,
+            songs = songs.filter { !it.isPodcast }, // Titres ne contient pas les podcasts
             albums = albums,
             artists = artists,
             genres = genres,
             folders = folders,
+            podcasts = podcasts,
             isLoading = false,
             hasScanned = true,
         )

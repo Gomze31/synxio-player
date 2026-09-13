@@ -41,6 +41,10 @@ class MediaStoreScanner @Inject constructor(
         add(MediaStore.Audio.Media.SIZE)
         add(MediaStore.Audio.Media.MIME_TYPE)
         add(MediaStore.Audio.Media.DATA)
+        add(MediaStore.Audio.Media.IS_PODCAST)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            add(MediaStore.Audio.Media.IS_AUDIOBOOK)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             add(MediaStore.Audio.Media.ALBUM_ARTIST)
             add(MediaStore.Audio.Media.GENRE)
@@ -87,6 +91,10 @@ class MediaStoreScanner @Inject constructor(
                 val albumArtistCol = cursor.getColumnIndex(MediaStore.Audio.Media.ALBUM_ARTIST)
                 val genreCol = cursor.getColumnIndex(MediaStore.Audio.Media.GENRE)
                 val discCol = cursor.getColumnIndex(MediaStore.Audio.Media.DISC_NUMBER)
+                val podcastCol = cursor.getColumnIndex(MediaStore.Audio.Media.IS_PODCAST)
+                val audiobookCol = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    cursor.getColumnIndex(MediaStore.Audio.Media.IS_AUDIOBOOK)
+                } else -1
 
                 while (cursor.moveToNext()) {
                     val path = cursor.getString(dataCol) ?: continue
@@ -100,6 +108,9 @@ class MediaStoreScanner @Inject constructor(
                         rawTrack > 1000 -> rawTrack / 1000
                         else -> 1
                     }
+
+                    val isPodcastFile = (podcastCol >= 0 && cursor.getInt(podcastCol) != 0) ||
+                            (audiobookCol >= 0 && cursor.getInt(audiobookCol) != 0)
 
                     songs += Song(
                         id = cursor.getLong(idCol),
@@ -124,6 +135,7 @@ class MediaStoreScanner @Inject constructor(
                         sizeBytes = cursor.getLong(sizeCol),
                         mimeType = cursor.getString(mimeCol).orEmpty(),
                         path = path,
+                        isPodcast = isPodcastFile,
                     )
                 }
             }
