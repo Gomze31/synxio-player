@@ -56,16 +56,6 @@ fun ComingSoonScreen(onBack: () -> Unit) {
 
             item {
                 FeatureCard(
-                    icon = Icons.Rounded.DirectionsCar,
-                    title = "Support complet Android Auto",
-                    description = "Interface repensée et optimisée pour la conduite, avec commandes vocales avancées et accès rapide à vos playlists.",
-                    progress = 0.6f,
-                    status = "En développement"
-                )
-            }
-
-            item {
-                FeatureCard(
                     icon = Icons.Rounded.AutoAwesome,
                     title = "Radios intelligentes (IA)",
                     description = "Génération de mix dynamiques basés sur votre humeur (sport, détente, concentration) grâce à une analyse audio locale.",
