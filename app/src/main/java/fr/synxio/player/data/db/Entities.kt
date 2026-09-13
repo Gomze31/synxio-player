@@ -111,6 +111,12 @@ data class ExcludedFolderEntity(
     @PrimaryKey val path: String,
 )
 
+/** Dossiers exclus de la bibliothèque principale, traités comme des livres audio. */
+@Entity(tableName = "audiobook_folders")
+data class AudiobookFolderEntity(
+    @PrimaryKey val path: String,
+)
+
 /** Historique de lecture. */
 @Entity(tableName = "play_history")
 data class PlayHistoryEntity(

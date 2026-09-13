@@ -4,6 +4,8 @@ import fr.synxio.player.core.prefs.SettingsRepository
 import fr.synxio.player.core.util.fuzzyScore
 import fr.synxio.player.data.db.ExcludedFolderDao
 import fr.synxio.player.data.db.ExcludedFolderEntity
+import fr.synxio.player.data.db.AudiobookFolderDao
+import fr.synxio.player.data.db.AudiobookFolderEntity
 import fr.synxio.player.data.db.FavoriteDao
 import fr.synxio.player.data.db.FavoriteEntity
 import fr.synxio.player.data.db.PlayStatDao
@@ -45,11 +47,12 @@ data class Library(
     val genres: List<Genre> = emptyList(),
     val folders: List<Folder> = emptyList(),
     val podcasts: List<Song> = emptyList(),
+    val audiobooks: List<Song> = emptyList(),
     val isLoading: Boolean = true,
     val hasScanned: Boolean = false,
 ) {
-    val isEmpty: Boolean get() = songs.isEmpty() && podcasts.isEmpty()
-    val totalDurationMs: Long get() = songs.sumOf { it.durationMs } + podcasts.sumOf { it.durationMs }
+    val isEmpty: Boolean get() = songs.isEmpty() && podcasts.isEmpty() && audiobooks.isEmpty()
+    val totalDurationMs: Long get() = songs.sumOf { it.durationMs } + podcasts.sumOf { it.durationMs } + audiobooks.sumOf { it.durationMs }
 }
 
 data class SearchResults(
@@ -69,6 +72,7 @@ class MusicRepository @Inject constructor(
     private val favoriteDao: FavoriteDao,
     private val playStatDao: PlayStatDao,
     private val excludedFolderDao: ExcludedFolderDao,
+    private val audiobookFolderDao: AudiobookFolderDao,
     @ApplicationScope private val scope: CoroutineScope,
 ) {
 
@@ -106,7 +110,8 @@ class MusicRepository @Inject constructor(
         val library = withContext(Dispatchers.IO) {
             val minDurationSec = settingsRepository.settings.first().minDurationSec
             val excluded = excludedFolderDao.paths().toSet()
-            val songs = scanner.scan(minDurationSec * 1000L, excluded)
+            val audiobooks = audiobookFolderDao.paths().toSet()
+            val songs = scanner.scan(minDurationSec * 1000L, excluded, audiobooks)
             buildLibrary(songs)
         }
         _songsById.value = library.songs.associateBy { it.id }
@@ -114,8 +119,12 @@ class MusicRepository @Inject constructor(
         settingsRepository.setLastScan(System.currentTimeMillis())
     }
 
-    private fun buildLibrary(songs: List<Song>): Library {
-        val albums = songs
+    private fun buildLibrary(allSongs: List<Song>): Library {
+        val podcasts = allSongs.filter { it.isPodcast }.sortedBy { it.title.lowercase() }
+        val audiobooks = allSongs.filter { it.isAudiobook }.sortedBy { it.title.lowercase() }
+        val musicSongs = allSongs.filter { !it.isPodcast && !it.isAudiobook }
+
+        val albums = musicSongs
             .groupBy { it.albumId }
             .map { (albumId, albumSongs) ->
                 val head = albumSongs.first()
@@ -161,25 +170,24 @@ class MusicRepository @Inject constructor(
             )
         }
 
-        val genres = songs
+        val genres = musicSongs
             .groupBy { it.genre?.takeIf { g -> g.isNotBlank() } ?: Song.UNKNOWN_GENRE }
             .map { (name, genreSongs) -> Genre(name, genreSongs) }
             .sortedBy { it.name.lowercase() }
 
-        val folders = songs
+        val folders = musicSongs
             .groupBy { it.folderPath }
             .map { (path, folderSongs) -> Folder(path, folderSongs) }
             .sortedBy { it.path.lowercase() }
             
-        val podcasts = songs.filter { it.isPodcast }.sortedBy { it.title.lowercase() }
-
         return Library(
-            songs = songs.filter { !it.isPodcast }, // Titres ne contient pas les podcasts
+            songs = musicSongs,
             albums = albums,
             artists = artists,
             genres = genres,
             folders = folders,
             podcasts = podcasts,
+            audiobooks = audiobooks,
             isLoading = false,
             hasScanned = true,
         )
@@ -299,13 +307,27 @@ class MusicRepository @Inject constructor(
 
     val excludedFolders = excludedFolderDao.observeAll().map { list -> list.map { it.path } }
 
-    suspend fun excludeFolder(path: String) {
+    suspend fun addExcludedFolder(path: String) {
         excludedFolderDao.add(ExcludedFolderEntity(path))
         refresh()
     }
 
-    suspend fun includeFolder(path: String) {
+    suspend fun removeExcludedFolder(path: String) {
         excludedFolderDao.remove(path)
+        refresh()
+    }
+
+    // --- Dossiers de Livres Audio ----------------------------------------------------
+
+    val audiobookFolders = audiobookFolderDao.observeAll().map { list -> list.map { it.path } }
+
+    suspend fun addAudiobookFolder(path: String) {
+        audiobookFolderDao.add(AudiobookFolderEntity(path))
+        refresh()
+    }
+
+    suspend fun removeAudiobookFolder(path: String) {
+        audiobookFolderDao.remove(path)
         refresh()
     }
 

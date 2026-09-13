@@ -21,8 +21,9 @@ import androidx.room.RoomDatabase
         AudioFeatureEntity::class,
         RulePlaylistEntity::class,
         PodcastProgressEntity::class,
+        AudiobookFolderEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 abstract class SynxioDatabase : RoomDatabase() {
@@ -40,6 +41,7 @@ abstract class SynxioDatabase : RoomDatabase() {
     abstract fun audioFeatureDao(): AudioFeatureDao
     abstract fun rulePlaylistDao(): RulePlaylistDao
     abstract fun podcastProgressDao(): PodcastProgressDao
+    abstract fun audiobookFolderDao(): AudiobookFolderDao
 
     companion object {
         const val NAME = "synxio.db"

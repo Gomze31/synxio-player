@@ -32,6 +32,7 @@ data class Song(
     val mimeType: String,
     val path: String,
     val isPodcast: Boolean = false,
+    val isAudiobook: Boolean = false,
 ) {
     val uri: Uri
         get() = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)

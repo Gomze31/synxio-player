@@ -120,6 +120,21 @@ class AppViewModel @Inject constructor(
         .map { it.podcasts }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    val audiobooks: StateFlow<List<Song>> = library
+        .map { it.audiobooks }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val audiobookFolders: StateFlow<List<String>> = musicRepository.audiobookFolders
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun addAudiobookFolder(path: String) = viewModelScope.launch {
+        musicRepository.addAudiobookFolder(path)
+    }
+
+    fun removeAudiobookFolder(path: String) = viewModelScope.launch {
+        musicRepository.removeAudiobookFolder(path)
+    }
+
     val sortedAlbums = combine(library, settings) { lib, s ->
         musicRepository.sortAlbums(lib.albums, s.albumSort, s.albumSortDescending)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())

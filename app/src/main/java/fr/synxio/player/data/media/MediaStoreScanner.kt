@@ -58,9 +58,14 @@ class MediaStoreScanner @Inject constructor(
      * @param minDurationMs filtre les bips et notifications indexés comme musique.
      * @param excludedFolders préfixes de chemins à ignorer.
      */
-    fun scan(minDurationMs: Long = 30_000L, excludedFolders: Set<String> = emptySet()): List<Song> {
+    fun scan(minDurationMs: Long = 30_000L, excludedFolders: Set<String> = emptySet(), audiobookFolders: Set<String> = emptySet()): List<Song> {
         val selection = buildString {
-            append("${MediaStore.Audio.Media.IS_MUSIC} != 0")
+            // Inclure MUSIQUE, PODCAST et AUDIOBOOK natifs. Les fichiers vocaux / alarmes sont souvent IS_MUSIC=0
+            append("(${MediaStore.Audio.Media.IS_MUSIC} != 0 OR ${MediaStore.Audio.Media.IS_PODCAST} != 0")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                append(" OR ${MediaStore.Audio.Media.IS_AUDIOBOOK} != 0")
+            }
+            append(")")
             append(" AND ${MediaStore.Audio.Media.DURATION} >= ?")
         }
         val args = arrayOf(minDurationMs.toString())
@@ -109,8 +114,9 @@ class MediaStoreScanner @Inject constructor(
                         else -> 1
                     }
 
-                    val isPodcastFile = (podcastCol >= 0 && cursor.getInt(podcastCol) != 0) ||
-                            (audiobookCol >= 0 && cursor.getInt(audiobookCol) != 0)
+                    val isPodcastFile = (podcastCol >= 0 && cursor.getInt(podcastCol) != 0)
+                    val isNativeAudiobook = (audiobookCol >= 0 && cursor.getInt(audiobookCol) != 0)
+                    val isAudiobookFile = isNativeAudiobook || audiobookFolders.any { path.startsWith(it) }
 
                     songs += Song(
                         id = cursor.getLong(idCol),
@@ -136,6 +142,7 @@ class MediaStoreScanner @Inject constructor(
                         mimeType = cursor.getString(mimeCol).orEmpty(),
                         path = path,
                         isPodcast = isPodcastFile,
+                        isAudiobook = isAudiobookFile,
                     )
                 }
             }

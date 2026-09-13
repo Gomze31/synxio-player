@@ -225,6 +225,22 @@ interface ExcludedFolderDao {
 }
 
 @Dao
+interface AudiobookFolderDao {
+
+    @Query("SELECT * FROM audiobook_folders")
+    fun observeAll(): Flow<List<AudiobookFolderEntity>>
+
+    @Query("SELECT path FROM audiobook_folders")
+    suspend fun paths(): List<String>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun add(folder: AudiobookFolderEntity)
+
+    @Query("DELETE FROM audiobook_folders WHERE path = :path")
+    suspend fun remove(path: String)
+}
+
+@Dao
 interface PlayHistoryDao {
 
     @Query("SELECT * FROM play_history ORDER BY playedAt DESC")

@@ -19,6 +19,8 @@ import fr.synxio.player.data.db.LyricsOffsetDao
 import fr.synxio.player.data.db.PlayHistoryDao
 import fr.synxio.player.data.db.PlayStatDao
 import fr.synxio.player.data.db.PlaylistDao
+import fr.synxio.player.data.db.PodcastProgressDao
+import fr.synxio.player.data.db.AudiobookFolderDao
 import fr.synxio.player.data.db.QueueDao
 import fr.synxio.player.data.db.RulePlaylistDao
 import fr.synxio.player.data.db.SynxioDatabase
@@ -73,8 +75,10 @@ object AppModule {
         db.audioFeatureDao()
     @Provides fun provideRulePlaylistDao(db: SynxioDatabase): RulePlaylistDao =
         db.rulePlaylistDao()
-    @Provides fun providePodcastProgressDao(db: SynxioDatabase): fr.synxio.player.data.db.PodcastProgressDao =
+    @Provides fun providePodcastProgressDao(db: SynxioDatabase): PodcastProgressDao =
         db.podcastProgressDao()
+    @Provides fun provideAudiobookFolderDao(db: SynxioDatabase): AudiobookFolderDao =
+        db.audiobookFolderDao()
 
     @Provides
     @Singleton

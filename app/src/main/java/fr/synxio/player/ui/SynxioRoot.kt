@@ -122,6 +122,7 @@ object Routes {
     const val SMART = "smart/{smartId}"
     const val RULE = "rule/{ruleId}"
     const val RULE_EDITOR = "rule_editor/{ruleId}"
+    const val AUDIOBOOKS = "audiobooks"
 
     fun album(id: Long) = "album/$id"
     fun smart(id: SmartPlaylistId) = "smart/${id.name}"
@@ -381,6 +382,7 @@ private fun AppNavHost(
                 onOpenRulePlaylist = { navController.navigate(Routes.rule(it)) },
                 onCreateRulePlaylist = { navController.navigate(Routes.ruleEditor()) },
                 onEditRulePlaylist = { navController.navigate(Routes.ruleEditor(it)) },
+                onOpenAudiobooks = { navController.navigate(Routes.AUDIOBOOKS) },
             )
         }
 
@@ -666,6 +668,13 @@ private fun AppNavHost(
                 },
                 onOpenArtist = { navController.navigate(Routes.artist(it)) },
                 onOpenAlbum = { navController.navigate(Routes.album(it)) }
+            )
+        }
+
+        composable(Routes.AUDIOBOOKS) {
+            fr.synxio.player.ui.screens.AudiobooksScreen(
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() },
             )
         }
     }
