@@ -54,15 +54,7 @@ fun ComingSoonScreen(onBack: () -> Unit) {
                 )
             }
 
-            item {
-                FeatureCard(
-                    icon = Icons.Rounded.AutoAwesome,
-                    title = "Radios intelligentes (IA)",
-                    description = "Génération de mix dynamiques basés sur votre humeur (sport, détente, concentration) grâce à une analyse audio locale.",
-                    progress = 0.3f,
-                    status = "Planifié"
-                )
-            }
+
 
             item {
                 FeatureCard(

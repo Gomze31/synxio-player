@@ -101,6 +101,94 @@ fun LibraryScreen(
                 LibraryTab.GENRES -> GenresTab(viewModel, onOpenGenre)
                 LibraryTab.FOLDERS -> FoldersTab(viewModel, onOpenFolder)
                 LibraryTab.PODCASTS -> PodcastsTab(viewModel, onOpenAlbum, onOpenArtist, onEditTags)
+                LibraryTab.RADIOS -> RadiosTab(viewModel)
+            }
+        }
+    }
+}
+
+@Composable
+private fun RadiosTab(viewModel: AppViewModel) {
+    val progress by viewModel.similarityProgress.collectAsStateWithLifecycle()
+    val analysedCount by viewModel.similarityAnalysedCount.collectAsStateWithLifecycle()
+    val library by viewModel.library.collectAsStateWithLifecycle()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        val totalSongs = library.songs.size
+        
+        if (analysedCount < totalSongs * 0.9f || progress.running) {
+            // Pas assez de musiques analysées
+            Icon(
+                Icons.Rounded.AutoAwesome,
+                contentDescription = null,
+                modifier = Modifier.size(64.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                "Analyse requise",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                "Pour générer des radios intelligentes, Synxio a besoin d'analyser l'empreinte sonore de tes musiques (basses, tempo, brillance...).",
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            if (progress.running) {
+                CircularProgressIndicator(progress = { progress.fraction })
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("${progress.done} / ${progress.total}", style = MaterialTheme.typography.labelMedium)
+            } else {
+                Button(onClick = { viewModel.analyseLibrary() }) {
+                    Text("Lancer l'analyse ($analysedCount / $totalSongs)")
+                }
+            }
+        } else {
+            // Radios prêtes
+            Text(
+                "Choisis ton humeur",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+            
+            fr.synxio.player.data.repo.Mood.entries.forEach { mood ->
+                Card(
+                    onClick = { viewModel.playMoodRadio(mood) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Rounded.AutoAwesome,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(32.dp)
+                        )
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Text(
+                            mood.label,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
             }
         }
     }
@@ -115,6 +203,7 @@ private fun PodcastsTab(
 ) {
     val podcasts by viewModel.podcasts.collectAsStateWithLifecycle()
     val playerState by viewModel.playerState.collectAsStateWithLifecycle()
+    val favorites by viewModel.favoriteIds.collectAsStateWithLifecycle()
     var menuSong by remember { mutableStateOf<Song?>(null) }
 
     if (podcasts.isEmpty()) {
@@ -126,27 +215,26 @@ private fun PodcastsTab(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
     ) {
-        itemsIndexed(podcasts, key = { _, s -> s.id }) { index, song ->
+        items(podcasts, key = { it.id }) { song ->
             SongRow(
                 song = song,
-                isActive = song.id == playerState.currentSong?.id,
-                isPlaying = playerState.isPlaying && song.id == playerState.currentSong?.id,
-                onClick = { viewModel.playAll(podcasts, index) },
-                onMenu = { menuSong = song },
+                onClick = { viewModel.playSong(song, podcasts) },
+                isCurrent = playerState.currentSong?.id == song.id,
+                isPlaying = playerState.isPlaying,
+                isFavorite = song.id in favorites,
+                onMenuClick = { menuSong = song },
             )
         }
     }
 
-    menuSong?.let { song ->
-        SongOptionsSheet(
-            song = song,
-            onOpenAlbum = { onOpenAlbum(song.albumId) },
-            onOpenArtist = { onOpenArtist(song.displayArtist) },
-            onEditTags = { onEditTags(song.id) },
-            onDelete = { viewModel.deleteSong(song) },
-            onDismiss = { menuSong = null },
-        )
-    }
+    SongMenuHost(
+        viewModel = viewModel,
+        song = menuSong,
+        onDismiss = { menuSong = null },
+        onOpenAlbum = onOpenAlbum,
+        onOpenArtist = onOpenArtist,
+        onEditTags = onEditTags,
+    )
 }
 
 @Composable

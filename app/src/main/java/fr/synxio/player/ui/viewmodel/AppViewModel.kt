@@ -61,8 +61,23 @@ class AppViewModel @Inject constructor(
     private val similarityRepository: SimilarityRepository,
     private val rulePlaylistRepository: RulePlaylistRepository,
     private val radioRepository: fr.synxio.player.data.repo.RadioRepository,
+    private val moodRadioRepository: fr.synxio.player.data.repo.MoodRadioRepository,
     smartPlaylistRepository: SmartPlaylistRepository,
 ) : ViewModel() {
+
+    val similarityProgress = similarityRepository.progress
+    val similarityAnalysedCount = similarityRepository.analysedCount
+    
+    fun analyseLibrary() = similarityRepository.analyseLibrary(library.value.songs)
+    
+    fun playMoodRadio(mood: fr.synxio.player.data.repo.Mood) {
+        val mix = moodRadioRepository.generateMix(mood, library.value.songs)
+        if (mix.isNotEmpty()) {
+            player.play(mix, 0)
+        } else {
+            viewModelScope.launch { _messages.emit("Pas assez de données pour générer cette radio.") }
+        }
+    }
 
     val topRadios: StateFlow<List<fr.synxio.player.data.model.RadioStation>> = kotlinx.coroutines.flow.flow {
         emit(radioRepository.getTopRadios(100))

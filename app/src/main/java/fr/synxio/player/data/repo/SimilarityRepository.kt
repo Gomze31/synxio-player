@@ -173,6 +173,16 @@ class SimilarityRepository @Inject constructor(
         result
     }
 
+    /**
+     * Retourne les vecteurs standardisés de tous les morceaux.
+     * Utile pour la classification globale (ex: Radios IA).
+     */
+    fun allStandardised(): Map<String, FloatArray> {
+        val raw = vectors.value
+        val stats = standardisation(raw.values)
+        return raw.mapValues { it.value.standardise(stats) }
+    }
+
     // --- Normalisation ---------------------------------------------------------------
 
     private data class Standardisation(val means: FloatArray, val deviations: FloatArray)
