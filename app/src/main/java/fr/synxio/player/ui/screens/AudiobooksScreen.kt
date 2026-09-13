@@ -46,7 +46,6 @@ import fr.synxio.player.ui.viewmodel.AppViewModel
 @Composable
 fun AudiobooksScreen(
     viewModel: AppViewModel,
-    onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val audiobooks by viewModel.audiobooks.collectAsStateWithLifecycle()
@@ -59,11 +58,6 @@ fun AudiobooksScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Livres audio") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "Retour")
-                    }
-                },
                 actions = {
                     IconButton(onClick = { showManageFolders = true }) {
                         Icon(Icons.Rounded.FolderOpen, contentDescription = "Gérer les dossiers")

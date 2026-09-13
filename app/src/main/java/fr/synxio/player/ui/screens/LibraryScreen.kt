@@ -82,6 +82,11 @@ fun LibraryScreen(
     onOpenGenre: (String) -> Unit,
     onOpenFolder: (String) -> Unit,
     onEditTags: (Long) -> Unit,
+    onOpenPlaylist: (Long) -> Unit,
+    onOpenSmartPlaylist: (String) -> Unit,
+    onOpenRulePlaylist: (Long) -> Unit,
+    onCreateRulePlaylist: () -> Unit,
+    onEditRulePlaylist: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val tabs = LibraryTab.entries
@@ -112,6 +117,14 @@ fun LibraryScreen(
                 LibraryTab.FOLDERS -> FoldersTab(viewModel, onOpenFolder)
                 LibraryTab.PODCASTS -> PodcastsTab(viewModel, onOpenAlbum, onOpenArtist, onEditTags)
                 LibraryTab.RADIOS -> RadiosTab(viewModel)
+                LibraryTab.PLAYLISTS -> PlaylistsTab(
+                    viewModel = viewModel,
+                    onOpenPlaylist = onOpenPlaylist,
+                    onOpenSmartPlaylist = onOpenSmartPlaylist,
+                    onOpenRulePlaylist = onOpenRulePlaylist,
+                    onCreateRulePlaylist = onCreateRulePlaylist,
+                    onEditRulePlaylist = onEditRulePlaylist
+                )
             }
         }
     }

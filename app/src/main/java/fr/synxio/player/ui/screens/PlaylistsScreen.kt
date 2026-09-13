@@ -63,14 +63,13 @@ import fr.synxio.player.ui.components.SynxioDialog
 import fr.synxio.player.ui.viewmodel.AppViewModel
 
 @Composable
-fun PlaylistsScreen(
+fun PlaylistsTab(
     viewModel: AppViewModel,
     onOpenPlaylist: (Long) -> Unit,
     onOpenSmartPlaylist: (SmartPlaylistId) -> Unit,
     onOpenRulePlaylist: (Long) -> Unit,
     onCreateRulePlaylist: () -> Unit,
     onEditRulePlaylist: (Long) -> Unit,
-    onOpenAudiobooks: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
@@ -96,32 +95,23 @@ fun PlaylistsScreen(
         exportTarget = null
     }
 
-    Scaffold(
-        modifier = modifier,
-        topBar = {
-            TopAppBar(
-                title = { Text("Playlists") },
-                actions = {
-                    IconButton(onClick = { importLauncher.launch(arrayOf("*/*")) }) {
-                        Icon(Icons.Rounded.FileUpload, contentDescription = "Importer un M3U")
-                    }
-                },
-            )
-        },
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { creating = true },
-                icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
-                text = { Text("Nouvelle") },
-            )
-        },
-    ) { padding ->
+    Box(modifier = modifier.fillMaxSize()) {
         LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp, bottom = 80.dp),
         ) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Importer", style = MaterialTheme.typography.titleMedium)
+                    IconButton(onClick = { importLauncher.launch(arrayOf("*/*")) }) {
+                        Icon(Icons.Rounded.FileUpload, contentDescription = "Importer un M3U", tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
             item {
                 PlaylistRow(
                     playlist = Playlist(
@@ -135,30 +125,7 @@ fun PlaylistsScreen(
                 )
             }
 
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(onClick = onOpenAudiobooks)
-                        .padding(horizontal = 8.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = androidx.compose.material.icons.Icons.Rounded.MenuBook,
-                        contentDescription = null,
-                        modifier = Modifier.size(40.dp).padding(8.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(Modifier.width(16.dp))
-                    Text(
-                        text = "Livres audio",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
+
 
             if (smartPlaylists.isNotEmpty()) {
                 item { SectionHeader("Sélections automatiques") }
@@ -269,6 +236,15 @@ fun PlaylistsScreen(
                 }
             }
         }
+
+        ExtendedFloatingActionButton(
+            onClick = { creating = true },
+            icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
+            text = { Text("Nouvelle") },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(16.dp)
+        )
     }
 
     if (creating) {

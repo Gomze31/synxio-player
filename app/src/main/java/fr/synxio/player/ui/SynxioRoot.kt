@@ -95,7 +95,7 @@ import fr.synxio.player.ui.viewmodel.AppViewModel
 enum class TopLevel(val route: String, val label: String, val icon: ImageVector) {
     HOME("home", "Accueil", Icons.Rounded.Home),
     LIBRARY("library", "Musique", Icons.Rounded.LibraryMusic),
-    PLAYLISTS("playlists", "Playlists", Icons.Rounded.PlaylistPlay),
+    AUDIOBOOKS("audiobooks", "Livres audio", Icons.Rounded.MenuBook),
     SEARCH("search", "Recherche", Icons.Rounded.Search),
     RADIOS("radios", "Radios", Icons.Rounded.Radio),
     SETTINGS("settings", "Paramètres", Icons.Rounded.Settings),
@@ -371,18 +371,17 @@ private fun AppNavHost(
                 onOpenGenre = { navController.navigate(Routes.genre(it)) },
                 onOpenFolder = { navController.navigate(Routes.folder(it)) },
                 onEditTags = { navController.navigate(Routes.tags(it)) },
-            )
-        }
-
-        composable(TopLevel.PLAYLISTS.route) {
-            PlaylistsScreen(
-                viewModel = viewModel,
                 onOpenPlaylist = { navController.navigate(Routes.playlist(it)) },
                 onOpenSmartPlaylist = { navController.navigate(Routes.smart(it)) },
                 onOpenRulePlaylist = { navController.navigate(Routes.rule(it)) },
                 onCreateRulePlaylist = { navController.navigate(Routes.ruleEditor()) },
                 onEditRulePlaylist = { navController.navigate(Routes.ruleEditor(it)) },
-                onOpenAudiobooks = { navController.navigate(Routes.AUDIOBOOKS) },
+            )
+        }
+
+        composable(TopLevel.AUDIOBOOKS.route) {
+            AudiobooksScreen(
+                viewModel = viewModel,
             )
         }
 

@@ -61,4 +61,5 @@ enum class LibraryTab(val label: String) {
     FOLDERS("Dossiers"),
     PODCASTS("Podcasts"),
     RADIOS("Radios IA"),
+    PLAYLISTS("Playlists")
 }
