@@ -1,0 +1,79 @@
+name: Bump Version and Tag
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump_type:
+        description: 'Type of version bump (patch, minor, major)'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+jobs:
+  bump-version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Bump Version in build.gradle.kts
+        id: bump
+        run: |
+          python -c "
+          import re, sys, os
+          file_path = 'app/build.gradle.kts'
+          with open(file_path, 'r') as f: content = f.read()
+          
+          v_name_match = re.search(r'versionName\s*=\s*\"(\d+)\.(\d+)\.(\d+)\"', content)
+          v_code_match = re.search(r'versionCode\s*=\s*(\d+)', content)
+          
+          if not v_name_match or not v_code_match:
+              print('Could not find versionName or versionCode')
+              sys.exit(1)
+              
+          major, minor, patch = map(int, v_name_match.groups())
+          code = int(v_code_match.group(1))
+          
+          bump_type = '${{ github.event.inputs.bump_type }}'
+          if bump_type == 'major':
+              major += 1; minor = 0; patch = 0
+          elif bump_type == 'minor':
+              minor += 1; patch = 0
+          else:
+              patch += 1
+              
+          new_version = f'{major}.{minor}.{patch}'
+          new_code = code + 1
+          
+          content = re.sub(r'versionName\s*=\s*\"\d+\.\d+\.\d+\"', f'versionName = \"{new_version}\"', content)
+          content = re.sub(r'versionCode\s*=\s*\d+', f'versionCode = {new_code}', content)
+          
+          with open(file_path, 'w') as f: f.write(content)
+          print(f'Bumped to {new_version}')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f: f.write(f'new_version={new_version}\n')
+          "
+
+      - name: Commit and Push Tag
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/build.gradle.kts
+          git commit -m "chore: bump version to v${{ steps.bump.outputs.new_version }}"
+          git push origin main
+          git tag "v${{ steps.bump.outputs.new_version }}"
+          git push origin "v${{ steps.bump.outputs.new_version }}"

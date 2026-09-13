@@ -4,12 +4,6 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
-    inputs:
-      tag_name:
-        description: 'Tag name for the release (e.g. v2.5.0)'
-        required: true
-        default: 'v2.5.0'
 
 permissions:
   contents: write
@@ -60,12 +54,7 @@ jobs:
       - name: Determine Release Tag
         id: tag
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            RELEASE_TAG="${{ inputs.tag_name }}"
-          else
-            RELEASE_TAG="${GITHUB_REF_NAME}"
-          fi
-          echo "tag_name=${RELEASE_TAG}" >> $GITHUB_OUTPUT
+          echo "tag_name=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
 
       - name: Prepare Release APK Artifact
         run: |
