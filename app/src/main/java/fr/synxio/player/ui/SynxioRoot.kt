@@ -42,6 +42,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,6 +52,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
@@ -88,6 +90,7 @@ import fr.synxio.player.ui.screens.StatsScreen
 import fr.synxio.player.ui.screens.TagEditorScreen
 import fr.synxio.player.ui.screens.nowplaying.NowPlayingScreen
 import fr.synxio.player.ui.viewmodel.AppViewModel
+import fr.synxio.player.ui.viewmodel.UpdateViewModel
 
 /** Destinations de la barre de navigation basse. */
 /**
@@ -180,6 +183,9 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerOnStart: Boolean) {
     val playerState by viewModel.playerState.collectAsStateWithLifecycle()
     var playerExpanded by remember { mutableStateOf(false) }
 
+    val updateViewModel: UpdateViewModel = hiltViewModel()
+    val updateState by updateViewModel.state.collectAsStateWithLifecycle()
+
     LaunchedEffect(openPlayerOnStart) {
         if (openPlayerOnStart) playerExpanded = true
     }
@@ -199,7 +205,64 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerOnStart: Boolean) {
         }
     }
 
+    LaunchedEffect(updateState.pendingIntent) {
+        updateState.pendingIntent?.let { intent ->
+            context.startActivity(intent)
+            updateViewModel.consumeIntent()
+        }
+    }
+
+    LaunchedEffect(updateState.message) {
+        updateState.message?.let { msg ->
+            snackbarHost.showSnackbar(msg)
+            updateViewModel.consumeMessage()
+        }
+    }
+
     BackHandler(enabled = playerExpanded) { playerExpanded = false }
+
+    var dismissUpdate by remember { mutableStateOf(false) }
+
+    if (updateState.hasUpdate && !dismissUpdate && !updateState.downloading) {
+        AlertDialog(
+            onDismissRequest = { dismissUpdate = true },
+            title = { Text("Mise à jour disponible") },
+            text = { Text("La version ${updateState.available?.versionName} est disponible !\n\n${updateState.available?.notes}") },
+            confirmButton = {
+                TextButton(onClick = { updateViewModel.downloadAndInstall() }) {
+                    Text("Mettre à jour")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { dismissUpdate = true }) {
+                    Text("Plus tard")
+                }
+            }
+        )
+    }
+
+    if (updateState.downloading) {
+        AlertDialog(
+            onDismissRequest = { },
+            title = { Text("Téléchargement...") },
+            text = { 
+                Column {
+                    Text("Téléchargement de la mise à jour en cours.")
+                    Spacer(Modifier.padding(8.dp))
+                    LinearProgressIndicator(
+                        progress = { updateState.progress },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = { },
+            dismissButton = {
+                TextButton(onClick = { updateViewModel.cancel() }) {
+                    Text("Annuler")
+                }
+            }
+        )
+    }
 
     Box(Modifier.fillMaxSize()) {
         Scaffold(
