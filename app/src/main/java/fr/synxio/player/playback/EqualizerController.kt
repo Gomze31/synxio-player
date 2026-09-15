@@ -3,6 +3,7 @@ package fr.synxio.player.playback
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
 import android.media.audiofx.LoudnessEnhancer
+import android.media.audiofx.PresetReverb
 import android.media.audiofx.Virtualizer
 import android.media.audiofx.Visualizer
 import android.util.Log
@@ -22,6 +23,7 @@ data class EqualizerCapabilities(
     val presets: List<String> = emptyList(),
     val bassBoostSupported: Boolean = false,
     val virtualizerSupported: Boolean = false,
+    val reverbSupported: Boolean = false,
     val loudnessSupported: Boolean = false,
 )
 
@@ -37,6 +39,7 @@ class EqualizerController @Inject constructor() {
     private var equalizer: Equalizer? = null
     private var bassBoost: BassBoost? = null
     private var virtualizer: Virtualizer? = null
+    private var presetReverb: PresetReverb? = null
     private var loudness: LoudnessEnhancer? = null
     private var visualizer: Visualizer? = null
     private var isVisualizerEnabled = false
@@ -73,6 +76,7 @@ class EqualizerController @Inject constructor() {
                 presets = (0 until eq.numberOfPresets).map { eq.getPresetName(it.toShort()) },
                 bassBoostSupported = true,
                 virtualizerSupported = true,
+                reverbSupported = true,
                 loudnessSupported = true,
             )
             equalizer = eq
@@ -83,11 +87,13 @@ class EqualizerController @Inject constructor() {
 
         bassBoost = runCatching { BassBoost(PRIORITY, audioSessionId) }.getOrNull()
         virtualizer = runCatching { Virtualizer(PRIORITY, audioSessionId) }.getOrNull()
+        presetReverb = runCatching { PresetReverb(PRIORITY, audioSessionId) }.getOrNull()
         loudness = runCatching { LoudnessEnhancer(audioSessionId) }.getOrNull()
 
         capabilities = capabilities.copy(
             bassBoostSupported = bassBoost?.strengthSupported ?: false,
             virtualizerSupported = virtualizer?.strengthSupported ?: false,
+            reverbSupported = presetReverb != null,
             loudnessSupported = loudness != null,
         )
 
@@ -127,6 +133,7 @@ class EqualizerController @Inject constructor() {
             equalizer?.enabled = enabled
             bassBoost?.enabled = enabled
             virtualizer?.enabled = enabled
+            presetReverb?.enabled = enabled
             loudness?.enabled = enabled
         }.onFailure { Log.w(TAG, "Activation des effets impossible", it) }
     }
@@ -168,6 +175,11 @@ class EqualizerController @Inject constructor() {
             .onFailure { Log.w(TAG, "Virtualiseur refusé", it) }
     }
 
+    fun setReverbPreset(preset: Short) {
+        runCatching { presetReverb?.preset = preset }
+            .onFailure { Log.w(TAG, "Reverb refusée", it) }
+    }
+
     /** Gain en millibels : compense les enregistrements trop faibles. */
     fun setLoudnessGain(millibel: Int) {
         runCatching { loudness?.setTargetGain(millibel.coerceIn(0, 2000)) }
@@ -196,11 +208,13 @@ class EqualizerController @Inject constructor() {
         runCatching { equalizer?.release() }
         runCatching { bassBoost?.release() }
         runCatching { virtualizer?.release() }
+        runCatching { presetReverb?.release() }
         runCatching { loudness?.release() }
         runCatching { visualizer?.release() }
         equalizer = null
         bassBoost = null
         virtualizer = null
+        presetReverb = null
         loudness = null
         visualizer = null
         _fftFlow.value = ByteArray(0)

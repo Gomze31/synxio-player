@@ -271,6 +271,16 @@ fun EqualizerScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                     onChange = viewModel::setVirtualizer,
                 )
             }
+            if (capabilities.reverbSupported) {
+                EffectSlider(
+                    label = "Réverbération (Pièce -> Hall)",
+                    value = settings.reverbPreset,
+                    max = 6,
+                    enabled = settings.equalizerEnabled,
+                    suffix = " / 6",
+                    onChange = viewModel::setReverbPreset,
+                )
+            }
             if (capabilities.loudnessSupported) {
                 EffectSlider(
                     label = "Gain de volume",

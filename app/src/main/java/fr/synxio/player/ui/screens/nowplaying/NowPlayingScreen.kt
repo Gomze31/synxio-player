@@ -354,20 +354,8 @@ private fun TopRow(queueLabel: String, onCollapse: () -> Unit, onMenu: () -> Uni
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.weight(1f))
-        
-        androidx.compose.ui.viewinterop.AndroidView(
-            factory = { ctx ->
-                // MediaRouteButton a besoin d'un thème AppCompat, sinon il provoque un crash
-                // car l'application utilise android:Theme.Material.
-                val themedCtx = androidx.appcompat.view.ContextThemeWrapper(
-                    ctx,
-                    androidx.appcompat.R.style.Theme_AppCompat_NoActionBar
-                )
-                androidx.mediarouter.app.MediaRouteButton(themedCtx).apply {
-                    com.google.android.gms.cast.framework.CastButtonFactory.setUpMediaRouteButton(ctx.applicationContext, this)
-                }
-            }
-        )
+        fr.synxio.player.ui.components.CastButton()
+
 
         IconButton(onClick = onMenu) {
             Icon(Icons.Rounded.MoreVert, contentDescription = "Plus d'options")

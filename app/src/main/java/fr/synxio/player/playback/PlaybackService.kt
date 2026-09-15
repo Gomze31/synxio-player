@@ -260,6 +260,7 @@ class PlaybackService : MediaLibraryService() {
                         ?.let(equalizer::setBandLevels)
                     equalizer.setBassBoost(s.bassBoost)
                     equalizer.setVirtualizer(s.virtualizer)
+                    equalizer.setReverbPreset(s.reverbPreset.toShort())
                     equalizer.setLoudnessGain(s.loudnessGain)
                 }
 
@@ -619,6 +620,7 @@ class PlaybackService : MediaLibraryService() {
         s.equalizerBands.toBandLevels().takeIf { it.isNotEmpty() }?.let(equalizer::setBandLevels)
         equalizer.setBassBoost(s.bassBoost)
         equalizer.setVirtualizer(s.virtualizer)
+        equalizer.setReverbPreset(s.reverbPreset.toShort())
         equalizer.setLoudnessGain(s.loudnessGain)
     }
 
@@ -636,6 +638,7 @@ class PlaybackService : MediaLibraryService() {
                         ?.let(equalizer::setBandLevels)
                     equalizer.setBassBoost(s.bassBoost)
                     equalizer.setVirtualizer(s.virtualizer)
+                    equalizer.setReverbPreset(s.reverbPreset.toShort())
                     equalizer.setLoudnessGain(s.loudnessGain)
                 }
             }

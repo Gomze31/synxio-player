@@ -178,6 +178,11 @@ class EqualizerViewModel @Inject constructor(
         viewModelScope.launch { settingsRepository.setVirtualizer(value) }
     }
 
+    fun setReverbPreset(preset: Int) {
+        controller.setReverbPreset(preset.toShort())
+        viewModelScope.launch { settingsRepository.setReverbPreset(preset) }
+    }
+
     fun setLoudness(value: Int) {
         controller.setLoudnessGain(value)
         viewModelScope.launch { settingsRepository.setLoudnessGain(value) }

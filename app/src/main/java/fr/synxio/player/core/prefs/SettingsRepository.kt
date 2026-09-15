@@ -131,6 +131,7 @@ data class Settings(
     val themePreset: String = "SYNXIO",
     val bassBoost: Int = 0,
     val virtualizer: Int = 0,
+    val reverbPreset: Int = 0,
     val loudnessGain: Int = 0,
     
     // Nouvelles options pour les playlists
@@ -231,6 +232,7 @@ class SettingsRepository @Inject constructor(
         val THEME_PRESET = stringPreferencesKey("theme_preset")
         val BASS_BOOST = intPreferencesKey("bass_boost")
         val VIRTUALIZER = intPreferencesKey("virtualizer")
+        val REVERB_PRESET = intPreferencesKey("reverb_preset")
         val LOUDNESS = intPreferencesKey("loudness")
         
         // Nouvelles options pour les playlists
@@ -331,6 +333,7 @@ class SettingsRepository @Inject constructor(
                 themePreset = p[Keys.THEME_PRESET] ?: "SYNXIO",
                 bassBoost = p[Keys.BASS_BOOST] ?: 0,
                 virtualizer = p[Keys.VIRTUALIZER] ?: 0,
+                reverbPreset = p[Keys.REVERB_PRESET] ?: 0,
                 loudnessGain = p[Keys.LOUDNESS] ?: 0,
                 
                 // Nouvelles options pour les playlists
@@ -428,6 +431,7 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setBassBoost(value: Int) = put(Keys.BASS_BOOST, value)
     suspend fun setVirtualizer(value: Int) = put(Keys.VIRTUALIZER, value)
+    suspend fun setReverbPreset(value: Int) = put(Keys.REVERB_PRESET, value)
     suspend fun setLoudnessGain(value: Int) = put(Keys.LOUDNESS, value)
     suspend fun setLastScan(value: Long) = put(Keys.LAST_SCAN, value)
 
