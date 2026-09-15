@@ -16,14 +16,18 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import fr.synxio.player.data.repo.TranslationRepository
 
 data class LyricsUiState(
     val loading: Boolean = false,
+    val isTranslating: Boolean = false,
     val lyrics: Lyrics = Lyrics.EMPTY,
+    val originalLyrics: Lyrics = Lyrics.EMPTY,
     val songId: Long = -1L,
     /** Décalage manuel, en ms. Positif = les paroles défilent plus tôt. */
     val offsetMs: Long = 0L,
     val outcome: LyricsOutcome = LyricsOutcome.FOUND,
+    val targetLanguage: String? = null,
 ) {
     /**
      * Message affiché quand il n'y a rien à montrer.
@@ -66,6 +70,7 @@ data class LyricsUiState(
 @HiltViewModel
 class LyricsViewModel @Inject constructor(
     private val repository: LyricsRepository,
+    private val translationRepository: TranslationRepository,
     private val offsetDao: LyricsOffsetDao,
     private val settings: SettingsRepository,
 ) : ViewModel() {
@@ -92,11 +97,50 @@ class LyricsViewModel @Inject constructor(
             _state.value = LyricsUiState(
                 loading = false,
                 lyrics = result.lyrics,
+                originalLyrics = result.lyrics,
                 songId = song.id,
                 offsetMs = offsetDao.offsetFor(song.path) ?: 0L,
                 outcome = result.outcome,
             )
         }
+    }
+
+    fun translateTo(targetLang: String, sourceLang: String = com.google.mlkit.nl.translate.TranslateLanguage.ENGLISH) {
+        val song = currentSong ?: return
+        val currentOriginal = _state.value.originalLyrics
+        if (currentOriginal.lines.isEmpty()) return
+
+        _state.value = _state.value.copy(isTranslating = true, targetLanguage = targetLang)
+        
+        viewModelScope.launch {
+            val result = translationRepository.translateLyrics(
+                lyrics = currentOriginal,
+                sourceLang = sourceLang,
+                targetLang = targetLang,
+                cacheKey = song.path
+            )
+            
+            result.onSuccess { translated ->
+                _state.value = _state.value.copy(
+                    isTranslating = false,
+                    lyrics = translated
+                )
+            }.onFailure {
+                // En cas d'erreur, on restaure l'original
+                _state.value = _state.value.copy(
+                    isTranslating = false,
+                    lyrics = currentOriginal,
+                    targetLanguage = null
+                )
+            }
+        }
+    }
+    
+    fun revertTranslation() {
+        _state.value = _state.value.copy(
+            lyrics = _state.value.originalLyrics,
+            targetLanguage = null
+        )
     }
 
     fun save(song: Song, content: String) = viewModelScope.launch {

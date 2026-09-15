@@ -30,6 +30,7 @@ import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -82,6 +83,10 @@ fun LyricsPane(
     offsetMs: Long = 0L,
     offsetLabel: String = "",
     emptyMessage: String = "Aucune parole trouvée pour ce titre.",
+    isTranslating: Boolean = false,
+    targetLanguage: String? = null,
+    onTranslate: (String) -> Unit = {},
+    onRevertTranslation: () -> Unit = {},
     onNudgeOffset: (Long) -> Unit = {},
     onResetOffset: () -> Unit = {},
 ) {
@@ -143,6 +148,31 @@ fun LyricsPane(
                 onNudge = onNudgeOffset,
                 onReset = onResetOffset,
             )
+        }
+        
+        // Bouton de traduction
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (isTranslating) {
+                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.width(8.dp))
+                Text("Traduction en cours...", style = MaterialTheme.typography.labelMedium)
+            } else if (targetLanguage != null) {
+                TextButton(onClick = onRevertTranslation) {
+                    Icon(Icons.Rounded.Refresh, contentDescription = "Version originale", modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Version originale")
+                }
+            } else {
+                TextButton(onClick = { onTranslate(com.google.mlkit.nl.translate.TranslateLanguage.FRENCH) }) {
+                    Icon(Icons.Rounded.Translate, contentDescription = "Traduire en français", modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Traduire (FR)")
+                }
+            }
         }
     }
 }

@@ -27,8 +27,8 @@ android {
         // 36 = Android 16. L'API 37 n'existe qu'en canal preview du SDK : on ne cible pas
         // un SDK canary, ce serait impubliable et instable.
         targetSdk = 36
-        versionCode = 20260921
-        versionName = "2.9.2"
+        versionCode = 20260922
+        versionName = "2.10.0"
         vectorDrawables.useSupportLibrary = true
 
         // Le dépôt devient public, l'app peut donc chercher ses mises à jour ici directement
@@ -129,6 +129,14 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
+
+    // Analytics & Crashlytics
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-analytics-ktx")
+    implementation("com.google.firebase:firebase-crashlytics-ktx")
+
+    // ML Kit Translate
+    implementation("com.google.mlkit:translate:17.0.3")
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)

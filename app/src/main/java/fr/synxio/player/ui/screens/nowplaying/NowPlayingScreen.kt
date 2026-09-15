@@ -208,6 +208,10 @@ fun NowPlayingScreen(
                         offsetMs = lyricsState.offsetMs,
                         offsetLabel = lyricsState.offsetLabel,
                         emptyMessage = lyricsState.emptyMessage,
+                        isTranslating = lyricsState.isTranslating,
+                        targetLanguage = lyricsState.targetLanguage,
+                        onTranslate = lyricsViewModel::translateTo,
+                        onRevertTranslation = lyricsViewModel::revertTranslation,
                         onNudgeOffset = lyricsViewModel::nudgeOffset,
                         onResetOffset = lyricsViewModel::resetOffset,
                     )
