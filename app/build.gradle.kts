@@ -27,8 +27,8 @@ android {
         // 36 = Android 16. L'API 37 n'existe qu'en canal preview du SDK : on ne cible pas
         // un SDK canary, ce serait impubliable et instable.
         targetSdk = 36
-        versionCode = 20260926
-        versionName = "3.1.1"
+        versionCode = 20260927
+        versionName = "3.1.2"
         vectorDrawables.useSupportLibrary = true
 
         // Le dépôt devient public, l'app peut donc chercher ses mises à jour ici directement
@@ -178,7 +178,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     
     // Synxio Party (Local Web Server & QR Code)
-    implementation("org.nanohttpd:nanohttpd:2.3.2")
+    implementation("org.nanohttpd:nanohttpd:2.3.1")
     implementation("com.google.zxing:core:3.5.2")
 
     testImplementation(libs.junit)
