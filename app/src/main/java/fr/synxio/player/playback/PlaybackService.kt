@@ -85,6 +85,8 @@ class PlaybackService : MediaLibraryService() {
     private var castPlayer: androidx.media3.cast.CastPlayer? = null
     private val activePlayer: Player get() = session.player
     private lateinit var fade: FadeController
+    
+    val vocalRemover = fr.synxio.player.playback.effects.VocalRemoverAudioProcessor()
 
     // Suivi d'écoute pour les statistiques et le scrobbling.
     private var trackedSongId: Long = -1L
@@ -118,7 +120,20 @@ class PlaybackService : MediaLibraryService() {
         val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(this)
             .setDataSourceFactory(dataSourceFactory)
 
+        val renderersFactory = object : androidx.media3.exoplayer.DefaultRenderersFactory(this) {
+            override fun buildAudioSink(
+                context: android.content.Context,
+                enableFloatOutput: Boolean,
+                enableAudioTrackPlaybackParams: Boolean
+            ): androidx.media3.exoplayer.audio.AudioSink? {
+                return androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
+                    .setAudioProcessors(arrayOf(vocalRemover))
+                    .build()
+            }
+        }
+
         player = ExoPlayer.Builder(this)
+            .setRenderersFactory(renderersFactory)
             .setMediaSourceFactory(mediaSourceFactory)
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -291,6 +306,8 @@ class PlaybackService : MediaLibraryService() {
                 } else if (!s.shakeToSkip && previous?.shakeToSkip == true) {
                     sensorManager?.unregisterListener(shakeDetector)
                 }
+
+                vocalRemover.setEnabled(s.karaokeEnabled)
             }
             .launchIn(serviceScope)
     }

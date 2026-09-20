@@ -357,6 +357,12 @@ class AppViewModel @Inject constructor(
         settingsRepository.setArtistSort(sort, descending)
     }
 
+    fun toggleKaraoke() = viewModelScope.launch {
+        val current = settings.value.karaokeEnabled
+        settingsRepository.setKaraokeEnabled(!current)
+        _messages.emit(if (!current) "Mode Karaoké activé" else "Mode Karaoké désactivé")
+    }
+
     // --- Résolution pour les écrans de détail ---------------------------------------------
 
     fun albumById(id: Long) = musicRepository.albumById(id)

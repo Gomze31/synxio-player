@@ -42,6 +42,8 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Repeat
+import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.MicOff
 import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
@@ -281,12 +283,14 @@ fun NowPlayingScreen(
                 sleepTimerActive = sleepTimer.active,
                 speed = state.speed,
                 loopState = state.loopState,
+                karaokeActive = settings.karaokeEnabled,
                 onLyrics = { showLyrics = !showLyrics },
                 onQueue = { showQueue = true },
                 onSleepTimer = { showSleepTimer = true },
                 onSpeed = { showSpeed = true },
                 onEqualizer = onOpenEqualizer,
                 onAbLoop = viewModel::cycleAbLoop,
+                onKaraoke = viewModel::toggleKaraoke,
             )
 
             Spacer(Modifier.height(16.dp))
@@ -632,12 +636,14 @@ private fun SecondaryControls(
     sleepTimerActive: Boolean,
     speed: Float,
     loopState: AbLoopState,
+    karaokeActive: Boolean,
     onLyrics: () -> Unit,
     onQueue: () -> Unit,
     onSleepTimer: () -> Unit,
     onSpeed: () -> Unit,
     onEqualizer: () -> Unit,
     onAbLoop: () -> Unit,
+    onKaraoke: () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
     Row(
@@ -680,6 +686,13 @@ private fun SecondaryControls(
                 Icons.Rounded.Bedtime,
                 "Minuterie de veille",
                 tint = if (sleepTimerActive) scheme.primary else scheme.onSurfaceVariant,
+            )
+        }
+        IconButton(onClick = onKaraoke) {
+            Icon(
+                if (karaokeActive) Icons.Rounded.Mic else Icons.Rounded.MicOff,
+                "Mode Karaoké",
+                tint = if (karaokeActive) scheme.primary else scheme.onSurfaceVariant,
             )
         }
         IconButton(onClick = onSpeed) {
