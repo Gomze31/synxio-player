@@ -2,9 +2,11 @@
 -keep class androidx.media3.** { *; }
 -dontwarn androidx.media3.**
 
-# jaudiotagger (édition de tags) utilise de la réflexion + des logs JUL
+# jaudiotagger (Édition de tags) utilise de la réflexion + des logs JUL
 -keep class org.jaudiotagger.** { *; }
 -dontwarn org.jaudiotagger.**
+-keep class org.jcodec.** { *; }
+-dontwarn org.jcodec.**
 -dontwarn java.awt.**
 -dontwarn javax.swing.**
 

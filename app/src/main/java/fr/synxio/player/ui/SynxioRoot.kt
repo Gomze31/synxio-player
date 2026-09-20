@@ -129,6 +129,7 @@ object Routes {
     const val RULE = "rule/{ruleId}"
     const val RULE_EDITOR = "rule_editor/{ruleId}"
     const val AUDIOBOOKS = "audiobooks"
+    const val PARTY_MODE = "party_mode"
 
     fun album(id: Long) = "album/$id"
     fun smart(id: SmartPlaylistId) = "smart/${id.name}"
@@ -336,6 +337,10 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerOnStart: Boolean) {
                     playerExpanded = false
                     navController.navigate(Routes.DRIVE_MODE)
                 },
+                onOpenPartyMode = {
+                    playerExpanded = false
+                    navController.navigate(Routes.PARTY_MODE)
+                },
             )
         }
     }
@@ -370,7 +375,8 @@ private fun shouldShowBottomBar(navController: NavHostController): Boolean {
             route == Routes.ADVANCED_SEARCH ||
             route == Routes.DUPLICATES ||
             route == Routes.RECENTS ||
-            route == Routes.DRIVE_MODE
+            route == Routes.DRIVE_MODE ||
+            route == Routes.PARTY_MODE
 
     return !fullScreen
 }
@@ -571,6 +577,13 @@ private fun AppNavHost(
             fr.synxio.player.ui.screens.DriveModeScreen(
                 viewModel = viewModel,
                 onExit = { navController.popBackStack() }
+            )
+        }
+
+        composable(Routes.PARTY_MODE) {
+            fr.synxio.player.ui.screens.PartyScreen(
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() }
             )
         }
 

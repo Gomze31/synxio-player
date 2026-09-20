@@ -105,6 +105,7 @@ fun NowPlayingScreen(
     onEditTags: (Long) -> Unit,
     onOpenEqualizer: () -> Unit,
     onOpenDriveMode: () -> Unit,
+    onOpenPartyMode: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.playerState.collectAsStateWithLifecycle()
@@ -374,6 +375,7 @@ fun NowPlayingScreen(
             onRefreshLyrics = { lyricsViewModel.load(song, force = true); showLyrics = true },
             onShare = { viewModel.shareSong(song) },
             onOpenDriveMode = onOpenDriveMode,
+            onOpenPartyMode = onOpenPartyMode,
             onDismiss = { showMenu = false },
         )
     }
