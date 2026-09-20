@@ -157,6 +157,7 @@ data class Settings(
     // Audio & Lecture avancée
     val autoRewindSec: Int = 0,
     val keepScreenOnNowPlaying: Boolean = false,
+    val shakeToSkip: Boolean = false,
 )
 
 @Singleton
@@ -259,6 +260,7 @@ class SettingsRepository @Inject constructor(
         // Audio & Lecture avancée
         val AUTO_REWIND_SEC = intPreferencesKey("auto_rewind_sec")
         val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on_now_playing")
+        val SHAKE_TO_SKIP = booleanPreferencesKey("shake_to_skip")
 
         val LAST_SCAN = longPreferencesKey("last_scan")
     }
@@ -361,6 +363,7 @@ class SettingsRepository @Inject constructor(
                 // Audio & Lecture avancée
                 autoRewindSec = p[Keys.AUTO_REWIND_SEC] ?: 0,
                 keepScreenOnNowPlaying = p[Keys.KEEP_SCREEN_ON] ?: false,
+                shakeToSkip = p[Keys.SHAKE_TO_SKIP] ?: false,
             )
         }
 
@@ -486,6 +489,7 @@ class SettingsRepository @Inject constructor(
     // Audio & Lecture avancée
     suspend fun setAutoRewindSec(value: Int) = put(Keys.AUTO_REWIND_SEC, value)
     suspend fun setKeepScreenOnNowPlaying(value: Boolean) = put(Keys.KEEP_SCREEN_ON, value)
+    suspend fun setShakeToSkip(value: Boolean) = put(Keys.SHAKE_TO_SKIP, value)
 
     private suspend fun <T> put(key: Preferences.Key<T>, value: T) {
         context.dataStore.edit { it[key] = value }

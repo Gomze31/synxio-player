@@ -103,6 +103,20 @@ class MediaStoreScanner @Inject constructor(
 
                 while (cursor.moveToNext()) {
                     val path = cursor.getString(dataCol) ?: continue
+                    
+                    // Blacklist Intelligente : Ignorer les notes vocales et appels enregistrés
+                    val lowerPath = path.lowercase()
+                    if (lowerPath.contains("whatsapp audio") ||
+                        lowerPath.contains("telegram audio") ||
+                        lowerPath.contains("snapchat") ||
+                        lowerPath.contains("voice recorder") ||
+                        lowerPath.contains("voice_notes") ||
+                        lowerPath.contains("call_rec") ||
+                        lowerPath.contains("recordings")
+                    ) {
+                        continue
+                    }
+                    
                     if (excludedFolders.any { path.startsWith(it) }) continue
 
                     // MediaStore encode le disque dans TRACK : 1004 = disque 1, piste 4.

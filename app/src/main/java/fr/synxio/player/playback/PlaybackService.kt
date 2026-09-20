@@ -104,6 +104,9 @@ class PlaybackService : MediaLibraryService() {
     private var queueRestored = false
     private var headsetCallback: AudioDeviceCallback? = null
 
+    private var sensorManager: android.hardware.SensorManager? = null
+    private var shakeDetector: fr.synxio.player.core.util.ShakeDetector? = null
+
     override fun onCreate() {
         super.onCreate()
 
@@ -155,6 +158,13 @@ class PlaybackService : MediaLibraryService() {
         serviceScope.launch {
             sleepTimer.state.collect { state ->
                 fade.sleepGain = state.fadeMultiplier
+            }
+        }
+
+        sensorManager = getSystemService(android.content.Context.SENSOR_SERVICE) as android.hardware.SensorManager
+        shakeDetector = fr.synxio.player.core.util.ShakeDetector {
+            if (activePlayer.hasNextMediaItem()) {
+                activePlayer.seekToNextMediaItem()
             }
         }
         
@@ -228,6 +238,7 @@ class PlaybackService : MediaLibraryService() {
         headsetCallback = null
         fade.stop()
         sleepTimer.cancel()
+        sensorManager?.unregisterListener(shakeDetector)
 
         // Sans cet effacement, le statut Discord resterait figé sur le dernier morceau
         // bien après l'arrêt de Synxio. Exécuté hors du scope du service, qui est annulé
@@ -271,6 +282,14 @@ class PlaybackService : MediaLibraryService() {
                     previous.normalizeTargetDbfs != s.normalizeTargetDbfs
                 ) {
                     applyNormalization()
+                }
+
+                if (s.shakeToSkip && previous?.shakeToSkip != true) {
+                    sensorManager?.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER)?.also { accelerometer ->
+                        sensorManager?.registerListener(shakeDetector, accelerometer, android.hardware.SensorManager.SENSOR_DELAY_NORMAL)
+                    }
+                } else if (!s.shakeToSkip && previous?.shakeToSkip == true) {
+                    sensorManager?.unregisterListener(shakeDetector)
                 }
             }
             .launchIn(serviceScope)
