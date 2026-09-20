@@ -87,6 +87,7 @@ class PlaybackService : MediaLibraryService() {
     private lateinit var fade: FadeController
     
     val vocalRemover = fr.synxio.player.playback.effects.VocalRemoverAudioProcessor()
+    private var partyServer: PartyServer? = null
 
     // Suivi d'écoute pour les statistiques et le scrobbling.
     private var trackedSongId: Long = -1L
@@ -264,6 +265,7 @@ class PlaybackService : MediaLibraryService() {
         session.release()
         castPlayer?.release()
         player.release()
+        partyServer?.stop()
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -308,6 +310,14 @@ class PlaybackService : MediaLibraryService() {
                 }
 
                 vocalRemover.setEnabled(s.karaokeEnabled)
+
+                if (s.partyEnabled && partyServer == null) {
+                    partyServer = runCatching { PartyServer(8080).apply { start() } }.getOrNull()
+                    updatePartyServerState()
+                } else if (!s.partyEnabled && partyServer != null) {
+                    partyServer?.stop()
+                    partyServer = null
+                }
             }
             .launchIn(serviceScope)
     }
@@ -503,6 +513,14 @@ class PlaybackService : MediaLibraryService() {
         serviceScope.launch { discordPresence.update(current, position, playing) }
     }
 
+    private fun updatePartyServerState() {
+        partyServer?.updateState(
+            song = currentSong(),
+            playing = activePlayer.isPlaying,
+            position = activePlayer.currentPosition.coerceAtLeast(0)
+        )
+    }
+
     private inner class PlayerListener : Player.Listener {
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -546,6 +564,7 @@ class PlaybackService : MediaLibraryService() {
             applyNormalization()
             fade.resetVolume()
             persistQueue()
+            updatePartyServerState()
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -568,6 +587,7 @@ class PlaybackService : MediaLibraryService() {
             // Le statut doit suivre la pause, sinon Discord continue d'afficher une
             // progression qui avance alors que la lecture est arrêtée.
             publishPresence(null)
+            updatePartyServerState()
         }
 
         override fun onPositionDiscontinuity(
@@ -576,6 +596,7 @@ class PlaybackService : MediaLibraryService() {
             reason: Int,
         ) {
             if (reason == Player.DISCONTINUITY_REASON_SEEK) fade.resetVolume()
+            updatePartyServerState()
         }
     }
 

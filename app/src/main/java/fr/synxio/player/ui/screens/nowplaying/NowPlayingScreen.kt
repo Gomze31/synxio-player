@@ -84,6 +84,10 @@ import fr.synxio.player.ui.viewmodel.AppViewModel
 import androidx.compose.ui.text.font.FontWeight
 import fr.synxio.player.playback.AbLoopState
 import fr.synxio.player.ui.viewmodel.LyricsViewModel
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.isGranted
+import com.google.accompanist.permissions.rememberPermissionState
+import fr.synxio.player.ui.components.AudioVisualizer
 
 /**
  * Plein écran « Lecture en cours ».
@@ -123,6 +127,24 @@ fun NowPlayingScreen(
     LaunchedEffect(song?.id, showLyrics) {
         if (showLyrics) lyricsViewModel.load(song)
     }
+
+    // Gestion de la permission pour le visualiseur audio
+    @OptIn(ExperimentalPermissionsApi::class)
+    val recordAudioPermission = rememberPermissionState(android.Manifest.permission.RECORD_AUDIO)
+
+    LaunchedEffect(settings.showVisualizer, recordAudioPermission.status) {
+        if (settings.showVisualizer) {
+            if (recordAudioPermission.status.isGranted) {
+                viewModel.setVisualizerEnabled(true)
+            } else {
+                recordAudioPermission.launchPermissionRequest()
+            }
+        } else {
+            viewModel.setVisualizerEnabled(false)
+        }
+    }
+
+    val fft by viewModel.fftFlow.collectAsStateWithLifecycle()
 
     val background = MaterialTheme.colorScheme.background
     val gradient = remember(artworkColors, background) {
@@ -169,8 +191,21 @@ fun NowPlayingScreen(
         Box(
             Modifier
                 .fillMaxSize()
-                .background(Brush.verticalGradient(gradient))
+                .background(brush = Brush.verticalGradient(gradient), alpha = 0.85f)
         )
+
+        // Visualiseur Audio 3D en arrière-plan
+        if (settings.showVisualizer && recordAudioPermission.status.isGranted) {
+            AudioVisualizer(
+                fft = fft,
+                barColor = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.4f)
+                    .align(Alignment.BottomCenter)
+                    .blur(2.dp) // Effet Glassmorphism
+            )
+        }
 
         if (song == null) {
             Box(Modifier.fillMaxSize(), Alignment.Center) {

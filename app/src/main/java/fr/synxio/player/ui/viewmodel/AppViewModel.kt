@@ -62,6 +62,7 @@ class AppViewModel @Inject constructor(
     private val rulePlaylistRepository: RulePlaylistRepository,
     private val radioRepository: fr.synxio.player.data.repo.RadioRepository,
     private val moodRadioRepository: fr.synxio.player.data.repo.MoodRadioRepository,
+    private val equalizerController: fr.synxio.player.playback.EqualizerController,
     smartPlaylistRepository: SmartPlaylistRepository,
 ) : ViewModel() {
 
@@ -95,6 +96,7 @@ class AppViewModel @Inject constructor(
     val mostPlayed: StateFlow<List<Song>> = musicRepository.mostPlayed
     val recentlyPlayed: StateFlow<List<Song>> = musicRepository.recentlyPlayed
     val sleepTimerState: StateFlow<SleepTimerState> = sleepTimer.state
+    val fftFlow: StateFlow<ByteArray> = equalizerController.fftFlow
 
     val settings: StateFlow<Settings> = settingsRepository.settings
         .stateIn(viewModelScope, SharingStarted.Eagerly, Settings())
@@ -357,10 +359,20 @@ class AppViewModel @Inject constructor(
         settingsRepository.setArtistSort(sort, descending)
     }
 
+    fun setVisualizerEnabled(enabled: Boolean) {
+        equalizerController.setVisualizerEnabled(enabled)
+    }
+
     fun toggleKaraoke() = viewModelScope.launch {
         val current = settings.value.karaokeEnabled
         settingsRepository.setKaraokeEnabled(!current)
         _messages.emit(if (!current) "Mode Karaoké activé" else "Mode Karaoké désactivé")
+    }
+
+    fun togglePartyMode() = viewModelScope.launch {
+        val current = settings.value.partyEnabled
+        settingsRepository.setPartyEnabled(!current)
+        _messages.emit(if (!current) "Mode Party activé" else "Mode Party désactivé")
     }
 
     // --- Résolution pour les écrans de détail ---------------------------------------------

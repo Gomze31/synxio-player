@@ -159,6 +159,7 @@ data class Settings(
     val keepScreenOnNowPlaying: Boolean = false,
     val shakeToSkip: Boolean = false,
     val karaokeEnabled: Boolean = false,
+    val partyEnabled: Boolean = false,
 )
 
 @Singleton
@@ -263,6 +264,7 @@ class SettingsRepository @Inject constructor(
         val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on_now_playing")
         val SHAKE_TO_SKIP = booleanPreferencesKey("shake_to_skip")
         val KARAOKE_ENABLED = booleanPreferencesKey("karaoke_enabled")
+        val PARTY_ENABLED = booleanPreferencesKey("party_enabled")
 
         val LAST_SCAN = longPreferencesKey("last_scan")
     }
@@ -367,6 +369,7 @@ class SettingsRepository @Inject constructor(
                 keepScreenOnNowPlaying = p[Keys.KEEP_SCREEN_ON] ?: false,
                 shakeToSkip = p[Keys.SHAKE_TO_SKIP] ?: false,
                 karaokeEnabled = p[Keys.KARAOKE_ENABLED] ?: false,
+                partyEnabled = p[Keys.PARTY_ENABLED] ?: false,
             )
         }
 
@@ -494,6 +497,7 @@ class SettingsRepository @Inject constructor(
     suspend fun setKeepScreenOnNowPlaying(value: Boolean) = put(Keys.KEEP_SCREEN_ON, value)
     suspend fun setShakeToSkip(value: Boolean) = put(Keys.SHAKE_TO_SKIP, value)
     suspend fun setKaraokeEnabled(value: Boolean) = put(Keys.KARAOKE_ENABLED, value)
+    suspend fun setPartyEnabled(value: Boolean) = put(Keys.PARTY_ENABLED, value)
 
     private suspend fun <T> put(key: Preferences.Key<T>, value: T) {
         context.dataStore.edit { it[key] = value }

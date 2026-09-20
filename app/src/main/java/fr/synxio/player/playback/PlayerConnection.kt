@@ -45,6 +45,7 @@ data class PlayerUiState(
     val loopStartMs: Long? = null,
     /** Fin de la boucle A-B, null tant que le second point n'est pas posé. */
     val loopEndMs: Long? = null,
+    val audioSessionId: Int = 0,
 ) {
     val progress: Float
         get() = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
@@ -219,6 +220,7 @@ class PlayerConnection @Inject constructor(
             hasPrevious = c.hasPreviousMediaItem(),
             loopStartMs = previous.loopStartMs.takeIf { sameTrack },
             loopEndMs = previous.loopEndMs.takeIf { sameTrack },
+            audioSessionId = runCatching { (c as? androidx.media3.exoplayer.ExoPlayer)?.audioSessionId ?: 0 }.getOrDefault(0),
         )
     }
 
