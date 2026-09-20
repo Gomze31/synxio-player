@@ -492,6 +492,20 @@ class PlaybackService : MediaLibraryService() {
                     }
                 }
             }
+            
+            // Auto-DJ Intelligent (Mode Lecture Continue IA)
+            if (activePlayer.mediaItemCount > 0 && activePlayer.currentMediaItemIndex >= activePlayer.mediaItemCount - 2) {
+                if (current != null && !current.isPodcast) {
+                    val allSongs = musicRepository.library.value.songs
+                    val similarSongs = allSongs.filter { 
+                        (it.genre == current.genre || it.artistId == current.artistId) && it.id != current.id 
+                    }.shuffled().take(5)
+                    
+                    if (similarSongs.isNotEmpty()) {
+                        activePlayer.addMediaItems(similarSongs.toMediaItems())
+                    }
+                }
+            }
 
             applyNormalization()
             fade.resetVolume()
@@ -758,6 +772,20 @@ class PlaybackService : MediaLibraryService() {
                     )
                 }
             }
+            
+            if (mediaItems.size == 1 && controller.packageName != packageName) {
+                val songId = mediaItems.first().mediaId.toLongOrNull()
+                if (songId != null) {
+                    val allSongs = musicRepository.library.value.songs
+                    val index = allSongs.indexOfFirst { it.id == songId }
+                    if (index != -1) {
+                        return Futures.immediateFuture(
+                            MediaSession.MediaItemsWithStartPosition(allSongs.toMediaItems(), index, startPositionMs)
+                        )
+                    }
+                }
+            }
+
             return super<MediaLibrarySession.Callback>.onSetMediaItems(
                 mediaSession, controller, mediaItems, startIndex, startPositionMs
             )

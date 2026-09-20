@@ -92,8 +92,10 @@ class LyricsViewModel @Inject constructor(
         _state.value = LyricsUiState(loading = true, songId = song.id)
         viewModelScope.launch {
             if (force) repository.clearCache(song)
-            val allowOnline = settings.settings.first().lyricsOnlineEnabled
+            val currentSettings = settings.settings.first()
+            val allowOnline = currentSettings.lyricsOnlineEnabled
             val result = repository.lyricsFor(song, allowOnline)
+            
             _state.value = LyricsUiState(
                 loading = false,
                 lyrics = result.lyrics,
@@ -102,6 +104,20 @@ class LyricsViewModel @Inject constructor(
                 offsetMs = offsetDao.offsetFor(song.path) ?: 0L,
                 outcome = result.outcome,
             )
+            
+            if (currentSettings.autoTranslateLyrics && result.lyrics.lines.isNotEmpty()) {
+                val locale = java.util.Locale.getDefault().language
+                val targetLang = when(locale) {
+                    "fr" -> com.google.mlkit.nl.translate.TranslateLanguage.FRENCH
+                    "es" -> com.google.mlkit.nl.translate.TranslateLanguage.SPANISH
+                    "de" -> com.google.mlkit.nl.translate.TranslateLanguage.GERMAN
+                    "it" -> com.google.mlkit.nl.translate.TranslateLanguage.ITALIAN
+                    else -> null
+                }
+                if (targetLang != null) {
+                    translateTo(targetLang)
+                }
+            }
         }
     }
 

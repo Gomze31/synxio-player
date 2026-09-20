@@ -10,6 +10,25 @@ const val EXTRA_PATH = "fr.synxio.player.PATH"
 const val EXTRA_SONG_ID = "fr.synxio.player.SONG_ID"
 const val EXTRA_DURATION = "fr.synxio.player.DURATION"
 
+/** Nettoyage intelligent des titres (Auto-Tagging passif) */
+fun String.cleanTitle(): String {
+    var cleaned = this
+    val patterns = listOf(
+        "\\[.*?\\]",
+        "\\(.*?official.*?\\)",
+        "\\(.*?lyric.*?\\)",
+        "\\(.*?audio.*?\\)",
+        "\\(.*?video.*?\\)",
+        "(?i)ft\\..*", 
+        "(?i)feat\\..*",
+        "(?i)featuring.*"
+    )
+    for (pattern in patterns) {
+        cleaned = cleaned.replace(Regex(pattern, RegexOption.IGNORE_CASE), "")
+    }
+    return cleaned.trim().removeSuffix("-").trim()
+}
+
 /**
  * Convertit un morceau en [MediaItem].
  *
@@ -24,10 +43,10 @@ fun Song.toMediaItem(): MediaItem {
     }
 
     val metadata = MediaMetadata.Builder()
-        .setTitle(title)
-        .setArtist(displayArtist)
+        .setTitle(title.cleanTitle())
+        .setArtist(displayArtist.cleanTitle())
         .setAlbumTitle(displayAlbum)
-        .setAlbumArtist(albumArtist ?: displayArtist)
+        .setAlbumArtist(albumArtist?.cleanTitle() ?: displayArtist.cleanTitle())
         .setGenre(genre)
         .setTrackNumber(track.takeIf { it > 0 })
         .setDiscNumber(disc.takeIf { it > 0 })
@@ -67,12 +86,12 @@ val MediaItem.songPath: String?
  */
 fun MediaItem.toSynthesizedSong(): Song = Song(
     id = songId,
-    title = mediaMetadata.title?.toString() ?: "Titre inconnu",
-    artist = mediaMetadata.artist?.toString() ?: "Artiste inconnu",
+    title = (mediaMetadata.title?.toString() ?: "Titre inconnu").cleanTitle(),
+    artist = (mediaMetadata.artist?.toString() ?: "Artiste inconnu").cleanTitle(),
     artistId = -1L,
     album = mediaMetadata.albumTitle?.toString() ?: "Inconnu",
     albumId = -1L,
-    albumArtist = mediaMetadata.albumArtist?.toString(),
+    albumArtist = mediaMetadata.albumArtist?.toString()?.cleanTitle(),
     genre = mediaMetadata.genre?.toString(),
     durationMs = mediaMetadata.extras?.getLong(EXTRA_DURATION) ?: 0L,
     track = mediaMetadata.trackNumber ?: 0,
