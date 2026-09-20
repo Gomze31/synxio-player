@@ -136,6 +136,23 @@ class TagEditorRepository @Inject constructor(
                 work.inputStream().use { input -> input.copyTo(output) }
             } ?: error("Flux d'écriture indisponible")
 
+            // Forcer la mise à jour des colonnes du MediaStore pour que l'app voie
+            // les changements immédiatement au prochain scan (et que l'observer se déclenche).
+            val values = android.content.ContentValues().apply {
+                edit.title?.takeIf { it.isNotBlank() }?.let { put(MediaStore.Audio.Media.TITLE, it) }
+                edit.artist?.let { put(MediaStore.Audio.Media.ARTIST, it) }
+                edit.album?.let { put(MediaStore.Audio.Media.ALBUM, it) }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    edit.albumArtist?.let { put(MediaStore.Audio.Media.ALBUM_ARTIST, it) }
+                    edit.genre?.let { put(MediaStore.Audio.Media.GENRE, it) }
+                    edit.disc?.toIntOrNull()?.let { put(MediaStore.Audio.Media.DISC_NUMBER, it) }
+                }
+                edit.year?.toIntOrNull()?.let { put(MediaStore.Audio.Media.YEAR, it) }
+                edit.track?.toIntOrNull()?.let { put(MediaStore.Audio.Media.TRACK, it) }
+                put(MediaStore.Audio.Media.DATE_MODIFIED, System.currentTimeMillis() / 1000)
+            }
+            context.contentResolver.update(song.uri, values, null, null)
+
             rescan(song.path)
             TagWriteResult.Success
         }.getOrElse { error ->
