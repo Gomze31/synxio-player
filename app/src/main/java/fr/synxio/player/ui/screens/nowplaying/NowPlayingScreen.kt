@@ -96,6 +96,7 @@ import fr.synxio.player.ui.components.AudioVisualizer
  * comme la file d'attente, et tout le reste est accessible en un geste depuis les
  * volets du bas (paroles, file, minuterie, vitesse).
  */
+@OptIn(com.google.accompanist.permissions.ExperimentalPermissionsApi::class)
 @Composable
 fun NowPlayingScreen(
     viewModel: AppViewModel,
@@ -130,7 +131,6 @@ fun NowPlayingScreen(
     }
 
     // Gestion de la permission pour le visualiseur audio
-    @OptIn(ExperimentalPermissionsApi::class)
     val recordAudioPermission = rememberPermissionState(android.Manifest.permission.RECORD_AUDIO)
 
     LaunchedEffect(settings.showVisualizer, recordAudioPermission.status) {

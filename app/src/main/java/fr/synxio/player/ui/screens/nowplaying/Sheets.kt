@@ -540,7 +540,7 @@ fun NowPlayingMenuSheet(
             MenuRow(Icons.Rounded.Edit, "Modifier les tags") { onEditTags(); onDismiss() }
             MenuRow(Icons.Rounded.Refresh, "Rechercher les paroles") { onRefreshLyrics(); onDismiss() }
             MenuRow(Icons.Rounded.DirectionsCar, "Mode Voiture") { onOpenDriveMode(); onDismiss() }
-            MenuRow(Icons.AutoMirrored.Rounded.QueueMusic, "Synxio Party") { onOpenPartyMode(); onDismiss() }
+            MenuRow(Icons.Rounded.QueueMusic, "Synxio Party") { onOpenPartyMode(); onDismiss() }
             MenuRow(Icons.Rounded.Share, "Partager une carte") { onShare(); onDismiss() }
             
             val context = androidx.compose.ui.platform.LocalContext.current
