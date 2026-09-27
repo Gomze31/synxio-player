@@ -19,6 +19,14 @@ class DownloadRepository @Inject constructor(
 
     suspend fun downloadAudio(url: String, onProgress: (Float) -> Unit): Result<String> = withContext(Dispatchers.IO) {
         try {
+            // S'assurer de l'initialisation sur le thread IO pour éviter de bloquer le MainThread
+            try {
+                YoutubeDL.getInstance().init(context)
+                com.yausername.ffmpeg.FFmpeg.getInstance().init(context)
+            } catch (e: Exception) {
+                // Déjà initialisé ou erreur
+            }
+            
             val downloadDir = File(
                 Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),
                 "Synxio"
