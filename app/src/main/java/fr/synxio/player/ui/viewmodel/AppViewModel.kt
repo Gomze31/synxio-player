@@ -57,6 +57,7 @@ class AppViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val player: PlayerConnection,
     private val sleepTimer: SleepTimer,
+    private val trimRepository: TrimRepository,
     private val shareCardRepository: ShareCardRepository,
     private val similarityRepository: SimilarityRepository,
     private val rulePlaylistRepository: RulePlaylistRepository,
@@ -112,6 +113,9 @@ class AppViewModel @Inject constructor(
      */
     private val _shareIntents = MutableSharedFlow<Intent>(extraBufferCapacity = 1)
     val shareIntents: SharedFlow<Intent> = _shareIntents
+
+    private val _deleteIntentSenders = MutableSharedFlow<android.content.IntentSender>(extraBufferCapacity = 1)
+    val deleteIntentSenders: SharedFlow<android.content.IntentSender> = _deleteIntentSenders
 
     /** Titres triés selon la préférence courante, recalculés à chaque changement. */
     val sortedSongs: StateFlow<List<Song>> = combine(library, settings) { lib, s ->
@@ -397,6 +401,28 @@ class AppViewModel @Inject constructor(
      * défilement. Le seul host correctement positionné est celui de `MainScaffold`.
      */
     fun showMessage(text: String) = emit(text)
+
+    fun deleteSong(song: Song) = viewModelScope.launch {
+        val intentSender = musicRepository.deleteSong(song)
+        if (intentSender != null) {
+            _deleteIntentSenders.emit(intentSender)
+        } else {
+            // Pas d'IntentSender requis ou déjà supprimé
+            emit("Fichier supprimé")
+        }
+    }
+    
+    fun trimSong(song: Song, startMs: Long, endMs: Long) = viewModelScope.launch {
+        emit("Découpage en cours...")
+        val outPath = trimRepository.trimAudio(song, startMs, endMs)
+        if (outPath != null) {
+            emit("Découpage terminé : $outPath")
+            // Rescan library to find the new file
+            rescan()
+        } else {
+            emit("Échec du découpage")
+        }
+    }
 
     private fun emit(message: String) {
         viewModelScope.launch { _messages.emit(message) }

@@ -218,6 +218,10 @@ class MusicRepository @Inject constructor(
         }
     }
 
+    fun deleteSong(song: Song): android.content.IntentSender? {
+        return scanner.deleteSong(song)
+    }
+
     fun songsByIds(ids: List<Long>): List<Song> {
         val index = _songsById.value
         return ids.mapNotNull { index[it] }

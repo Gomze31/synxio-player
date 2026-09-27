@@ -6,6 +6,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.IntentSenderRequest
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseInOut
 import androidx.compose.animation.core.tween
@@ -103,6 +105,23 @@ class MainActivity : AppCompatActivity() {
                     else -> Unit
                 }
                 shortcutHandled = true
+            }
+
+            val launcher = androidx.activity.compose.rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.StartIntentSenderForResult()
+            ) { result ->
+                if (result.resultCode == android.app.Activity.RESULT_OK) {
+                    viewModel.rescan()
+                    viewModel.showMessage("Fichier supprimé avec succès")
+                } else {
+                    viewModel.showMessage("Suppression annulée")
+                }
+            }
+
+            LaunchedEffect(viewModel) {
+                viewModel.deleteIntentSenders.collect { intentSender ->
+                    launcher.launch(IntentSenderRequest.Builder(intentSender).build())
+                }
             }
 
             SynxioTheme(

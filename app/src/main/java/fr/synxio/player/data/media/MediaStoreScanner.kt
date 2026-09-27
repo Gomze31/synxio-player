@@ -223,6 +223,28 @@ class MediaStoreScanner @Inject constructor(
     fun hasAudioPermission(): Boolean =
         context.checkSelfPermission(audioPermission) == PackageManager.PERMISSION_GRANTED
 
+    /**
+     * Tente de supprimer la piste.
+     * @return IntentSender si l'utilisateur doit confirmer (Android 11+), ou null si la piste a été supprimée ou n'a pas pu l'être sans IntentSender.
+     */
+    fun deleteSong(song: Song): android.content.IntentSender? {
+        val uri = song.uri
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val intentSender = MediaStore.createDeleteRequest(context.contentResolver, listOf(uri)).intentSender
+            return intentSender
+        } else {
+            try {
+                context.contentResolver.delete(uri, null, null)
+            } catch (e: SecurityException) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val recoverableSecurityException = e as? android.app.RecoverableSecurityException
+                    return recoverableSecurityException?.userAction?.actionIntent?.intentSender
+                }
+            }
+        }
+        return null
+    }
+
     private companion object {
         const val TAG = "MediaStoreScanner"
     }

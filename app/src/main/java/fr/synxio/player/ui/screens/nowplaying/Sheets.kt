@@ -32,6 +32,14 @@ import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Translate
+import androidx.compose.material.icons.rounded.ContentCut
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Lyrics
+import androidx.compose.material.icons.rounded.Bedtime
+import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.Equalizer
+import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -504,6 +512,15 @@ fun NowPlayingMenuSheet(
     onShare: () -> Unit,
     onOpenDriveMode: () -> Unit,
     onOpenPartyMode: () -> Unit,
+    onShowLyrics: () -> Unit,
+    onShowQueue: () -> Unit,
+    onShowSleepTimer: () -> Unit,
+    onShowSpeed: () -> Unit,
+    onOpenEqualizer: () -> Unit,
+    onToggleKaraoke: () -> Unit,
+    onToggleAbLoop: () -> Unit,
+    onDelete: () -> Unit,
+    onTrim: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     // `skipPartiallyExpanded` : sans lui la feuille s'ouvre à mi-hauteur et le contenu
@@ -536,11 +553,18 @@ fun NowPlayingMenuSheet(
             }
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
+            MenuRow(Icons.Rounded.QueueMusic, "File d'attente") { onShowQueue(); onDismiss() }
+            MenuRow(Icons.Rounded.Lyrics, "Paroles") { onShowLyrics(); onDismiss() }
+            MenuRow(Icons.Rounded.Bedtime, "Minuterie de veille") { onShowSleepTimer(); onDismiss() }
+            MenuRow(Icons.Rounded.Speed, "Vitesse et Tonalité") { onShowSpeed(); onDismiss() }
+            MenuRow(Icons.Rounded.Equalizer, "Égaliseur") { onOpenEqualizer(); onDismiss() }
+            MenuRow(Icons.Rounded.Mic, "Mode Karaoké") { onToggleKaraoke(); onDismiss() }
+            MenuRow(Icons.Rounded.Repeat, "Boucle A-B") { onToggleAbLoop(); onDismiss() }
+            MenuRow(Icons.Rounded.DirectionsCar, "Mode Voiture") { onOpenDriveMode(); onDismiss() }
             MenuRow(Icons.Rounded.Album, "Aller à l'album") { onOpenAlbum(); onDismiss() }
             MenuRow(Icons.Rounded.Person, "Aller à l'artiste") { onOpenArtist(); onDismiss() }
             MenuRow(Icons.Rounded.Edit, "Modifier les tags") { onEditTags(); onDismiss() }
             MenuRow(Icons.Rounded.Refresh, "Rechercher les paroles") { onRefreshLyrics(); onDismiss() }
-            MenuRow(Icons.Rounded.DirectionsCar, "Mode Voiture") { onOpenDriveMode(); onDismiss() }
             MenuRow(Icons.Rounded.QueueMusic, "Synxio Party") { onOpenPartyMode(); onDismiss() }
             MenuRow(Icons.Rounded.Share, "Partager une carte") { onShare(); onDismiss() }
             
@@ -557,6 +581,9 @@ fun NowPlayingMenuSheet(
                 }
                 onDismiss()
             }
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            MenuRow(Icons.Rounded.ContentCut, "Découper la piste (Trim)") { onTrim(); onDismiss() }
+            MenuRow(Icons.Rounded.Delete, "Supprimer le fichier", tint = MaterialTheme.colorScheme.error) { onDelete(); onDismiss() }
         }
     }
 }
@@ -565,6 +592,7 @@ fun NowPlayingMenuSheet(
 private fun MenuRow(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
+    tint: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurfaceVariant,
     onClick: () -> Unit,
 ) {
     Row(
@@ -575,7 +603,7 @@ private fun MenuRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(label, style = MaterialTheme.typography.bodyLarge)
+        Icon(icon, contentDescription = null, tint = tint)
+        Text(label, style = MaterialTheme.typography.bodyLarge, color = if (tint == MaterialTheme.colorScheme.error) tint else androidx.compose.ui.graphics.Color.Unspecified)
     }
 }

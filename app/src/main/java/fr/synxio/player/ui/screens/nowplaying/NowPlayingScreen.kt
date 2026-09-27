@@ -107,6 +107,7 @@ fun NowPlayingScreen(
     onOpenEqualizer: () -> Unit,
     onOpenDriveMode: () -> Unit,
     onOpenPartyMode: () -> Unit,
+    onTrim: (fr.synxio.player.data.model.Song) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.playerState.collectAsStateWithLifecycle()
@@ -312,23 +313,6 @@ fun NowPlayingScreen(
                 onRepeat = viewModel::cycleRepeat,
             )
 
-            Spacer(Modifier.height(8.dp))
-
-            SecondaryControls(
-                lyricsActive = showLyrics,
-                sleepTimerActive = sleepTimer.active,
-                speed = state.speed,
-                loopState = state.loopState,
-                karaokeActive = settings.karaokeEnabled,
-                onLyrics = { showLyrics = !showLyrics },
-                onQueue = { showQueue = true },
-                onSleepTimer = { showSleepTimer = true },
-                onSpeed = { showSpeed = true },
-                onEqualizer = onOpenEqualizer,
-                onAbLoop = viewModel::cycleAbLoop,
-                onKaraoke = viewModel::toggleKaraoke,
-            )
-
             Spacer(Modifier.height(16.dp))
         }
     }
@@ -376,6 +360,15 @@ fun NowPlayingScreen(
             onShare = { viewModel.shareSong(song) },
             onOpenDriveMode = onOpenDriveMode,
             onOpenPartyMode = onOpenPartyMode,
+            onShowLyrics = { showLyrics = !showLyrics },
+            onShowQueue = { showQueue = true },
+            onShowSleepTimer = { showSleepTimer = true },
+            onShowSpeed = { showSpeed = true },
+            onOpenEqualizer = onOpenEqualizer,
+            onToggleKaraoke = viewModel::toggleKaraoke,
+            onToggleAbLoop = viewModel::cycleAbLoop,
+            onTrim = { onTrim(song) },
+            onDelete = { viewModel.deleteSong(song) },
             onDismiss = { showMenu = false },
         )
     }
@@ -667,80 +660,3 @@ private fun MainControls(
     }
 }
 
-@Composable
-private fun SecondaryControls(
-    lyricsActive: Boolean,
-    sleepTimerActive: Boolean,
-    speed: Float,
-    loopState: AbLoopState,
-    karaokeActive: Boolean,
-    onLyrics: () -> Unit,
-    onQueue: () -> Unit,
-    onSleepTimer: () -> Unit,
-    onSpeed: () -> Unit,
-    onEqualizer: () -> Unit,
-    onAbLoop: () -> Unit,
-    onKaraoke: () -> Unit,
-) {
-    val scheme = MaterialTheme.colorScheme
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-    ) {
-        // Répétition A-B : le libellé remplace l'icône, car c'est l'étape du cycle
-        // (« A » posé, boucle active) qui compte, pas le symbole.
-        IconButton(onClick = onAbLoop) {
-            Text(
-                text = when (loopState) {
-                    AbLoopState.OFF -> "A-B"
-                    AbLoopState.START_SET -> "A·"
-                    AbLoopState.LOOPING -> "A-B"
-                },
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold,
-                color = when (loopState) {
-                    AbLoopState.OFF -> scheme.onSurfaceVariant
-                    else -> scheme.primary
-                },
-            )
-        }
-        IconButton(onClick = onLyrics) {
-            Icon(
-                Icons.Rounded.Lyrics,
-                "Paroles",
-                tint = if (lyricsActive) scheme.primary else scheme.onSurfaceVariant,
-            )
-        }
-        IconButton(onClick = onQueue) {
-            Icon(
-                Icons.AutoMirrored.Rounded.QueueMusic,
-                "File d'attente",
-                tint = scheme.onSurfaceVariant,
-            )
-        }
-        IconButton(onClick = onSleepTimer) {
-            Icon(
-                Icons.Rounded.Bedtime,
-                "Minuterie de veille",
-                tint = if (sleepTimerActive) scheme.primary else scheme.onSurfaceVariant,
-            )
-        }
-        IconButton(onClick = onKaraoke) {
-            Icon(
-                if (karaokeActive) Icons.Rounded.Mic else Icons.Rounded.MicOff,
-                "Mode Karaoké",
-                tint = if (karaokeActive) scheme.primary else scheme.onSurfaceVariant,
-            )
-        }
-        IconButton(onClick = onSpeed) {
-            Icon(
-                Icons.Rounded.Speed,
-                "Vitesse de lecture",
-                tint = if (speed != 1f) scheme.primary else scheme.onSurfaceVariant,
-            )
-        }
-        IconButton(onClick = onEqualizer) {
-            Icon(Icons.Rounded.Equalizer, "Égaliseur", tint = scheme.onSurfaceVariant)
-        }
-    }
-}

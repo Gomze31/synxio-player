@@ -130,6 +130,7 @@ object Routes {
     const val RULE_EDITOR = "rule_editor/{ruleId}"
     const val AUDIOBOOKS = "audiobooks"
     const val PARTY_MODE = "party_mode"
+    const val TRIM = "trim/{songId}"
 
     fun album(id: Long) = "album/$id"
     fun smart(id: SmartPlaylistId) = "smart/${id.name}"
@@ -140,6 +141,7 @@ object Routes {
     fun folder(path: String) = "folder/${path.encode()}"
     fun playlist(id: Long) = "playlist/$id"
     fun tags(songId: Long) = "tags/$songId"
+    fun trim(songId: Long) = "trim/$songId"
 
     // Base64 URL-safe plutôt qu'URL-encoding : les noms d'artistes et les chemins de
     // dossiers contiennent des "/" et des "+" que Navigation décode déjà une fois,
@@ -340,6 +342,10 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerOnStart: Boolean) {
                 onOpenPartyMode = {
                     playerExpanded = false
                     navController.navigate(Routes.PARTY_MODE)
+                },
+                onTrim = { song ->
+                    playerExpanded = false
+                    navController.navigate(Routes.trim(song.id))
                 },
             )
         }
@@ -748,6 +754,20 @@ private fun AppNavHost(
                 onOpenArtist = { navController.navigate(Routes.artist(it)) },
                 onOpenAlbum = { navController.navigate(Routes.album(it)) }
             )
+        }
+
+        composable(Routes.TRIM) { entry ->
+            val songId = entry.arguments?.getString("songId")?.toLongOrNull() ?: -1L
+            val song = viewModel.library.value.songs.find { it.id == songId }
+            if (song != null) {
+                fr.synxio.player.ui.screens.TrimScreen(
+                    song = song,
+                    viewModel = viewModel,
+                    onBack = { navController.popBackStack() }
+                )
+            } else {
+                navController.popBackStack()
+            }
         }
     }
 }
