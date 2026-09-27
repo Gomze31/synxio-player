@@ -25,6 +25,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -75,8 +76,8 @@ class MainActivity : AppCompatActivity() {
             val artworkColors by rememberArtworkColors(artworkUri)
             
             // État pour gérer le flow de démarrage
-            var showSplash by remember { mutableStateOf(true) }
-            var showOnboarding by remember { mutableStateOf(false) }
+            var showSplash by rememberSaveable { mutableStateOf(true) }
+            var showOnboarding by rememberSaveable { mutableStateOf(false) }
             
             // Vérifier si on a déjà vu l'onboarding
             LaunchedEffect(Unit) {
