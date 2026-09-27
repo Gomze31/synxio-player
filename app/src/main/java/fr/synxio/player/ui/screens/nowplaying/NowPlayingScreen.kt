@@ -31,24 +31,14 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.QueueMusic
-import androidx.compose.material.icons.rounded.Bedtime
-import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
-import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Repeat
-import androidx.compose.material.icons.rounded.Mic
-import androidx.compose.material.icons.rounded.MicOff
-import androidx.compose.material.icons.rounded.RepeatOne
-import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
-import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -71,32 +61,24 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import fr.synxio.player.core.util.asDuration
-import fr.synxio.player.data.model.NowPlayingSkin
-import fr.synxio.player.data.model.RepeatMode
-import fr.synxio.player.ui.components.Artwork
-import fr.synxio.player.ui.components.MarqueeText
-import fr.synxio.player.ui.theme.LocalArtworkColors
-import fr.synxio.player.ui.viewmodel.AppViewModel
-import androidx.compose.ui.text.font.FontWeight
-import fr.synxio.player.playback.AbLoopState
-import fr.synxio.player.ui.viewmodel.LyricsViewModel
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
+import fr.synxio.player.core.util.asDuration
+import fr.synxio.player.data.model.NowPlayingSkin
+import fr.synxio.player.ui.components.Artwork
 import fr.synxio.player.ui.components.AudioVisualizer
+import fr.synxio.player.ui.components.MarqueeText
+import fr.synxio.player.ui.theme.LocalArtworkColors
+import fr.synxio.player.ui.viewmodel.AppViewModel
+import fr.synxio.player.ui.viewmodel.LyricsViewModel
 
-/**
- * Plein écran « Lecture en cours ».
- *
- * Le fond reprend les couleurs de la pochette, l'artwork se feuillette au doigt
- * comme la file d'attente, et tout le reste est accessible en un geste depuis les
- * volets du bas (paroles, file, minuterie, vitesse).
- */
-@OptIn(com.google.accompanist.permissions.ExperimentalPermissionsApi::class)
+@OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun NowPlayingScreen(
     viewModel: AppViewModel,
@@ -131,7 +113,6 @@ fun NowPlayingScreen(
         if (showLyrics) lyricsViewModel.load(song)
     }
 
-    // Gestion de la permission pour le visualiseur audio
     val recordAudioPermission = rememberPermissionState(android.Manifest.permission.RECORD_AUDIO)
 
     LaunchedEffect(settings.showVisualizer, recordAudioPermission.status) {
@@ -158,7 +139,6 @@ fun NowPlayingScreen(
             .fillMaxSize()
             .background(background)
     ) {
-        // Fond : pochette floutée + dégradé, pour que l'écran « prenne » la couleur du disque.
         if (settings.blurBackground && song != null) {
             val infiniteTransition = rememberInfiniteTransition(label = "fluid")
             val scaleAnim by infiniteTransition.animateFloat(
@@ -190,22 +170,22 @@ fun NowPlayingScreen(
                 shape = RoundedCornerShape(0.dp),
             )
         }
+        
         Box(
             Modifier
                 .fillMaxSize()
-                .background(brush = Brush.verticalGradient(gradient), alpha = 0.85f)
+                .background(brush = Brush.verticalGradient(gradient), alpha = 0.65f)
         )
 
-        // Visualiseur Audio 3D en arrière-plan
         if (settings.showVisualizer && recordAudioPermission.status.isGranted) {
             AudioVisualizer(
                 fft = fft,
                 barColor = MaterialTheme.colorScheme.primary,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .fillMaxHeight(0.4f)
+                    .fillMaxHeight(0.5f)
                     .align(Alignment.BottomCenter)
-                    .blur(2.dp) // Effet Glassmorphism
+                    .blur(1.dp)
             )
         }
 
@@ -219,17 +199,12 @@ fun NowPlayingScreen(
         Column(
             Modifier
                 .fillMaxSize()
-                .systemBarsPadding()
-                .padding(horizontal = 24.dp),
+                .systemBarsPadding(),
         ) {
             TopRow(
-                queueLabel = if (state.queueIndex >= 0)
-                    "${state.queueIndex + 1} / ${state.queue.size}" else "",
                 onCollapse = onCollapse,
                 onMenu = { showMenu = true },
             )
-
-            Spacer(Modifier.height(8.dp))
 
             Box(
                 modifier = Modifier
@@ -243,7 +218,7 @@ fun NowPlayingScreen(
                         loading = lyricsState.loading,
                         positionMs = state.positionMs,
                         onSeek = viewModel::seekTo,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
                         offsetMs = lyricsState.offsetMs,
                         offsetLabel = lyricsState.offsetLabel,
                         emptyMessage = lyricsState.emptyMessage,
@@ -265,57 +240,76 @@ fun NowPlayingScreen(
                 }
             }
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(24.dp))
 
-            // Titre + favori
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    MarqueeText(
-                        text = song.title,
-                        style = MaterialTheme.typography.headlineSmall,
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 24.dp),
+                shape = RoundedCornerShape(32.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.2f),
+                shadowElevation = 0.dp,
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+            ) {
+                Box {
+                    Box(modifier = Modifier.blur(40.dp).matchParentSize().background(Color.Black.copy(alpha = 0.15f)))
+                    
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            MarqueeText(
+                                text = song.title,
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 24.sp
+                                ),
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = song.displayArtist,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                            )
+                        }
+                        
+                        IconButton(onClick = { viewModel.toggleFavorite(song) }) {
+                            val isFavorite = song.id in favorites
+                            Icon(
+                                imageVector = if (isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                                contentDescription = "Favori",
+                                tint = if (isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.height(24.dp))
+
+                    SeekBar(
+                        positionMs = state.positionMs,
+                        durationMs = state.durationMs.takeIf { it > 0 } ?: song.durationMs,
+                        onSeek = viewModel::seekTo,
                     )
-                    Text(
-                        text = song.displayArtist,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(top = 2.dp),
+
+                    Spacer(Modifier.height(24.dp))
+
+                    MainControls(
+                        isPlaying = state.isPlaying,
+                        onPrevious = viewModel::previous,
+                        onPlayPause = viewModel::togglePlayPause,
+                        onNext = viewModel::next,
                     )
                 }
-                IconButton(onClick = { viewModel.toggleFavorite(song) }) {
-                    val isFavorite = song.id in favorites
-                    Icon(
-                        imageVector = if (isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                        contentDescription = "Favori",
-                        tint = if (isFavorite) MaterialTheme.colorScheme.tertiary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            SeekBar(
-                positionMs = state.positionMs,
-                durationMs = state.durationMs.takeIf { it > 0 } ?: song.durationMs,
-                onSeek = viewModel::seekTo,
-            )
-
-            Spacer(Modifier.height(8.dp))
-
-            MainControls(
-                isPlaying = state.isPlaying,
-                shuffleEnabled = state.shuffleEnabled,
-                repeatMode = state.repeatMode,
-                onShuffle = viewModel::toggleShuffle,
-                onPrevious = viewModel::previous,
-                onPlayPause = viewModel::togglePlayPause,
-                onNext = viewModel::next,
-                onRepeat = viewModel::cycleRepeat,
-            )
-
-            Spacer(Modifier.height(16.dp))
-        }
-    }
+                } // Close Box
+            } // Close Surface
+        } // Close Column
+    } // Close Box
 
     if (showQueue) {
         QueueSheet(
@@ -348,8 +342,6 @@ fun NowPlayingScreen(
         )
     }
 
-    // Les feuilles vivent hors du Box : le `return@Box` du cas « rien en lecture »
-    // ne les couvre pas, d'où le test explicite.
     if (showMenu && song != null) {
         NowPlayingMenuSheet(
             song = song,
@@ -375,33 +367,26 @@ fun NowPlayingScreen(
 }
 
 @Composable
-private fun TopRow(queueLabel: String, onCollapse: () -> Unit, onMenu: () -> Unit) {
+private fun TopRow(onCollapse: () -> Unit, onMenu: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(top = 8.dp),
+            .padding(top = 12.dp, start = 16.dp, end = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
         IconButton(onClick = onCollapse) {
-            Icon(Icons.Rounded.ExpandMore, contentDescription = "Réduire le lecteur")
+            Icon(Icons.Rounded.ExpandMore, contentDescription = "Réduire le lecteur", modifier = Modifier.size(32.dp))
         }
-        Spacer(Modifier.weight(1f))
-        Text(
-            text = queueLabel,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.weight(1f))
+        
         fr.synxio.player.ui.components.CastButton()
 
-
         IconButton(onClick = onMenu) {
-            Icon(Icons.Rounded.MoreVert, contentDescription = "Plus d'options")
+            Icon(Icons.Rounded.MoreVert, contentDescription = "Plus d'options", modifier = Modifier.size(28.dp))
         }
     }
 }
 
-/** Pochette selon le skin choisi ; le balayage horizontal change de morceau. */
 @Composable
 private fun ArtworkStage(
     skin: NowPlayingSkin,
@@ -417,7 +402,6 @@ private fun ArtworkStage(
         pageCount = { queue.size },
     )
 
-    // Le lecteur peut changer de piste tout seul : on recale le pager sur lui.
     LaunchedEffect(queueIndex) {
         if (queueIndex >= 0 && queueIndex != pagerState.currentPage) {
             pagerState.animateScrollToPage(queueIndex)
@@ -430,12 +414,12 @@ private fun ArtworkStage(
     HorizontalPager(
         state = pagerState,
         modifier = Modifier.fillMaxSize(),
-        pageSpacing = 16.dp,
-        contentPadding = PaddingValues(horizontal = 8.dp),
+        pageSpacing = 24.dp,
+        contentPadding = PaddingValues(horizontal = 32.dp),
     ) { page ->
         val song = queue[page]
         val isCurrent = page == pagerState.currentPage
-        val scale by animateFloatAsState(if (isCurrent) 1f else 0.86f, label = "artScale")
+        val scale by animateFloatAsState(if (isCurrent) 1f else 0.82f, label = "artScale")
 
         Box(Modifier.fillMaxSize(), Alignment.Center) {
             when (skin) {
@@ -443,20 +427,20 @@ private fun ArtworkStage(
                     model = song.artworkUri,
                     spinning = isPlaying && isCurrent,
                     modifier = Modifier
-                        .fillMaxWidth(0.85f)
+                        .fillMaxWidth(0.95f)
                         .aspectRatio(1f)
                         .scale(scale),
                 )
 
                 NowPlayingSkin.CARD -> Surface(
                     modifier = Modifier
-                        .fillMaxWidth(0.88f)
-                        .aspectRatio(0.82f)
+                        .fillMaxWidth(1f)
+                        .aspectRatio(0.9f)
                         .scale(scale),
-                    shape = RoundedCornerShape(28.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.7f),
-                    tonalElevation = 8.dp,
-                    shadowElevation = 18.dp,
+                    shape = RoundedCornerShape(32.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
+                    tonalElevation = 12.dp,
+                    shadowElevation = 24.dp,
                 ) {
                     Column(Modifier.padding(16.dp)) {
                         Artwork(
@@ -464,7 +448,7 @@ private fun ArtworkStage(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .aspectRatio(1f),
-                            shape = RoundedCornerShape(20.dp),
+                            shape = RoundedCornerShape(24.dp),
                         )
                     }
                 }
@@ -472,19 +456,19 @@ private fun ArtworkStage(
                 NowPlayingSkin.MINIMAL -> Artwork(
                     model = song.artworkUri,
                     modifier = Modifier
-                        .fillMaxWidth(0.6f)
+                        .fillMaxWidth(0.7f)
                         .aspectRatio(1f)
                         .scale(scale),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(16.dp),
                 )
 
                 NowPlayingSkin.IMMERSIVE -> Artwork(
                     model = song.artworkUri,
                     modifier = Modifier
-                        .fillMaxWidth(0.9f)
+                        .fillMaxWidth(1f)
                         .aspectRatio(1f)
                         .scale(scale),
-                    shape = RoundedCornerShape(28.dp),
+                    shape = RoundedCornerShape(32.dp),
                 )
             }
         }
@@ -503,16 +487,14 @@ private fun VinylArtwork(model: Any?, spinning: Boolean, modifier: Modifier = Mo
     val rotation by animateFloatAsState(if (spinning) angle else 0f, label = "vinylRotation")
 
     Box(modifier, Alignment.Center) {
-        // Ombre sous le disque
         Box(
             Modifier
                 .fillMaxSize(0.95f)
                 .clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.4f))
-                .blur(16.dp)
-                .offset(y = 12.dp)
+                .background(Color.Black.copy(alpha = 0.5f))
+                .blur(24.dp)
+                .offset(y = 16.dp)
         )
-        // Disque vinyle avec reflets radiaux
         Box(
             Modifier
                 .fillMaxSize()
@@ -528,7 +510,6 @@ private fun VinylArtwork(model: Any?, spinning: Boolean, modifier: Modifier = Mo
                 ))
                 .rotate(if (spinning) angle else rotation)
         ) {
-            // Sillons (Grooves)
             for (i in 1..7) {
                 Box(
                     Modifier
@@ -538,7 +519,6 @@ private fun VinylArtwork(model: Any?, spinning: Boolean, modifier: Modifier = Mo
                 )
             }
         }
-        // Macaron (Artwork)
         Artwork(
             model = model,
             modifier = Modifier
@@ -546,7 +526,6 @@ private fun VinylArtwork(model: Any?, spinning: Boolean, modifier: Modifier = Mo
                 .rotate(if (spinning) angle else rotation),
             shape = CircleShape,
         )
-        // Trou central
         Box(
             Modifier
                 .size(16.dp)
@@ -575,19 +554,21 @@ private fun SeekBar(positionMs: Long, durationMs: Long, onSeek: (Long) -> Unit) 
             colors = SliderDefaults.colors(
                 thumbColor = MaterialTheme.colorScheme.primary,
                 activeTrackColor = MaterialTheme.colorScheme.primary,
-                inactiveTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f),
+                inactiveTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
             ),
+            modifier = Modifier.height(24.dp)
         )
+        Spacer(modifier = Modifier.height(4.dp))
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
             Text(
                 text = (durationMs * value).toLong().asDuration(),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
             )
             Text(
                 text = durationMs.asDuration(),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
             )
         }
     }
@@ -596,67 +577,53 @@ private fun SeekBar(positionMs: Long, durationMs: Long, onSeek: (Long) -> Unit) 
 @Composable
 private fun MainControls(
     isPlaying: Boolean,
-    shuffleEnabled: Boolean,
-    repeatMode: RepeatMode,
-    onShuffle: () -> Unit,
     onPrevious: () -> Unit,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
-    onRepeat: () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
-    val shuffleTint by animateColorAsState(
-        if (shuffleEnabled) scheme.primary else scheme.onSurfaceVariant,
-        label = "shuffleTint",
-    )
-    val repeatTint by animateColorAsState(
-        if (repeatMode != RepeatMode.OFF) scheme.primary else scheme.onSurfaceVariant,
-        label = "repeatTint",
-    )
 
     Row(
         Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceEvenly,
+        horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = onShuffle) {
-            Icon(Icons.Rounded.Shuffle, "Lecture aléatoire", tint = shuffleTint)
-        }
-        IconButton(onClick = onPrevious, modifier = Modifier.size(56.dp)) {
+        IconButton(onClick = onPrevious, modifier = Modifier.size(64.dp)) {
             Icon(
                 Icons.Rounded.SkipPrevious,
                 "Titre précédent",
-                modifier = Modifier.size(38.dp),
+                modifier = Modifier.size(42.dp),
+                tint = scheme.onSurface
             )
         }
+        
+        Spacer(Modifier.width(24.dp))
 
         Surface(
-            modifier = Modifier.size(74.dp),
+            modifier = Modifier.size(80.dp),
             shape = CircleShape,
             color = scheme.primary,
-            shadowElevation = 12.dp,
+            shadowElevation = 16.dp,
         ) {
             IconButton(onClick = onPlayPause, modifier = Modifier.fillMaxSize()) {
                 Icon(
                     imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                     contentDescription = if (isPlaying) "Pause" else "Lecture",
                     tint = scheme.onPrimary,
-                    modifier = Modifier.size(38.dp),
+                    modifier = Modifier.size(42.dp),
                 )
             }
         }
+        
+        Spacer(Modifier.width(24.dp))
 
-        IconButton(onClick = onNext, modifier = Modifier.size(56.dp)) {
-            Icon(Icons.Rounded.SkipNext, "Titre suivant", modifier = Modifier.size(38.dp))
-        }
-        IconButton(onClick = onRepeat) {
+        IconButton(onClick = onNext, modifier = Modifier.size(64.dp)) {
             Icon(
-                imageVector = if (repeatMode == RepeatMode.ONE) Icons.Rounded.RepeatOne
-                else Icons.Rounded.Repeat,
-                contentDescription = "Mode de répétition",
-                tint = repeatTint,
+                Icons.Rounded.SkipNext, 
+                "Titre suivant", 
+                modifier = Modifier.size(42.dp),
+                tint = scheme.onSurface
             )
         }
     }
 }
-
