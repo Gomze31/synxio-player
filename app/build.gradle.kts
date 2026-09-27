@@ -27,8 +27,8 @@ android {
         // 36 = Android 16. L'API 37 n'existe qu'en canal preview du SDK : on ne cible pas
         // un SDK canary, ce serait impubliable et instable.
         targetSdk = 36
-        versionCode = 20260932
-        versionName = "3.1.7"
+        versionCode = 20260933
+        versionName = "3.1.8"
         vectorDrawables.useSupportLibrary = true
 
         // Le dépôt devient public, l'app peut donc chercher ses mises à jour ici directement
