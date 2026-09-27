@@ -115,6 +115,7 @@ object Routes {
     const val PLAYLIST = "playlist/{playlistId}"
     const val EQUALIZER = "equalizer"
     const val REPAIR = "repair"
+    const val DOWNLOAD = "download"
     const val TAGS = "tags/{songId}"
     const val STATS = "stats"
     const val HISTORY = "history"
@@ -374,6 +375,7 @@ private fun shouldShowBottomBar(navController: NavHostController): Boolean {
             route.startsWith("tags/") ||
             route == Routes.EQUALIZER ||
             route == Routes.REPAIR ||
+            route == Routes.DOWNLOAD ||
             route == Routes.STATS ||
             route == Routes.HISTORY ||
             route == Routes.BACKUP ||
@@ -470,6 +472,7 @@ private fun AppNavHost(
                 onOpenAlbum = { navController.navigate(Routes.album(it)) },
                 onOpenArtist = { navController.navigate(Routes.artist(it)) },
                 onOpenGenre = { navController.navigate(Routes.genre(it)) },
+                onNavigateToDownload = { navController.navigate(Routes.DOWNLOAD) },
             )
         }
 
@@ -565,6 +568,13 @@ private fun AppNavHost(
 
         composable(Routes.REPAIR) {
             RepairScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.DOWNLOAD) {
+            fr.synxio.player.ui.screens.DownloadScreen(
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() }
+            )
         }
 
         composable(Routes.DUPLICATES) {

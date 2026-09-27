@@ -129,11 +129,11 @@ class TagEditorRepository @Inject constructor(
 
             // Réécriture par l'URI de contenu, seul canal autorisé.
             //
-            // Le mode "wt" tronque avant d'écrire : sans le `t`, un fichier corrigé plus
-            // court que l'original laisserait la queue des anciens octets en place et
-            // produirait un média corrompu.
-            context.contentResolver.openOutputStream(song.uri, "wt")?.use { output ->
-                work.inputStream().use { input -> input.copyTo(output) }
+            // Le mode "rwt" tronque avant d'écrire.
+            context.contentResolver.openFileDescriptor(song.uri, "rwt")?.use { pfd ->
+                java.io.FileOutputStream(pfd.fileDescriptor).use { output ->
+                    work.inputStream().use { input -> input.copyTo(output) }
+                }
             } ?: error("Flux d'écriture indisponible")
 
             // Forcer la mise à jour des colonnes du MediaStore pour que l'app voie

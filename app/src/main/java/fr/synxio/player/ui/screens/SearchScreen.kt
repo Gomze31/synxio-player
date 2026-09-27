@@ -15,6 +15,8 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -42,6 +44,7 @@ fun SearchScreen(
     onOpenAlbum: (Long) -> Unit,
     onOpenArtist: (String) -> Unit,
     onOpenGenre: (String) -> Unit,
+    onNavigateToDownload: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val query by viewModel.query.collectAsStateWithLifecycle()
@@ -69,6 +72,18 @@ fun SearchScreen(
             singleLine = true,
             shape = MaterialTheme.shapes.large,
         )
+
+        Button(
+            onClick = onNavigateToDownload,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer)
+        ) {
+            Icon(Icons.Rounded.Search, contentDescription = null)
+            androidx.compose.foundation.layout.Spacer(modifier = Modifier.width(8.dp))
+            Text("Télécharger depuis YouTube")
+        }
 
         when {
             query.isBlank() -> EmptyState(

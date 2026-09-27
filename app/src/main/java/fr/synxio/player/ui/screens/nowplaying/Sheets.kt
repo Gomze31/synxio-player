@@ -2,6 +2,7 @@ package fr.synxio.player.ui.screens.nowplaying
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -552,38 +553,73 @@ fun NowPlayingMenuSheet(
                 }
             }
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
-
-            MenuRow(Icons.Rounded.QueueMusic, "File d'attente") { onShowQueue(); onDismiss() }
-            MenuRow(Icons.Rounded.Lyrics, "Paroles") { onShowLyrics(); onDismiss() }
-            MenuRow(Icons.Rounded.Bedtime, "Minuterie de veille") { onShowSleepTimer(); onDismiss() }
-            MenuRow(Icons.Rounded.Speed, "Vitesse et Tonalité") { onShowSpeed(); onDismiss() }
-            MenuRow(Icons.Rounded.Equalizer, "Égaliseur") { onOpenEqualizer(); onDismiss() }
-            MenuRow(Icons.Rounded.Mic, "Mode Karaoké") { onToggleKaraoke(); onDismiss() }
-            MenuRow(Icons.Rounded.Repeat, "Boucle A-B") { onToggleAbLoop(); onDismiss() }
-            MenuRow(Icons.Rounded.DirectionsCar, "Mode Voiture") { onOpenDriveMode(); onDismiss() }
-            MenuRow(Icons.Rounded.Album, "Aller à l'album") { onOpenAlbum(); onDismiss() }
-            MenuRow(Icons.Rounded.Person, "Aller à l'artiste") { onOpenArtist(); onDismiss() }
-            MenuRow(Icons.Rounded.Edit, "Modifier les tags") { onEditTags(); onDismiss() }
-            MenuRow(Icons.Rounded.Refresh, "Rechercher les paroles") { onRefreshLyrics(); onDismiss() }
-            MenuRow(Icons.Rounded.QueueMusic, "Synxio Party") { onOpenPartyMode(); onDismiss() }
-            MenuRow(Icons.Rounded.Share, "Partager une carte") { onShare(); onDismiss() }
             
-            val context = androidx.compose.ui.platform.LocalContext.current
-            val scope = androidx.compose.runtime.rememberCoroutineScope()
-            MenuRow(Icons.Rounded.Refresh, "Définir comme sonnerie") {
-                if (fr.synxio.player.core.util.RingtoneHelper.hasWriteSettingsPermission(context)) {
-                    scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                        fr.synxio.player.core.util.RingtoneHelper.setAsRingtone(context, song)
+            // Grille d'actions rapides (Design moderne)
+            val actions = listOf(
+                Triple(Icons.Rounded.QueueMusic, "File") { onShowQueue(); onDismiss() },
+                Triple(Icons.Rounded.Lyrics, "Paroles") { onShowLyrics(); onDismiss() },
+                Triple(Icons.Rounded.Bedtime, "Minuteur") { onShowSleepTimer(); onDismiss() },
+                Triple(Icons.Rounded.Speed, "Vitesse") { onShowSpeed(); onDismiss() },
+                Triple(Icons.Rounded.Equalizer, "Égaliseur") { onOpenEqualizer(); onDismiss() },
+                Triple(Icons.Rounded.Mic, "Karaoké") { onToggleKaraoke(); onDismiss() },
+                Triple(Icons.Rounded.Repeat, "Boucle A-B") { onToggleAbLoop(); onDismiss() },
+                Triple(Icons.Rounded.DirectionsCar, "Voiture") { onOpenDriveMode(); onDismiss() }
+            )
+            
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+                for (row in 0 until 2) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                        for (col in 0 until 4) {
+                            val action = actions[row * 4 + col]
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable(onClick = action.third)
+                                    .padding(8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(action.first, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                }
+                                Spacer(Modifier.height(4.dp))
+                                Text(action.second, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center, maxLines = 1)
+                            }
+                        }
                     }
-                } else {
-                    context.startActivity(fr.synxio.player.core.util.RingtoneHelper.getWriteSettingsIntent(context))
-                    android.widget.Toast.makeText(context, "Veuillez autoriser l'application à modifier les paramètres", android.widget.Toast.LENGTH_LONG).show()
                 }
-                onDismiss()
             }
+            
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
-            MenuRow(Icons.Rounded.ContentCut, "Découper la piste (Trim)") { onTrim(); onDismiss() }
-            MenuRow(Icons.Rounded.Delete, "Supprimer le fichier", tint = MaterialTheme.colorScheme.error) { onDelete(); onDismiss() }
+            
+            LazyColumn(Modifier.heightIn(max = 300.dp)) {
+                item { MenuRow(Icons.Rounded.Album, "Aller à l'album") { onOpenAlbum(); onDismiss() } }
+                item { MenuRow(Icons.Rounded.Person, "Aller à l'artiste") { onOpenArtist(); onDismiss() } }
+                item { MenuRow(Icons.Rounded.Edit, "Modifier les tags") { onEditTags(); onDismiss() } }
+                item { MenuRow(Icons.Rounded.Share, "Partager une carte") { onShare(); onDismiss() } }
+                item {
+                    val context = androidx.compose.ui.platform.LocalContext.current
+                    val scope = androidx.compose.runtime.rememberCoroutineScope()
+                    MenuRow(Icons.Rounded.Refresh, "Définir comme sonnerie") {
+                        if (fr.synxio.player.core.util.RingtoneHelper.hasWriteSettingsPermission(context)) {
+                            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                fr.synxio.player.core.util.RingtoneHelper.setAsRingtone(context, song)
+                            }
+                        } else {
+                            context.startActivity(fr.synxio.player.core.util.RingtoneHelper.getWriteSettingsIntent(context))
+                            android.widget.Toast.makeText(context, "Veuillez autoriser l'application à modifier les paramètres", android.widget.Toast.LENGTH_LONG).show()
+                        }
+                        onDismiss()
+                    }
+                }
+                item { HorizontalDivider(Modifier.padding(vertical = 8.dp)) }
+                item { MenuRow(Icons.Rounded.ContentCut, "Découper la piste (Trim)") { onTrim(); onDismiss() } }
+                item { MenuRow(Icons.Rounded.Delete, "Supprimer le fichier", tint = MaterialTheme.colorScheme.error) { onDelete(); onDismiss() } }
+            }
         }
     }
 }
@@ -599,11 +635,11 @@ private fun MenuRow(
         Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 24.dp, vertical = 14.dp),
+            .padding(horizontal = 24.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         Icon(icon, contentDescription = null, tint = tint)
-        Text(label, style = MaterialTheme.typography.bodyLarge, color = if (tint == MaterialTheme.colorScheme.error) tint else androidx.compose.ui.graphics.Color.Unspecified)
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = if (tint == MaterialTheme.colorScheme.error) tint else androidx.compose.ui.graphics.Color.Unspecified)
     }
 }

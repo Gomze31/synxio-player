@@ -20,6 +20,7 @@ import fr.synxio.player.data.repo.RulePlaylistRepository
 import fr.synxio.player.data.repo.SearchResults
 import fr.synxio.player.data.repo.ShareCardRepository
 import fr.synxio.player.data.repo.SimilarityRepository
+import fr.synxio.player.data.repo.TrimRepository
 import fr.synxio.player.data.repo.SmartPlaylist
 import fr.synxio.player.data.repo.SmartPlaylistId
 import fr.synxio.player.data.repo.SmartPlaylistRepository
@@ -58,6 +59,7 @@ class AppViewModel @Inject constructor(
     private val player: PlayerConnection,
     private val sleepTimer: SleepTimer,
     private val trimRepository: TrimRepository,
+    private val downloadRepository: fr.synxio.player.data.repo.DownloadRepository,
     private val shareCardRepository: ShareCardRepository,
     private val similarityRepository: SimilarityRepository,
     private val rulePlaylistRepository: RulePlaylistRepository,
@@ -421,6 +423,24 @@ class AppViewModel @Inject constructor(
             rescan()
         } else {
             emit("Échec du découpage")
+        }
+    }
+
+    val downloadProgress = kotlinx.coroutines.flow.MutableStateFlow(0f)
+    val isDownloading = kotlinx.coroutines.flow.MutableStateFlow(false)
+
+    fun downloadYoutube(url: String) = viewModelScope.launch {
+        isDownloading.value = true
+        emit("Démarrage du téléchargement...")
+        val result = downloadRepository.downloadAudio(url) { progress ->
+            downloadProgress.value = progress
+        }
+        isDownloading.value = false
+        if (result.isSuccess) {
+            emit(result.getOrDefault("Téléchargement terminé"))
+            rescan()
+        } else {
+            emit("Erreur de téléchargement: ${result.exceptionOrNull()?.message}")
         }
     }
 

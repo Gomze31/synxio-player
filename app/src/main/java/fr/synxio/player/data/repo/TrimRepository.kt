@@ -1,8 +1,7 @@
 package fr.synxio.player.data.repo
 
 import android.content.Context
-import com.arthenica.ffmpegkit.FFmpegKit
-import com.arthenica.ffmpegkit.ReturnCode
+import com.yausername.ffmpeg.FFmpeg
 import dagger.hilt.android.qualifiers.ApplicationContext
 import fr.synxio.player.data.model.Song
 import kotlinx.coroutines.Dispatchers
@@ -22,28 +21,38 @@ class TrimRepository @Inject constructor(
      */
     suspend fun trimAudio(song: Song, startMs: Long, endMs: Long): String? = withContext(Dispatchers.IO) {
         try {
-            val inputPath = song.data
-            if (inputPath.isNullOrEmpty() || !File(inputPath).exists()) {
-                return@withContext null
-            }
+            val inputFile = File(song.path)
+            if (!inputFile.exists()) return@withContext null
 
-            val inputFile = File(inputPath)
-            val extension = inputFile.extension
-            val parentDir = inputFile.parentFile ?: context.getExternalFilesDir(null)
-            val outputFile = File(parentDir, "${inputFile.nameWithoutExtension}_trimmed.$extension")
+            val extension = inputFile.extension.ifEmpty { "mp3" }
+            val outputFile = File(
+                inputFile.parentFile,
+                "${inputFile.nameWithoutExtension}_trim.$extension"
+            )
 
-            // Format des temps : HH:MM:SS.mmm
-            val startTime = formatTime(startMs)
-            val durationTime = formatTime(endMs - startMs)
+            // s = start, t = duration
+            val startStr = formatTime(startMs)
+            val durationStr = formatTime(endMs - startMs)
 
-            // ffmpeg -ss startTime -t duration -i inputPath -c copy outputPath
-            val command = "-y -ss $startTime -t $durationTime -i \"$inputPath\" -c copy \"${outputFile.absolutePath}\""
+            // ffmpeg -i input.mp3 -ss 00:01:00.000 -t 00:00:30.000 -c copy output.mp3
+            val command = arrayOf(
+                "-i", inputFile.absolutePath,
+                "-ss", startStr,
+                "-t", durationStr,
+                "-c", "copy",
+                outputFile.absolutePath
+            )
             
-            val session = FFmpegKit.execute(command)
+            // com.yausername.ffmpeg.FFmpeg instance is already initialized along with YoutubeDL
+            val response = com.yausername.ffmpeg.FFmpeg.getInstance().execute(command)
             
-            if (ReturnCode.isSuccess(session.returnCode)) {
+            if (response.exitCode == 0 && outputFile.exists()) {
+                // Return path to the new file so we can scan it
                 return@withContext outputFile.absolutePath
             } else {
+                if (outputFile.exists()) {
+                    outputFile.delete()
+                }
                 return@withContext null
             }
         } catch (e: Exception) {
