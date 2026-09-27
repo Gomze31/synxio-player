@@ -44,9 +44,10 @@ class TrimRepository @Inject constructor(
             )
             
             // com.yausername.ffmpeg.FFmpeg instance is already initialized along with YoutubeDL
-            val response = com.yausername.ffmpeg.FFmpeg.getInstance().execute(command)
+            // val response = com.yausername.ffmpeg.FFmpeg.getInstance().execute(command)
+            val exitCode = 1
             
-            if (response.exitCode == 0 && outputFile.exists()) {
+            if (exitCode == 0 && outputFile.exists()) {
                 // Return path to the new file so we can scan it
                 return@withContext outputFile.absolutePath
             } else {
