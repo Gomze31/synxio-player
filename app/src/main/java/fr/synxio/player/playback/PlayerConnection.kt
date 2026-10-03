@@ -354,6 +354,14 @@ class PlayerConnection @Inject constructor(
         if (index in 0 until c.mediaItemCount) c.removeMediaItem(index)
     }
 
+    /** Retire de la file tous les éléments de ces morceaux (fichiers supprimés). */
+    fun removeSongsFromQueue(songIds: Set<Long>) {
+        val c = controller ?: return
+        for (index in c.mediaItemCount - 1 downTo 0) {
+            if (c.getMediaItemAt(index).mediaId.toLongOrNull() in songIds) c.removeMediaItem(index)
+        }
+    }
+
     fun moveInQueue(from: Int, to: Int) {
         val c = controller ?: return
         if (from in 0 until c.mediaItemCount && to in 0 until c.mediaItemCount) {

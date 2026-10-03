@@ -5,22 +5,15 @@ import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
-import com.yausername.youtubedl_android.YoutubeDL
-import com.yausername.ffmpeg.FFmpeg
 import dagger.hilt.android.HiltAndroidApp
 
+/**
+ * YoutubeDL et FFmpeg ne sont pas initialisés ici : au premier lancement, leur `init`
+ * extrait Python et FFmpeg sur le stockage, ce qui bloquait le thread principal au
+ * démarrage. `DownloadRepository` les initialise à la demande, sur IO.
+ */
 @HiltAndroidApp
 class SynxioApp : Application(), ImageLoaderFactory {
-
-    override fun onCreate() {
-        super.onCreate()
-        try {
-            YoutubeDL.getInstance().init(this)
-            FFmpeg.getInstance().init(this)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
 
     /**
      * Les pochettes viennent toutes de MediaStore : un cache disque généreux évite

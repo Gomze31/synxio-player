@@ -10,6 +10,7 @@ import fr.synxio.player.data.db.FavoriteDao
 import fr.synxio.player.data.db.FavoriteEntity
 import fr.synxio.player.data.db.PlayStatDao
 import fr.synxio.player.data.db.PlayStatEntity
+import fr.synxio.player.data.media.DeleteOutcome
 import fr.synxio.player.data.media.MediaStoreScanner
 import fr.synxio.player.data.model.Album
 import fr.synxio.player.data.model.AlbumSort
@@ -218,9 +219,7 @@ class MusicRepository @Inject constructor(
         }
     }
 
-    fun deleteSong(song: Song): android.content.IntentSender? {
-        return scanner.deleteSong(song)
-    }
+    fun deleteSongs(songs: List<Song>): DeleteOutcome = scanner.deleteSongs(songs)
 
     fun songsByIds(ids: List<Long>): List<Song> {
         val index = _songsById.value

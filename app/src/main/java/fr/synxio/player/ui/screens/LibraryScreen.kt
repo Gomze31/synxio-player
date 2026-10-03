@@ -1,5 +1,8 @@
 package fr.synxio.player.ui.screens
 
+import android.os.Build
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material3.AlertDialog
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -308,6 +311,10 @@ private fun SongsTab(
                         selectedSongs.forEach(viewModel::toggleFavorite)
                         selected = emptySet()
                     },
+                    onDelete = {
+                        viewModel.deleteSongs(selectedSongs)
+                        selected = emptySet()
+                    },
                 )
             }
         }
@@ -391,7 +398,24 @@ private fun SelectionBar(
     onAddToQueue: () -> Unit,
     onAddToPlaylist: () -> Unit,
     onFavorite: () -> Unit,
+    onDelete: () -> Unit,
 ) {
+    var confirmDelete by remember { mutableStateOf(false) }
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Supprimer $count titre${if (count > 1) "s" else ""} ?") },
+            text = { Text("Les fichiers seront définitivement supprimés de l'appareil.") },
+            confirmButton = {
+                TextButton(onClick = { confirmDelete = false; onDelete() }) {
+                    Text("Supprimer", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Annuler") } },
+        )
+    }
+
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.primaryContainer,
@@ -427,6 +451,12 @@ private fun SelectionBar(
                 }
                 IconButton(onClick = onFavorite) {
                     Icon(Icons.Rounded.Favorite, contentDescription = "Basculer les favoris")
+                }
+                IconButton(onClick = {
+                    // Android 11+ confirme lui-même (corbeille système).
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) onDelete() else confirmDelete = true
+                }) {
+                    Icon(Icons.Rounded.Delete, contentDescription = "Supprimer de l'appareil")
                 }
             }
         }

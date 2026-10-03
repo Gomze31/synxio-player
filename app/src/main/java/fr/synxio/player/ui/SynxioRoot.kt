@@ -770,7 +770,8 @@ private fun AppNavHost(
 
         composable(Routes.TRIM) { entry ->
             val songId = entry.arguments?.getString("songId")?.toLongOrNull() ?: -1L
-            val song = viewModel.library.value.songs.find { it.id == songId }
+            val library by viewModel.library.collectAsStateWithLifecycle()
+            val song = library.songs.find { it.id == songId }
             if (song != null) {
                 fr.synxio.player.ui.screens.TrimScreen(
                     song = song,
@@ -778,7 +779,9 @@ private fun AppNavHost(
                     onBack = { navController.popBackStack() }
                 )
             } else {
-                navController.popBackStack()
+                // Naviguer hors composition : un popBackStack direct ici serait rejoué
+                // à chaque recomposition.
+                androidx.compose.runtime.LaunchedEffect(Unit) { navController.popBackStack() }
             }
         }
     }

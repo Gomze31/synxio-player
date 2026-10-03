@@ -134,6 +134,7 @@ class SettingsViewModel @Inject constructor(
     fun setCrossfade(ms: Int) = update { settings.setCrossfadeMs(ms) }
     fun setGapless(value: Boolean) = update { settings.setGapless(value) }
     fun setSkipSilence(value: Boolean) = update { settings.setSkipSilence(value) }
+    fun setAutoDj(value: Boolean) = update { settings.setAutoDj(value) }
     fun setRememberQueue(value: Boolean) = update { settings.setRememberQueue(value) }
 
     /** Reprendre la lecture quand un casque est branché ou appairé */

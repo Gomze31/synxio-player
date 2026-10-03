@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import fr.synxio.player.core.prefs.Settings
 import fr.synxio.player.core.prefs.SettingsRepository
+import fr.synxio.player.data.media.DeleteOutcome
 import fr.synxio.player.data.model.AlbumSort
 import fr.synxio.player.data.model.ArtistSort
 import fr.synxio.player.data.model.Playlist
@@ -29,6 +30,8 @@ import fr.synxio.player.playback.PlayerConnection
 import fr.synxio.player.playback.PlayerUiState
 import fr.synxio.player.playback.SleepTimer
 import fr.synxio.player.playback.SleepTimerState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -424,14 +427,50 @@ class AppViewModel @Inject constructor(
      */
     fun showMessage(text: String) = emit(text)
 
-    fun deleteSong(song: Song) = viewModelScope.launch {
-        val intentSender = musicRepository.deleteSong(song)
-        if (intentSender != null) {
-            _deleteIntentSenders.emit(intentSender)
-        } else {
-            // Pas d'IntentSender requis ou déjà supprimé
-            emit("Fichier supprimé")
+    /** Morceaux en attente du consentement système pour leur suppression. */
+    private var pendingDeletion: List<Song> = emptyList()
+
+    fun deleteSong(song: Song) = deleteSongs(listOf(song))
+
+    fun deleteSongs(songs: List<Song>) = viewModelScope.launch {
+        if (songs.isEmpty()) return@launch
+        pendingDeletion = songs
+        handleDeleteOutcome(withContext(Dispatchers.IO) { musicRepository.deleteSongs(songs) })
+    }
+
+    /** Retour de la boîte de confirmation système. */
+    fun onDeleteConsentResult(granted: Boolean) = viewModelScope.launch {
+        if (!granted) {
+            pendingDeletion = emptyList()
+            emit("Suppression annulée")
+            return@launch
         }
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            // La corbeille système a déjà agi en acceptant.
+            onSongsDeleted()
+        } else {
+            // Android 10 : le consentement ouvre seulement l'accès, la suppression reste à faire.
+            handleDeleteOutcome(withContext(Dispatchers.IO) { musicRepository.deleteSongs(pendingDeletion) })
+        }
+    }
+
+    private suspend fun handleDeleteOutcome(outcome: DeleteOutcome) {
+        when (outcome) {
+            DeleteOutcome.Deleted -> onSongsDeleted()
+            is DeleteOutcome.NeedsConsent -> _deleteIntentSenders.emit(outcome.intentSender)
+            DeleteOutcome.Failed -> {
+                pendingDeletion = emptyList()
+                emit("Impossible de supprimer le fichier")
+            }
+        }
+    }
+
+    private suspend fun onSongsDeleted() {
+        val deleted = pendingDeletion
+        pendingDeletion = emptyList()
+        player.removeSongsFromQueue(deleted.mapTo(HashSet()) { it.id })
+        musicRepository.refresh()
+        emit(if (deleted.size > 1) "${deleted.size} titres supprimés" else "Titre supprimé")
     }
     
     fun trimSong(song: Song, startMs: Long, endMs: Long) = viewModelScope.launch {

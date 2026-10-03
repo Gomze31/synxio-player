@@ -15,6 +15,16 @@ import kotlinx.coroutines.flow.callbackFlow
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** Issue d'une demande de suppression de fichiers. */
+sealed interface DeleteOutcome {
+    data object Deleted : DeleteOutcome
+
+    /** Le système doit demander confirmation à l'utilisateur. */
+    data class NeedsConsent(val intentSender: android.content.IntentSender) : DeleteOutcome
+
+    data object Failed : DeleteOutcome
+}
+
 /**
  * Lit la bibliothèque audio locale via MediaStore.
  *
@@ -224,25 +234,45 @@ class MediaStoreScanner @Inject constructor(
         context.checkSelfPermission(audioPermission) == PackageManager.PERMISSION_GRANTED
 
     /**
-     * Tente de supprimer la piste.
-     * @return IntentSender si l'utilisateur doit confirmer (Android 11+), ou null si la piste a été supprimée ou n'a pas pu l'être sans IntentSender.
+     * Supprime ces morceaux de l'appareil.
+     *
+     * Android 11+ : les fichiers partent à la corbeille système (`createTrashRequest`),
+     * récupérables trente jours, après confirmation par le système.
+     *
+     * Android 10 : la suppression directe lève `RecoverableSecurityException` pour un
+     * fichier créé par une autre app. Le consentement accordé ne supprime rien à lui
+     * seul : il faut rappeler cette fonction ensuite.
+     *
+     * Android 8-9 : suppression directe, qui exige WRITE_EXTERNAL_STORAGE.
      */
-    fun deleteSong(song: Song): android.content.IntentSender? {
-        val uri = song.uri
+    fun deleteSongs(songs: List<Song>): DeleteOutcome {
+        if (songs.isEmpty()) return DeleteOutcome.Deleted
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val intentSender = MediaStore.createDeleteRequest(context.contentResolver, listOf(uri)).intentSender
-            return intentSender
-        } else {
-            try {
-                context.contentResolver.delete(uri, null, null)
-            } catch (e: SecurityException) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    val recoverableSecurityException = e as? android.app.RecoverableSecurityException
-                    return recoverableSecurityException?.userAction?.actionIntent?.intentSender
-                }
+            return runCatching {
+                DeleteOutcome.NeedsConsent(
+                    MediaStore.createTrashRequest(context.contentResolver, songs.map { it.uri }, true)
+                        .intentSender
+                )
+            }.getOrElse {
+                Log.w(TAG, "Demande de suppression refusée", it)
+                DeleteOutcome.Failed
             }
         }
-        return null
+
+        for (song in songs) {
+            try {
+                context.contentResolver.delete(song.uri, null, null)
+            } catch (e: SecurityException) {
+                val sender = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    (e as? android.app.RecoverableSecurityException)?.userAction?.actionIntent?.intentSender
+                } else {
+                    null
+                }
+                Log.w(TAG, "Suppression refusée : ${song.path}", e)
+                return sender?.let(DeleteOutcome::NeedsConsent) ?: DeleteOutcome.Failed
+            }
+        }
+        return DeleteOutcome.Deleted
     }
 
     private companion object {

@@ -57,8 +57,10 @@ class SleepTimer @Inject constructor(
                 _state.value = _state.value.copy(remainingMs = remaining.coerceAtLeast(0))
             }
             if (isActive && !finishCurrentTrack) {
-                _state.value = SleepTimerState()
+                // Pause d'abord : réinitialiser l'état remet le gain de veille à 1, ce qui
+                // ferait remonter le volume d'un coup avant l'arrêt.
                 onElapsed?.invoke()
+                _state.value = SleepTimerState()
             }
             // En mode « fin de morceau », on laisse l'état actif : c'est le service
             // qui déclenchera l'arrêt à la transition de piste suivante.

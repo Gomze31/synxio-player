@@ -1,5 +1,6 @@
 package fr.synxio.player.ui.components
 
+import android.os.Build
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -20,6 +21,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
@@ -71,6 +73,7 @@ data class SongActions(
     val onShare: (() -> Unit)? = null,
     val onStartRadio: (() -> Unit)? = null,
     val onRemoveFromPlaylist: (() -> Unit)? = null,
+    val onDelete: (() -> Unit)? = null,
 )
 
 @Composable
@@ -82,6 +85,7 @@ fun SongOptionsSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showDetails by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
@@ -146,11 +150,38 @@ fun SongOptionsSheet(
                 SheetAction(Icons.Rounded.Share, "Partager le fichier") { it(); onDismiss() }
             }
             SheetAction(Icons.Rounded.Info, "Détails du fichier") { showDetails = true }
+            actions.onDelete?.let { delete ->
+                SheetAction(Icons.Rounded.Delete, "Supprimer de l'appareil") {
+                    // Android 11+ affiche sa propre confirmation (corbeille système) :
+                    // inutile d'en empiler une deuxième. Avant, la suppression est directe.
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        delete(); onDismiss()
+                    } else {
+                        confirmDelete = true
+                    }
+                }
+            }
         }
     }
 
     if (showDetails) {
         SongDetailsDialog(song) { showDetails = false }
+    }
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Supprimer ce titre ?") },
+            text = { Text("« ${song.title} » sera définitivement supprimé de l'appareil.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDelete = false
+                    actions.onDelete?.invoke()
+                    onDismiss()
+                }) { Text("Supprimer", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Annuler") } },
+        )
     }
 }
 

@@ -27,8 +27,8 @@ android {
         // 36 = Android 16. L'API 37 n'existe qu'en canal preview du SDK : on ne cible pas
         // un SDK canary, ce serait impubliable et instable.
         targetSdk = 36
-        versionCode = 20260937
-        versionName = "4.2.0"
+        versionCode = 20260938
+        versionName = "4.3.0"
         vectorDrawables.useSupportLibrary = true
 
         // Le dépôt devient public, l'app peut donc chercher ses mises à jour ici directement
@@ -102,6 +102,9 @@ android {
     }
 
     packaging {
+        // youtubedl-android exécute Python et FFmpeg comme binaires depuis
+        // nativeLibraryDir : ils doivent être extraits de l'APK à l'installation.
+        jniLibs.useLegacyPackaging = true
         resources.excludes += setOf(
             "/META-INF/{AL2.0,LGPL2.1}",
             "META-INF/DEPENDENCIES",
@@ -130,13 +133,10 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
 
-    // Analytics & Crashlytics
-    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
-    implementation("com.google.firebase:firebase-analytics-ktx")
-    implementation("com.google.firebase:firebase-crashlytics-ktx")
 
-    // ML Kit Translate
+    // ML Kit Translate (+ Task.await(), fourni avant par Firebase en transitif)
     implementation("com.google.mlkit:translate:17.0.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)

@@ -642,6 +642,16 @@ fun SettingsScreen(
                         }
 
                         item {
+                            SwitchSetting(
+                                title = "Auto-DJ",
+                                subtitle = "Prolonge la file avec des titres similaires quand elle se termine",
+                                icon = Icons.Rounded.Loop,
+                                checked = settings.autoDjEnabled,
+                                onCheckedChange = settingsViewModel::setAutoDj
+                            )
+                        }
+
+                        item {
                             val rewindOptions = listOf("Désactivé", "3 secondes", "5 secondes")
                             val rewindValues = listOf(0, 3, 5)
                             val selectedIndex = rewindValues.indexOf(settings.autoRewindSec).coerceAtLeast(0)

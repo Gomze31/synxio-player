@@ -24,6 +24,7 @@ import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import dagger.hilt.android.AndroidEntryPoint
+import fi.iki.elonen.NanoHTTPD
 import fr.synxio.player.MainActivity
 import fr.synxio.player.R
 import fr.synxio.player.core.prefs.Settings
@@ -88,6 +89,7 @@ class PlaybackService : MediaLibraryService() {
     
     val vocalRemover = fr.synxio.player.playback.effects.VocalRemoverAudioProcessor()
     private var partyServer: PartyServer? = null
+    private var castServer: CastMediaServer? = null
 
     // Suivi d'écoute pour les statistiques et le scrobbling.
     private var trackedSongId: Long = -1L
@@ -115,7 +117,7 @@ class PlaybackService : MediaLibraryService() {
 
         val httpDataSourceFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
-            .setUserAgent("SynxioMediaPlayer/2.6.0")
+            .setUserAgent("SynxioMediaPlayer/${fr.synxio.player.BuildConfig.VERSION_NAME}")
             
         val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(this, httpDataSourceFactory)
         val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(this)
@@ -165,7 +167,7 @@ class PlaybackService : MediaLibraryService() {
             .setCustomLayout(ImmutableList.of(favoriteButton(false)))
             .build()
 
-        sleepTimer.setCallback { fadeOutAndPause() }
+        sleepTimer.setCallback { pauseForSleepTimer() }
 
         observeSettings()
         observeLibraryForQueueRestore()
@@ -192,21 +194,25 @@ class PlaybackService : MediaLibraryService() {
             val executor = androidx.core.content.ContextCompat.getMainExecutor(this)
             com.google.android.gms.cast.framework.CastContext.getSharedInstance(this, executor).addOnSuccessListener { castContext ->
                 castPlayer = androidx.media3.cast.CastPlayer(castContext).apply {
+                    // Un seul listener pour toute la vie du CastPlayer : l'ajouter à chaque
+                    // connexion Cast doublait stats et scrobbles.
+                    addListener(PlayerListener())
                     setSessionAvailabilityListener(object : androidx.media3.cast.SessionAvailabilityListener {
                         override fun onCastSessionAvailable() {
+                            val server = startCastServer() ?: return
                             val pos = player.currentPosition.coerceAtLeast(0)
                             val playWhenReady = player.playWhenReady
                             val idx = player.currentMediaItemIndex.coerceAtLeast(0)
-                            
+
                             player.pause()
-                            
-                            val items = (0 until player.mediaItemCount).map { player.getMediaItemAt(it) }
+
+                            val items = (0 until player.mediaItemCount)
+                                .map { server.toCastItem(player.getMediaItemAt(it)) }
                             this@apply.setMediaItems(items, idx, pos)
                             this@apply.playWhenReady = playWhenReady
                             this@apply.prepare()
-                            
+
                             session.player = this@apply
-                            this@apply.addListener(PlayerListener())
                         }
 
                         override fun onCastSessionUnavailable() {
@@ -214,13 +220,21 @@ class PlaybackService : MediaLibraryService() {
                             val pos = cp.currentPosition.coerceAtLeast(0)
                             val playWhenReady = cp.playWhenReady
                             val idx = cp.currentMediaItemIndex.coerceAtLeast(0)
-                            
+
+                            // La file a pu changer pendant le Cast : on la rapatrie, en
+                            // reconvertissant chaque morceau vers son URI locale.
+                            val items = (0 until cp.mediaItemCount).map { i ->
+                                val item = cp.getMediaItemAt(i)
+                                musicRepository.songById(item.songId)?.toMediaItem() ?: item
+                            }
                             cp.stop()
-                            
-                            player.seekTo(idx, pos)
+                            stopCastServer()
+
+                            if (items.isNotEmpty()) player.setMediaItems(items, idx, pos)
+                            else player.seekTo(idx, pos)
                             player.playWhenReady = playWhenReady
                             player.prepare()
-                            
+
                             session.player = player
                         }
                     })
@@ -229,6 +243,30 @@ class PlaybackService : MediaLibraryService() {
         } catch (e: Exception) {
             // Ignorer si Google Play Services n'est pas dispo
         }
+    }
+
+    private fun startCastServer(): CastMediaServer? {
+        castServer?.let { return it }
+        val server = CastMediaServer(this, musicRepository::songById)
+        runCatching { server.start(NanoHTTPD.SOCKET_READ_TIMEOUT, true) }
+            .onFailure { android.util.Log.w("PlaybackService", "Serveur Cast indisponible", it) }
+        if (!server.isReachable) {
+            server.stop()
+            return null
+        }
+        castServer = server
+        return server
+    }
+
+    private fun stopCastServer() {
+        castServer?.stop()
+        castServer = null
+    }
+
+    /** Pendant un Cast, les morceaux doivent pointer vers le serveur local. */
+    private fun forActivePlayer(items: List<MediaItem>): List<MediaItem> {
+        val server = castServer
+        return if (server != null && activePlayer === castPlayer) items.map(server::toCastItem) else items
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession =
@@ -266,6 +304,7 @@ class PlaybackService : MediaLibraryService() {
         castPlayer?.release()
         player.release()
         partyServer?.stop()
+        stopCastServer()
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -350,7 +389,7 @@ class PlaybackService : MediaLibraryService() {
         if (songs.isEmpty()) return
 
         val state = queueDao.state()
-        activePlayer.setMediaItems(songs.toMediaItems(), state?.currentIndex ?: 0, state?.positionMs ?: 0L)
+        activePlayer.setMediaItems(forActivePlayer(songs.toMediaItems()), state?.currentIndex ?: 0, state?.positionMs ?: 0L)
         activePlayer.shuffleModeEnabled = state?.shuffle ?: false
         activePlayer.repeatMode = state?.repeatMode ?: Player.REPEAT_MODE_OFF
         activePlayer.prepare()
@@ -465,17 +504,14 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
-    private fun fadeOutAndPause() {
-        serviceScope.launch {
-            val steps = 20
-            val initial = player.volume
-            repeat(steps) { i ->
-                player.volume = initial * (1f - (i + 1f) / steps)
-                delay(50)
-            }
-            player.pause()
-            player.volume = initial
-        }
+    /**
+     * Fin de la minuterie de veille.
+     *
+     * Le fondu est déjà fait : `sleepGain` descend à 0 sur la dernière minute via
+     * [FadeController]. Un second fondu ici écrasait `player.volume` hors de ce contrôleur.
+     */
+    private fun pauseForSleepTimer() {
+        serviceScope.launch { activePlayer.pause() }
     }
 
     /**
@@ -529,7 +565,7 @@ class PlaybackService : MediaLibraryService() {
 
             if (sleepTimer.shouldStopAtTrackEnd()) {
                 sleepTimer.cancel()
-                player.pause()
+                activePlayer.pause()
             }
 
             startTracking(mediaItem)
@@ -541,22 +577,27 @@ class PlaybackService : MediaLibraryService() {
                     val progress = podcastProgressDao.getProgress(current.id)
                     if (progress != null && progress.positionMs > 0) {
                         withContext(Dispatchers.Main) {
-                            player.seekTo(progress.positionMs)
+                            activePlayer.seekTo(progress.positionMs)
                         }
                     }
                 }
             }
             
-            // Auto-DJ Intelligent (Mode Lecture Continue IA)
-            if (activePlayer.mediaItemCount > 0 && activePlayer.currentMediaItemIndex >= activePlayer.mediaItemCount - 2) {
+            // Auto-DJ : prolonge la file avec des titres proches, seulement si l'utilisateur
+            // l'a demandé — sinon un album ou une playlist ne s'arrêterait jamais.
+            if (latestSettings?.autoDjEnabled == true &&
+                activePlayer.mediaItemCount > 0 &&
+                activePlayer.currentMediaItemIndex >= activePlayer.mediaItemCount - 2
+            ) {
                 if (current != null && !current.isPodcast) {
-                    val allSongs = musicRepository.library.value.songs
-                    val similarSongs = allSongs.filter { 
-                        (it.genre == current.genre || it.artistId == current.artistId) && it.id != current.id 
+                    val queued = (0 until activePlayer.mediaItemCount)
+                        .mapTo(HashSet()) { activePlayer.getMediaItemAt(it).songId }
+                    val similarSongs = musicRepository.library.value.songs.filter {
+                        (it.genre == current.genre || it.artistId == current.artistId) && it.id !in queued
                     }.shuffled().take(5)
-                    
+
                     if (similarSongs.isNotEmpty()) {
-                        activePlayer.addMediaItems(similarSongs.toMediaItems())
+                        activePlayer.addMediaItems(forActivePlayer(similarSongs.toMediaItems()))
                     }
                 }
             }
@@ -808,8 +849,8 @@ class PlaybackService : MediaLibraryService() {
             val resolved = mediaItems.mapNotNull { item ->
                 if (item.localConfiguration != null) item
                 else musicRepository.songById(item.songId)?.toMediaItem()
-            }.toMutableList()
-            return Futures.immediateFuture(resolved)
+            }
+            return Futures.immediateFuture(forActivePlayer(resolved).toMutableList())
         }
 
         /** « Ok Google, joue du Nekfeu » depuis Android Auto. */
@@ -825,7 +866,7 @@ class PlaybackService : MediaLibraryService() {
                 val songs = libraryTree.search(query)
                 if (songs.isNotEmpty()) {
                     return Futures.immediateFuture(
-                        MediaSession.MediaItemsWithStartPosition(songs.toMediaItems(), 0, 0L)
+                        MediaSession.MediaItemsWithStartPosition(forActivePlayer(songs.toMediaItems()), 0, 0L)
                     )
                 }
             }
@@ -837,7 +878,7 @@ class PlaybackService : MediaLibraryService() {
                     val index = allSongs.indexOfFirst { it.id == songId }
                     if (index != -1) {
                         return Futures.immediateFuture(
-                            MediaSession.MediaItemsWithStartPosition(allSongs.toMediaItems(), index, startPositionMs)
+                            MediaSession.MediaItemsWithStartPosition(forActivePlayer(allSongs.toMediaItems()), index, startPositionMs)
                         )
                     }
                 }
@@ -867,7 +908,7 @@ class PlaybackService : MediaLibraryService() {
                 } else {
                     future.set(
                         MediaSession.MediaItemsWithStartPosition(
-                            songs.toMediaItems(),
+                            forActivePlayer(songs.toMediaItems()),
                             state?.currentIndex ?: 0,
                             state?.positionMs ?: 0L,
                         )

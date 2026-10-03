@@ -111,12 +111,7 @@ class MainActivity : AppCompatActivity() {
             val launcher = androidx.activity.compose.rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.StartIntentSenderForResult()
             ) { result ->
-                if (result.resultCode == android.app.Activity.RESULT_OK) {
-                    viewModel.rescan()
-                    viewModel.showMessage("Fichier supprimé avec succès")
-                } else {
-                    viewModel.showMessage("Suppression annulée")
-                }
+                viewModel.onDeleteConsentResult(result.resultCode == android.app.Activity.RESULT_OK)
             }
 
             LaunchedEffect(viewModel) {

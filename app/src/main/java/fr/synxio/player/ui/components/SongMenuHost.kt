@@ -53,6 +53,7 @@ fun SongMenuHost(
                 context.startActivity(Intent.createChooser(share, "Partager « ${song.title} »"))
             },
             onRemoveFromPlaylist = onRemoveFromPlaylist,
+            onDelete = { viewModel.deleteSong(song) },
         ),
         onDismiss = onDismiss,
     )
