@@ -51,6 +51,7 @@ import javax.inject.Inject
  * Bibliothèque, lecteur, réglages et favoris sont utilisés par presque chaque écran :
  * les regrouper évite de re-câbler les mêmes dépôts dans huit ViewModels différents.
  */
+@OptIn(kotlinx.coroutines.FlowPreview::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class AppViewModel @Inject constructor(
     private val musicRepository: MusicRepository,
@@ -86,6 +87,25 @@ class AppViewModel @Inject constructor(
     val topRadios: StateFlow<List<fr.synxio.player.data.model.RadioStation>> = kotlinx.coroutines.flow.flow {
         emit(radioRepository.getTopRadios(100))
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val favoriteRadios: StateFlow<List<fr.synxio.player.data.model.RadioStation>> = radioRepository.favoriteStations
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun toggleRadioFavorite(station: fr.synxio.player.data.model.RadioStation) {
+        radioRepository.toggleFavorite(station)
+    }
+
+    suspend fun searchRadios(query: String): List<fr.synxio.player.data.model.RadioStation> {
+        return radioRepository.searchRadios(query)
+    }
+
+    suspend fun getRadiosByTag(tag: String): List<fr.synxio.player.data.model.RadioStation> {
+        return radioRepository.getRadiosByTag(tag)
+    }
+
+    suspend fun getTopWorldRadios(): List<fr.synxio.player.data.model.RadioStation> {
+        return radioRepository.getTopWorldRadios()
+    }
 
     val smartPlaylists: StateFlow<List<SmartPlaylist>> = smartPlaylistRepository.playlists
     val rulePlaylists: StateFlow<List<RulePlaylist>> = rulePlaylistRepository.rulePlaylists

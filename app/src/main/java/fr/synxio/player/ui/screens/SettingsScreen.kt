@@ -57,7 +57,6 @@ import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PhonelinkSetup
 import androidx.compose.material.icons.rounded.PlayCircle
-import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.RadioButtonChecked
 import androidx.compose.material.icons.rounded.RadioButtonUnchecked
@@ -65,7 +64,6 @@ import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Shuffle
-import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Speaker
 import androidx.compose.material.icons.rounded.Speed
@@ -74,7 +72,6 @@ import androidx.compose.material.icons.rounded.SurroundSound
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.Tune
-import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.SystemSecurityUpdate
 import androidx.compose.material.icons.rounded.SmartDisplay
 import androidx.compose.material.icons.rounded.AccountCircle
@@ -98,6 +95,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
+import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -177,7 +177,7 @@ enum class SettingsSubMenu(
     VOLUME(
         "Volume & Normalisation",
         "Normalisation dynamique LUFS et limiteur de volume",
-        Icons.Rounded.VolumeUp,
+        Icons.AutoMirrored.Rounded.VolumeUp,
     ),
     LIBRARY(
         "Bibliothèque & Fichiers",
@@ -668,7 +668,7 @@ fun SettingsScreen(
                             SwitchSetting(
                                 title = "Reprendre la file au démarrage",
                                 subtitle = "Retrouve ta file d'attente là où tu l'avais laissée",
-                                icon = Icons.Rounded.QueueMusic,
+                                icon = Icons.AutoMirrored.Rounded.QueueMusic,
                                 checked = settings.rememberQueue,
                                 onCheckedChange = settingsViewModel::setRememberQueue
                             )
@@ -851,7 +851,7 @@ fun SettingsScreen(
                             SliderSetting(
                                 title = "Volume par défaut",
                                 subtitle = "Volume de démarrage de l'application",
-                                icon = Icons.Rounded.VolumeUp,
+                                icon = Icons.AutoMirrored.Rounded.VolumeUp,
                                 value = settings.defaultVolume,
                                 valueRange = 0f..1f,
                                 steps = 10,
@@ -1817,7 +1817,7 @@ private fun NormalizationSetting(
             steps = 17,
             display = { "${it.toInt()} dB" },
             onChange = onTarget,
-            icon = Icons.Rounded.VolumeUp,
+            icon = Icons.AutoMirrored.Rounded.VolumeUp,
         )
     }
 }
@@ -1955,7 +1955,7 @@ private fun DiscordSection(onMessage: (String) -> Unit) {
             ClickableSetting(
                 title = if (state.testing) "Envoi…" else "Envoyer un message de test",
                 subtitle = "Vérifie que Synxio peut écrire dans le salon",
-                icon = Icons.Rounded.Send,
+                icon = Icons.AutoMirrored.Rounded.Send,
                 onClick = viewModel::sendTest,
             )
         }

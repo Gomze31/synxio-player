@@ -28,8 +28,8 @@ import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Translate
@@ -556,7 +556,7 @@ fun NowPlayingMenuSheet(
             
             // Grille d'actions rapides (Design moderne)
             val actions = listOf(
-                Triple(Icons.Rounded.QueueMusic, "File") { onShowQueue(); onDismiss() },
+                Triple(Icons.AutoMirrored.Rounded.QueueMusic, "File") { onShowQueue(); onDismiss() },
                 Triple(Icons.Rounded.Lyrics, "Paroles") { onShowLyrics(); onDismiss() },
                 Triple(Icons.Rounded.Bedtime, "Minuteur") { onShowSleepTimer(); onDismiss() },
                 Triple(Icons.Rounded.Speed, "Vitesse") { onShowSpeed(); onDismiss() },

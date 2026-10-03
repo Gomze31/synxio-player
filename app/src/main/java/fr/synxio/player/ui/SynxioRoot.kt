@@ -19,10 +19,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.LibraryMusic
-import androidx.compose.material.icons.rounded.MenuBook
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.Radio
@@ -101,7 +101,7 @@ import fr.synxio.player.ui.viewmodel.UpdateViewModel
 enum class TopLevel(val route: String, val label: String, val icon: ImageVector) {
     HOME("home", "Accueil", Icons.Rounded.Home),
     LIBRARY("library", "Musique", Icons.Rounded.LibraryMusic),
-    AUDIOBOOKS("audiobooks", "Livres audio", Icons.Rounded.MenuBook),
+    AUDIOBOOKS("audiobooks", "Livres audio", Icons.AutoMirrored.Rounded.MenuBook),
     SEARCH("search", "Recherche", Icons.Rounded.Search),
     RADIOS("radios", "Radios", Icons.Rounded.Radio),
     SETTINGS("settings", "Paramètres", Icons.Rounded.Settings),
@@ -373,6 +373,8 @@ private fun shouldShowBottomBar(navController: NavHostController): Boolean {
             route.startsWith("rule/") ||
             route.startsWith("rule_editor/") ||
             route.startsWith("tags/") ||
+            route.startsWith("trim/") ||
+            route == Routes.COMING_SOON ||
             route == Routes.EQUALIZER ||
             route == Routes.REPAIR ||
             route == Routes.DOWNLOAD ||
