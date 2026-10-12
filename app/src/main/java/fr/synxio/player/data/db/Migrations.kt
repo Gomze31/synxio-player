@@ -152,6 +152,26 @@ val MIGRATION_9_10 = object : Migration(9, 10) {
     }
 }
 
+/**
+ * v10 -> v11 : index sur l'historique et les statistiques d'écoute.
+ *
+ * Les noms suivent la convention de Room (`index_<table>_<colonnes>`) : la validation
+ * du schéma à l'ouverture compare les index par nom et ferait planter l'application
+ * au moindre écart.
+ */
+val MIGRATION_10_11 = object : Migration(10, 11) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_play_history_playedAt` ON `play_history` (`playedAt`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_play_history_songId` ON `play_history` (`songId`)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_play_stats_lastPlayedAt` ON `play_stats` (`lastPlayedAt`)")
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_play_stats_playCount_lastPlayedAt` " +
+                "ON `play_stats` (`playCount`, `lastPlayedAt`)"
+        )
+    }
+}
+
 val ALL_MIGRATIONS = arrayOf(
     MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
+    MIGRATION_10_11,
 )

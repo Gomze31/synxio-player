@@ -9,6 +9,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,6 +38,9 @@ import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Repeat
+import androidx.compose.material.icons.rounded.RepeatOne
+import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.Icon
@@ -47,6 +51,7 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -61,7 +66,21 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import fr.synxio.player.data.model.RepeatMode
+import fr.synxio.player.ui.theme.LocalReduceMotion
+import fr.synxio.player.ui.theme.Motion
+import fr.synxio.player.ui.theme.SynxioTheme
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -129,6 +148,14 @@ fun NowPlayingScreen(
 
     val fft by viewModel.fftFlow.collectAsStateWithLifecycle()
 
+    // « Garder l'écran allumé » : réglage enregistré mais jamais appliqué jusqu'ici.
+    val view = LocalView.current
+    DisposableEffect(settings.keepScreenOnNowPlaying) {
+        view.keepScreenOn = settings.keepScreenOnNowPlaying
+        onDispose { view.keepScreenOn = false }
+    }
+    val reduceMotion = LocalReduceMotion.current
+
     val background = MaterialTheme.colorScheme.background
     val gradient = remember(artworkColors, background) {
         artworkColors.gradient(background)
@@ -160,17 +187,18 @@ fun NowPlayingScreen(
                 label = "fluidRotation"
             )
 
+            // Animations réduites : le fond reste flou mais immobile.
             Artwork(
                 model = song.artworkUri,
                 modifier = Modifier
                     .fillMaxSize()
-                    .scale(scaleAnim)
-                    .rotate(rotationAnim)
+                    .scale(if (reduceMotion) 1.4f else scaleAnim)
+                    .rotate(if (reduceMotion) 0f else rotationAnim)
                     .blur(80.dp),
                 shape = RoundedCornerShape(0.dp),
             )
         }
-        
+
         Box(
             Modifier
                 .fillMaxSize()
@@ -252,8 +280,9 @@ fun NowPlayingScreen(
                 border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
             ) {
                 Box {
-                    Box(modifier = Modifier.blur(40.dp).matchParentSize().background(Color.Black.copy(alpha = 0.15f)))
-                    
+                    // Voile sombre léger : l'ancien « verre » floutait une boîte vide, sans effet.
+                    Box(modifier = Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.15f)))
+
                     Column(
                         modifier = Modifier.padding(24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
@@ -263,30 +292,32 @@ fun NowPlayingScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(Modifier.weight(1f)) {
+                            // Titre → album, artiste → page artiste : les deux raccourcis
+                            // attendus d'un lecteur, absents jusqu'ici.
                             MarqueeText(
                                 text = song.title,
-                                style = MaterialTheme.typography.titleLarge.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 24.sp
-                                ),
+                                style = MaterialTheme.typography.headlineSmall,
+                                modifier = Modifier.clickable(onClickLabel = "Ouvrir l'album") {
+                                    onCollapse(); onOpenAlbum(song.albumId)
+                                },
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = song.displayArtist,
                                 style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                modifier = Modifier.clickable(onClickLabel = "Ouvrir l'artiste") {
+                                    onCollapse(); onOpenArtist(song.displayArtist)
+                                },
                             )
                         }
-                        
-                        IconButton(onClick = { viewModel.toggleFavorite(song) }) {
-                            val isFavorite = song.id in favorites
-                            Icon(
-                                imageVector = if (isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                                contentDescription = "Favori",
-                                tint = if (isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
+
+                        FavoriteButton(
+                            isFavorite = song.id in favorites,
+                            onToggle = { viewModel.toggleFavorite(song) },
+                        )
                     }
 
                     Spacer(Modifier.height(24.dp))
@@ -301,6 +332,11 @@ fun NowPlayingScreen(
 
                     MainControls(
                         isPlaying = state.isPlaying,
+                        isBuffering = state.isBuffering,
+                        shuffle = state.shuffleEnabled,
+                        repeatMode = state.repeatMode,
+                        onShuffle = viewModel::toggleShuffle,
+                        onRepeat = viewModel::cycleRepeat,
                         onPrevious = viewModel::previous,
                         onPlayPause = viewModel::togglePlayPause,
                         onNext = viewModel::next,
@@ -378,7 +414,7 @@ private fun TopRow(onCollapse: () -> Unit, onMenu: () -> Unit) {
         IconButton(onClick = onCollapse) {
             Icon(Icons.Rounded.ExpandMore, contentDescription = "Réduire le lecteur", modifier = Modifier.size(32.dp))
         }
-        
+
         fr.synxio.player.ui.components.CastButton()
 
         IconButton(onClick = onMenu) {
@@ -425,7 +461,7 @@ private fun ArtworkStage(
             when (skin) {
                 NowPlayingSkin.VINYL -> VinylArtwork(
                     model = song.artworkUri,
-                    spinning = isPlaying && isCurrent,
+                    spinning = isPlaying && isCurrent && !LocalReduceMotion.current,
                     modifier = Modifier
                         .fillMaxWidth(0.95f)
                         .aspectRatio(1f)
@@ -556,74 +592,159 @@ private fun SeekBar(positionMs: Long, durationMs: Long, onSeek: (Long) -> Unit) 
                 activeTrackColor = MaterialTheme.colorScheme.primary,
                 inactiveTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
             ),
-            modifier = Modifier.height(24.dp)
+            modifier = Modifier.semantics { contentDescription = "Position dans le titre" },
         )
         Spacer(modifier = Modifier.height(4.dp))
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
             Text(
                 text = (durationMs * value).toLong().asDuration(),
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium, fontFeatureSettings = "tnum"),
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
             )
             Text(
                 text = durationMs.asDuration(),
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium, fontFeatureSettings = "tnum"),
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
             )
         }
     }
 }
 
+/**
+ * Aléatoire · précédent · lecture · suivant · répétition.
+ *
+ * Aléatoire et répétition existaient côté lecteur mais n'avaient aucun bouton.
+ * Le bouton lecture change de forme selon l'état (rond en pause, carré arrondi en
+ * lecture) et s'enfonce sous le doigt : un retour immédiat, avant même que l'audio
+ * réponde. Un anneau signale la mise en mémoire tampon.
+ */
 @Composable
 private fun MainControls(
     isPlaying: Boolean,
+    isBuffering: Boolean,
+    shuffle: Boolean,
+    repeatMode: RepeatMode,
+    onShuffle: () -> Unit,
+    onRepeat: () -> Unit,
     onPrevious: () -> Unit,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
+    val reduceMotion = LocalReduceMotion.current
+    val active = scheme.primary
+    val idle = scheme.onSurface.copy(alpha = 0.7f)
 
     Row(
         Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Center,
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = onPrevious, modifier = Modifier.size(64.dp)) {
-            Icon(
-                Icons.Rounded.SkipPrevious,
-                "Titre précédent",
-                modifier = Modifier.size(42.dp),
-                tint = scheme.onSurface
-            )
-        }
-        
-        Spacer(Modifier.width(24.dp))
-
-        Surface(
-            modifier = Modifier.size(80.dp),
-            shape = CircleShape,
-            color = scheme.primary,
-            shadowElevation = 16.dp,
+        IconButton(
+            onClick = onShuffle,
+            modifier = Modifier.semantics { stateDescription = if (shuffle) "activée" else "désactivée" },
         ) {
-            IconButton(onClick = onPlayPause, modifier = Modifier.fillMaxSize()) {
-                Icon(
-                    imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                    contentDescription = if (isPlaying) "Pause" else "Lecture",
-                    tint = scheme.onPrimary,
-                    modifier = Modifier.size(42.dp),
+            Icon(Icons.Rounded.Shuffle, "Lecture aléatoire", tint = if (shuffle) active else idle)
+        }
+
+        IconButton(onClick = onPrevious, modifier = Modifier.size(56.dp)) {
+            Icon(Icons.Rounded.SkipPrevious, "Titre précédent", modifier = Modifier.size(36.dp), tint = scheme.onSurface)
+        }
+
+        val interaction = remember { MutableInteractionSource() }
+        val pressed by interaction.collectIsPressedAsState()
+        val pressScale by animateFloatAsState(
+            targetValue = if (pressed && !reduceMotion) 0.92f else 1f,
+            animationSpec = Motion.press(),
+            label = "playPress",
+        )
+        val corner by animateDpAsState(
+            targetValue = if (isPlaying) 26.dp else 40.dp,
+            animationSpec = Motion.standardOrSnap(reduceMotion),
+            label = "playShape",
+        )
+        Box(contentAlignment = Alignment.Center) {
+            if (isBuffering) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(88.dp),
+                    strokeWidth = 2.dp,
+                    color = scheme.primary,
                 )
             }
+            Surface(
+                onClick = onPlayPause,
+                interactionSource = interaction,
+                modifier = Modifier
+                    .size(76.dp)
+                    .graphicsLayer {
+                        scaleX = pressScale
+                        scaleY = pressScale
+                    },
+                shape = RoundedCornerShape(corner),
+                color = scheme.primary,
+                shadowElevation = 8.dp,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Crossfade(isPlaying, animationSpec = Motion.standardOrSnap(reduceMotion, Motion.SHORT), label = "playIcon") { playing ->
+                        Icon(
+                            imageVector = if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                            contentDescription = if (playing) "Pause" else "Lecture",
+                            tint = scheme.onPrimary,
+                            modifier = Modifier.size(40.dp),
+                        )
+                    }
+                }
+            }
         }
-        
-        Spacer(Modifier.width(24.dp))
 
-        IconButton(onClick = onNext, modifier = Modifier.size(64.dp)) {
+        IconButton(onClick = onNext, modifier = Modifier.size(56.dp)) {
+            Icon(Icons.Rounded.SkipNext, "Titre suivant", modifier = Modifier.size(36.dp), tint = scheme.onSurface)
+        }
+
+        IconButton(
+            onClick = onRepeat,
+            modifier = Modifier.semantics {
+                stateDescription = when (repeatMode) {
+                    RepeatMode.OFF -> "désactivée"
+                    RepeatMode.ALL -> "toute la file"
+                    RepeatMode.ONE -> "titre en cours"
+                }
+            },
+        ) {
             Icon(
-                Icons.Rounded.SkipNext, 
-                "Titre suivant", 
-                modifier = Modifier.size(42.dp),
-                tint = scheme.onSurface
+                imageVector = if (repeatMode == RepeatMode.ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
+                contentDescription = "Répétition",
+                tint = if (repeatMode == RepeatMode.OFF) idle else active,
             )
         }
+    }
+}
+
+/** Cœur favori : petit rebond à l'activation, état annoncé aux lecteurs d'écran. */
+@Composable
+private fun FavoriteButton(isFavorite: Boolean, onToggle: () -> Unit) {
+    val reduceMotion = LocalReduceMotion.current
+    val pop = remember { androidx.compose.animation.core.Animatable(1f) }
+    LaunchedEffect(isFavorite) {
+        if (isFavorite && !reduceMotion) {
+            pop.snapTo(0.7f)
+            pop.animateTo(1f, Motion.press())
+        }
+    }
+    IconButton(
+        onClick = onToggle,
+        modifier = Modifier.semantics { stateDescription = if (isFavorite) "dans les favoris" else "pas dans les favoris" },
+    ) {
+        Icon(
+            imageVector = if (isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+            contentDescription = if (isFavorite) "Retirer des favoris" else "Ajouter aux favoris",
+            tint = if (isFavorite) SynxioTheme.colors.favorite else MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier
+                .size(28.dp)
+                .graphicsLayer {
+                    scaleX = pop.value
+                    scaleY = pop.value
+                },
+        )
     }
 }

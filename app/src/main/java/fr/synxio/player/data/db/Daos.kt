@@ -252,6 +252,13 @@ interface PlayHistoryDao {
     @Query("SELECT * FROM play_history WHERE playedAt >= :startTime ORDER BY playedAt DESC")
     fun observeSince(startTime: Long): Flow<List<PlayHistoryEntity>>
 
+    /** Les [limit] dernières écoutes, sans charger tout l'historique pour n'en garder qu'une partie. */
+    @Query("SELECT * FROM play_history ORDER BY playedAt DESC LIMIT :limit")
+    fun observeRecent(limit: Int): Flow<List<PlayHistoryEntity>>
+
+    @Query("SELECT * FROM play_history WHERE playedAt >= :startTime ORDER BY playedAt DESC LIMIT :limit")
+    fun observeRecentSince(startTime: Long, limit: Int): Flow<List<PlayHistoryEntity>>
+
     @Insert
     suspend fun add(entry: PlayHistoryEntity): Long
 

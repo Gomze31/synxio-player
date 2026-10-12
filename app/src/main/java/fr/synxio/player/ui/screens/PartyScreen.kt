@@ -29,8 +29,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import fr.synxio.player.core.util.NetworkUtils
 import fr.synxio.player.core.util.QRCodeHelper
+import fr.synxio.player.playback.PartyServer
 import fr.synxio.player.ui.viewmodel.AppViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -43,21 +43,10 @@ fun PartyScreen(
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val isEnabled = settings.partyEnabled
 
-    var ipAddress by remember { mutableStateOf<String?>(null) }
-    var qrCodeBitmap by remember { mutableStateOf<Bitmap?>(null) }
-
-    LaunchedEffect(isEnabled) {
-        if (isEnabled) {
-            val ip = NetworkUtils.getLocalIpAddress(context)
-            if (ip != null) {
-                ipAddress = ip
-                qrCodeBitmap = QRCodeHelper.generate("http://$ip:8080")
-            }
-        } else {
-            ipAddress = null
-            qrCodeBitmap = null
-        }
-    }
+    // URL publiée par le serveur Party lui-même : adresse Wi-Fi + jeton secret de la session.
+    val partyUrl by PartyServer.activeUrl.collectAsStateWithLifecycle()
+    val activeUrl = partyUrl.takeIf { isEnabled }
+    val qrCodeBitmap: Bitmap? = remember(activeUrl) { activeUrl?.let { QRCodeHelper.generate(it) } }
 
     Scaffold(
         topBar = {
@@ -116,8 +105,8 @@ fun PartyScreen(
             Spacer(modifier = Modifier.height(32.dp))
 
             if (isEnabled) {
-                if (qrCodeBitmap != null && ipAddress != null) {
-                    val serverUrl = "http://$ipAddress:8080"
+                if (qrCodeBitmap != null && activeUrl != null) {
+                    val serverUrl: String = activeUrl
 
                     Text(
                         text = "Scannez ce QR Code pour rejoindre",
@@ -188,7 +177,7 @@ fun PartyScreen(
                     CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        "Initialisation du serveur local...",
+                        "Initialisation du serveur local… (connexion Wi-Fi requise)",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

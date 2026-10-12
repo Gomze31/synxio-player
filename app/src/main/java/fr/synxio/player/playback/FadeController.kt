@@ -53,13 +53,20 @@ class FadeController(
             applyVolume()
         }
 
+    /** Plafond de volume choisi dans les réglages (« Limiter le volume »), 1 = aucun. */
+    var volumeCap: Float = 1f
+        set(value) {
+            field = value.coerceIn(0f, 1f)
+            applyVolume()
+        }
+
     /** Position dans le fondu, indépendante du gain de normalisation. */
     private var envelope: Float = 1f
 
     private var job: Job? = null
 
     private fun applyVolume() {
-        player.volume = (envelope * normalizationGain * sleepGain).coerceIn(0f, 1f)
+        player.volume = (envelope * normalizationGain * sleepGain * volumeCap).coerceIn(0f, 1f)
     }
 
     private fun start() {

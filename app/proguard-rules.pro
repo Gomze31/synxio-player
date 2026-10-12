@@ -28,3 +28,11 @@
 -dontwarn okhttp3.**
 -dontwarn okio.**
 -dontwarn org.conscrypt.**
+
+# Journaux : en release, R8 supprime les appels Log.v / Log.d / Log.i (titres, chemins,
+# trames réseau…). Log.w et Log.e sont conservés pour le diagnostic des erreurs.
+-assumenosideeffects class android.util.Log {
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+}

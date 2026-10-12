@@ -60,6 +60,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import fr.synxio.player.ui.theme.Space
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.synxio.player.data.model.AlbumSort
@@ -91,6 +95,7 @@ fun LibraryScreen(
     onOpenRulePlaylist: (Long) -> Unit,
     onCreateRulePlaylist: () -> Unit,
     onEditRulePlaylist: (Long) -> Unit,
+    onOpenAudiobooks: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val tabs = LibraryTab.entries
@@ -102,7 +107,31 @@ fun LibraryScreen(
     val scope = rememberCoroutineScope()
 
     Column(modifier.fillMaxSize()) {
-        PrimaryScrollableTabRow(selectedTabIndex = pagerState.currentPage, edgePadding = 12.dp) {
+        // En-tête : l'écran n'avait pas de titre, on ne savait pas où l'on était après
+        // une navigation. Les livres audio y ont leur entrée depuis qu'ils ont quitté
+        // la barre de navigation (cinq destinations au plus, règle Material).
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = Space.gutter, end = Space.sm, top = Space.md, bottom = Space.xs),
+        ) {
+            Text(
+                "Bibliothèque",
+                style = MaterialTheme.typography.headlineMedium,
+                modifier = Modifier
+                    .weight(1f)
+                    .semantics { heading() },
+            )
+            IconButton(onClick = onOpenAudiobooks) {
+                Icon(Icons.AutoMirrored.Rounded.MenuBook, contentDescription = "Livres audio")
+            }
+        }
+        PrimaryScrollableTabRow(
+            selectedTabIndex = pagerState.currentPage,
+            edgePadding = Space.lg,
+            divider = {},
+        ) {
             tabs.forEachIndexed { index, tab ->
                 Tab(
                     selected = pagerState.currentPage == index,

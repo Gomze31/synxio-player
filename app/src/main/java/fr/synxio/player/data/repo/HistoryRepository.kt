@@ -3,19 +3,48 @@ package fr.synxio.player.data.repo
 import fr.synxio.player.data.db.PlayHistoryDao
 import fr.synxio.player.data.db.PlayHistoryEntity
 import fr.synxio.player.data.model.PlayHistory
+import fr.synxio.player.data.model.Song
+import fr.synxio.player.data.model.StatsPeriod
 import fr.synxio.player.di.ApplicationScope
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import java.time.Instant
+import java.util.Calendar
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/**
+ * Début de la période, en millisecondes epoch.
+ *
+ * Calculé une fois par émission par les appelants, et non pour chaque ligne examinée.
+ */
+internal fun StatsPeriod.startMillis(now: Long = System.currentTimeMillis()): Long {
+    if (this == StatsPeriod.ALL_TIME) return 0L
+    val calendar = Calendar.getInstance().apply { timeInMillis = now }
+    when (this) {
+        StatsPeriod.TODAY -> {
+            calendar.set(Calendar.HOUR_OF_DAY, 0)
+            calendar.set(Calendar.MINUTE, 0)
+            calendar.set(Calendar.SECOND, 0)
+            calendar.set(Calendar.MILLISECOND, 0)
+        }
+        StatsPeriod.WEEK -> calendar.add(Calendar.DAY_OF_YEAR, -7)
+        StatsPeriod.MONTH -> calendar.add(Calendar.MONTH, -1)
+        StatsPeriod.YEAR -> calendar.add(Calendar.YEAR, -1)
+        StatsPeriod.ALL_TIME -> Unit
+    }
+    return calendar.timeInMillis
+}
 
 /**
  * Repository pour gérer l'historique de lecture.
@@ -28,57 +57,59 @@ class HistoryRepository @Inject constructor(
 ) {
 
     /**
-     * Flux de tout l'historique de lecture.
+     * Associe chaque entrée à son morceau, en suivant l'index de la bibliothèque.
+     *
+     * Lire un instantané de l'index ne suffisait pas : un historique émis avant la fin
+     * du premier scan restait vide jusqu'à la lecture suivante.
      */
-    val history: StateFlow<List<PlayHistory>> = playHistoryDao.observeAll()
-        .map { entities ->
-            entities.mapNotNull { entity ->
-                val song = musicRepository.songById(entity.songId)
-                song?.let {
-                    PlayHistory(
-                        song = it,
-                        playedAt = Instant.ofEpochSecond(entity.playedAt),
-                        listenedMs = entity.listenedMs
-                    )
-                }
+    private fun Flow<List<PlayHistoryEntity>>.withSongs(): Flow<List<PlayHistory>> =
+        combine(this, musicRepository.songsById) { entities, index -> entities.resolve(index) }
+            .flowOn(Dispatchers.Default)
+
+    private fun List<PlayHistoryEntity>.resolve(index: Map<Long, Song>): List<PlayHistory> =
+        mapNotNull { entity ->
+            index[entity.songId]?.let {
+                PlayHistory(
+                    song = it,
+                    playedAt = Instant.ofEpochSecond(entity.playedAt),
+                    listenedMs = entity.listenedMs
+                )
             }
         }
-        .stateIn(scope, SharingStarted.Eagerly, emptyList())
+
+    /**
+     * Flux de tout l'historique de lecture.
+     *
+     * Partagé seulement tant qu'un écran l'observe : garder toute la table chargée en
+     * permanence la relisait entièrement à chaque morceau joué.
+     */
+    val history: StateFlow<List<PlayHistory>> = playHistoryDao.observeAll()
+        .withSongs()
+        .stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
      * Flux de l'historique pour un morceau spécifique.
      */
-    fun historyForSong(songId: Long): Flow<List<PlayHistory>> = playHistoryDao.observeBySong(songId)
-        .map { entities ->
-            entities.mapNotNull { entity ->
-                val song = musicRepository.songById(entity.songId)
-                song?.let {
-                    PlayHistory(
-                        song = it,
-                        playedAt = Instant.ofEpochSecond(entity.playedAt),
-                        listenedMs = entity.listenedMs
-                    )
-                }
-            }
-        }
+    fun historyForSong(songId: Long): Flow<List<PlayHistory>> =
+        playHistoryDao.observeBySong(songId).withSongs()
+
+    /** Un flux partagé par taille demandée : les ViewModels le redemandent à chaque création. */
+    private val recentByCount = ConcurrentHashMap<Int, StateFlow<List<PlayHistory>>>()
 
     /**
      * Flux de l'historique récent (limité à count éléments).
+     *
+     * La limite est appliquée en SQL : on ne charge plus tout l'historique pour n'en
+     * garder que les premières lignes.
      */
-    fun recentHistory(count: Int = 50): StateFlow<List<PlayHistory>> = playHistoryDao.observeAll()
-        .map { entities ->
-            entities.take(count).mapNotNull { entity ->
-                val song = musicRepository.songById(entity.songId)
-                song?.let {
-                    PlayHistory(
-                        song = it,
-                        playedAt = Instant.ofEpochSecond(entity.playedAt),
-                        listenedMs = entity.listenedMs
-                    )
-                }
-            }
+    fun recentHistory(count: Int = 50): StateFlow<List<PlayHistory>> =
+        recentByCount.getOrPut(count) {
+            observeRecent(count).stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
         }
-        .stateIn(scope, SharingStarted.Eagerly, emptyList())
+
+    /** Les [count] dernières écoutes, en flux froid. */
+    fun observeRecent(count: Int): Flow<List<PlayHistory>> =
+        playHistoryDao.observeRecent(count).withSongs()
 
     /**
      * Ajoute une entrée à l'historique.
@@ -129,35 +160,14 @@ class HistoryRepository @Inject constructor(
     /**
      * Récupère les N dernières entrées.
      */
-    suspend fun getRecent(count: Int): List<PlayHistory> {
-        return playHistoryDao.recent(count).mapNotNull { entity ->
-            val song = musicRepository.songById(entity.songId)
-            song?.let {
-                PlayHistory(
-                    song = it,
-                    playedAt = Instant.ofEpochSecond(entity.playedAt),
-                    listenedMs = entity.listenedMs
-                )
-            }
-        }
-    }
+    suspend fun getRecent(count: Int): List<PlayHistory> =
+        playHistoryDao.recent(count).resolve(musicRepository.songsById.value)
 
     /**
      * Récupère l'historique depuis une date spécifique.
      */
-    fun getHistorySince(startTime: Long): Flow<List<PlayHistory>> = playHistoryDao.observeSince(startTime)
-        .map { entities ->
-            entities.mapNotNull { entity ->
-                val song = musicRepository.songById(entity.songId)
-                song?.let {
-                    PlayHistory(
-                        song = it,
-                        playedAt = Instant.ofEpochSecond(entity.playedAt),
-                        listenedMs = entity.listenedMs
-                    )
-                }
-            }
-        }
+    fun getHistorySince(startTime: Long): Flow<List<PlayHistory>> =
+        playHistoryDao.observeSince(startTime).withSongs()
 
     /**
      * Récupère la date du premier élément de l'historique.
@@ -169,45 +179,16 @@ class HistoryRepository @Inject constructor(
 
     /**
      * Récupère l'historique pour une période spécifique.
+     *
+     * Le filtrage se fait en SQL, sur l'index de `playedAt` ; le début de période est
+     * calculé à l'abonnement, comme auparavant.
      */
-    fun getHistoryForPeriod(period: fr.synxio.player.data.model.StatsPeriod): Flow<List<PlayHistory>> {
-        return flow {
-            val startTime = when (period) {
-                fr.synxio.player.data.model.StatsPeriod.TODAY -> {
-                    val calendar = java.util.Calendar.getInstance()
-                    calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
-                    calendar.set(java.util.Calendar.MINUTE, 0)
-                    calendar.set(java.util.Calendar.SECOND, 0)
-                    calendar.timeInMillis / 1000
-                }
-                fr.synxio.player.data.model.StatsPeriod.WEEK -> {
-                    val calendar = java.util.Calendar.getInstance()
-                    calendar.add(java.util.Calendar.DAY_OF_YEAR, -7)
-                    calendar.timeInMillis / 1000
-                }
-                fr.synxio.player.data.model.StatsPeriod.MONTH -> {
-                    val calendar = java.util.Calendar.getInstance()
-                    calendar.add(java.util.Calendar.MONTH, -1)
-                    calendar.timeInMillis / 1000
-                }
-                fr.synxio.player.data.model.StatsPeriod.YEAR -> {
-                    val calendar = java.util.Calendar.getInstance()
-                    calendar.add(java.util.Calendar.YEAR, -1)
-                    calendar.timeInMillis / 1000
-                }
-                fr.synxio.player.data.model.StatsPeriod.ALL_TIME -> 0L
-            }
-            emit(getHistoryForTimestampRange(startTime, Long.MAX_VALUE))
-        }
+    fun getHistoryForPeriod(period: StatsPeriod): Flow<List<PlayHistory>> = flow {
+        emitAll(playHistoryDao.observeSince(period.startMillis() / 1000).withSongs())
     }
 
-    /**
-     * Récupère l'historique pour une plage de timestamps.
-     */
-    private suspend fun getHistoryForTimestampRange(startTime: Long, endTime: Long): List<PlayHistory> {
-        // Pour l'instant, on charge tout et on filtre. À optimiser avec une requête SQL.
-        return history.value.filter { historyItem ->
-            historyItem.playedAt.epochSecond >= startTime && historyItem.playedAt.epochSecond <= endTime
-        }
+    /** Les [limit] dernières écoutes de la période, sans charger le reste. */
+    fun observeRecentForPeriod(period: StatsPeriod, limit: Int): Flow<List<PlayHistory>> = flow {
+        emitAll(playHistoryDao.observeRecentSince(period.startMillis() / 1000, limit).withSongs())
     }
 }

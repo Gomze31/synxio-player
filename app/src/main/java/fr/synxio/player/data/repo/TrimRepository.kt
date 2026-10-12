@@ -69,6 +69,7 @@ class TrimRepository @Inject constructor(
     private fun runFfmpeg(ffmpeg: File, input: File, output: File, startMs: Long, endMs: Long): Boolean {
         val command = listOf(
             ffmpeg.absolutePath,
+            "-nostdin",
             "-y",
             "-ss", formatTime(startMs),
             "-i", input.absolutePath,
@@ -80,18 +81,17 @@ class TrimRepository @Inject constructor(
         )
         val libDir = File(context.noBackupFilesDir, "youtubedl-android/packages/ffmpeg/usr/lib")
         return runCatching {
-            val process = ProcessBuilder(command)
+            val builder = ProcessBuilder(command)
                 .redirectErrorStream(true)
                 .apply { environment()["LD_LIBRARY_PATH"] = libDir.absolutePath }
-                .start()
-            // Vider la sortie, sinon FFmpeg bloque une fois le tampon du pipe plein.
-            val log = process.inputStream.bufferedReader().readText()
-            if (!process.waitFor(2, TimeUnit.MINUTES)) {
-                process.destroy()
+            // Sortie vidée sur un fil séparé : le délai de 2 minutes est réellement appliqué.
+            val result = BoundedProcess.run(builder, TimeUnit.MINUTES.toMillis(2))
+            if (result.timedOut) {
+                Log.w(TAG, "FFmpeg n'a pas terminé à temps : processus arrêté")
                 return false
             }
-            val success = process.exitValue() == 0 && output.length() > 0
-            if (!success) Log.w(TAG, "FFmpeg a échoué :\n${log.takeLast(2000)}")
+            val success = result.exitCode == 0 && output.length() > 0
+            if (!success) Log.w(TAG, "FFmpeg a échoué :\n${result.outputTail}")
             success
         }.getOrElse {
             Log.w(TAG, "Lancement de FFmpeg impossible", it)
@@ -124,5 +124,60 @@ class TrimRepository @Inject constructor(
 
     private companion object {
         const val TAG = "TrimRepository"
+    }
+}
+
+/**
+ * Exécute un processus externe avec un délai maximal réellement appliqué.
+ *
+ * La sortie est vidée sur un fil séparé : la lire sur le fil appelant bloquerait jusqu'à
+ * la fin du processus et rendrait `waitFor(timeout)` inopérant. À l'expiration, le
+ * processus est tué. Seuls les derniers [maxOutputChars] caractères sont conservés.
+ */
+internal object BoundedProcess {
+
+    class Outcome(val exitCode: Int?, val timedOut: Boolean, val outputTail: String)
+
+    fun run(builder: ProcessBuilder, timeoutMs: Long, maxOutputChars: Int = 2000): Outcome {
+        val process = builder.start()
+        val tail = StringBuilder()
+        val drainer = Thread({
+            runCatching {
+                process.inputStream.bufferedReader().use { reader ->
+                    val buffer = CharArray(4096)
+                    while (true) {
+                        val read = reader.read(buffer)
+                        if (read < 0) break
+                        synchronized(tail) {
+                            tail.append(buffer, 0, read)
+                            if (tail.length > maxOutputChars * 2) {
+                                tail.delete(0, tail.length - maxOutputChars)
+                            }
+                        }
+                    }
+                }
+            }
+        }, "BoundedProcess-drain").apply {
+            isDaemon = true
+            start()
+        }
+
+        val finished = try {
+            process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            false
+        }
+        if (!finished) {
+            process.destroyForcibly()
+            runCatching { process.waitFor(5, TimeUnit.SECONDS) }
+        }
+        drainer.join(2_000)
+        val output = synchronized(tail) { tail.toString().takeLast(maxOutputChars) }
+        return Outcome(
+            exitCode = if (finished) process.exitValue() else null,
+            timedOut = !finished,
+            outputTail = output,
+        )
     }
 }

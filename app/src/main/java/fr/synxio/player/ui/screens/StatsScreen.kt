@@ -105,8 +105,8 @@ fun StatsScreen(
     val playedSongsCount by statsViewModel.playedSongsCount.collectAsStateWithLifecycle()
     val unplayedSongsCount by statsViewModel.unplayedSongsCount.collectAsStateWithLifecycle()
     val playedPercentage by statsViewModel.playedPercentage.collectAsStateWithLifecycle()
-    val mostPlayedSongs by statsViewModel.getMostPlayedSongs(20).collectAsStateWithLifecycle(emptyList())
-    val recentlyPlayedSongs by statsViewModel.getRecentlyPlayedSongs(10).collectAsStateWithLifecycle(emptyList())
+    val mostPlayedSongs by statsViewModel.mostPlayedSongs.collectAsStateWithLifecycle()
+    val recentlyPlayedSongs by statsViewModel.recentlyPlayedSongs.collectAsStateWithLifecycle()
     val dailyStats by statsViewModel.dailyStats.collectAsStateWithLifecycle()
     val weekdayStats by statsViewModel.weekdayStats.collectAsStateWithLifecycle()
     

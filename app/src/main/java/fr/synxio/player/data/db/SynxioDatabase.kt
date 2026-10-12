@@ -23,7 +23,7 @@ import androidx.room.RoomDatabase
         PodcastProgressEntity::class,
         AudiobookFolderEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = true,
 )
 abstract class SynxioDatabase : RoomDatabase() {

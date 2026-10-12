@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.provider.Settings
+import android.util.Log
 import android.widget.Toast
 import fr.synxio.player.data.model.Song
 import kotlinx.coroutines.Dispatchers
@@ -31,26 +32,39 @@ object RingtoneHelper {
 
     /**
      * Définit le morceau donné comme sonnerie par défaut du téléphone.
-     * Met à jour le MediaStore pour que le fichier soit reconnu comme sonnerie,
+     * Marque le fichier comme sonnerie dans le MediaStore (si l'app en a le droit),
      * puis utilise RingtoneManager pour l'appliquer.
+     *
+     * IS_MUSIC n'est jamais modifié : le passer à 0 ferait disparaître le titre de la
+     * bibliothèque (le scanner filtre `IS_MUSIC != 0`).
+     *
+     * @return false (avec un message) en cas d'échec, sans jamais faire planter l'app.
      */
     suspend fun setAsRingtone(context: Context, song: Song): Boolean = withContext(Dispatchers.IO) {
-        if (!hasWriteSettingsPermission(context)) return@withContext false
+        if (!hasWriteSettingsPermission(context)) {
+            showToast(context, "Autorisation « Modifier les paramètres système » requise")
+            return@withContext false
+        }
 
         try {
             val file = File(song.path)
-            if (!file.exists()) return@withContext false
-
-            val values = ContentValues().apply {
-                put(MediaStore.Audio.Media.IS_RINGTONE, true)
-                put(MediaStore.Audio.Media.IS_NOTIFICATION, false)
-                put(MediaStore.Audio.Media.IS_ALARM, false)
-                put(MediaStore.Audio.Media.IS_MUSIC, false)
+            if (!file.exists()) {
+                showToast(context, "Fichier introuvable")
+                return@withContext false
             }
 
-            // Met à jour la base de données MediaStore
             val uri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, song.id)
-            context.contentResolver.update(uri, values, null, null)
+
+            // Marquage « sonnerie » : facultatif. Depuis Android 10, modifier une entrée
+            // MediaStore créée par une autre app lève une SecurityException — on continue.
+            try {
+                val values = ContentValues().apply {
+                    put(MediaStore.Audio.Media.IS_RINGTONE, true)
+                }
+                context.contentResolver.update(uri, values, null, null)
+            } catch (e: SecurityException) {
+                Log.w(TAG, "Marquage IS_RINGTONE refusé, sonnerie appliquée sans", e)
+            }
 
             // Définit la sonnerie
             RingtoneManager.setActualDefaultRingtoneUri(
@@ -58,17 +72,24 @@ object RingtoneHelper {
                 RingtoneManager.TYPE_RINGTONE,
                 uri
             )
-            
-            withContext(Dispatchers.Main) {
-                Toast.makeText(context, "Sonnerie modifiée avec succès !", Toast.LENGTH_SHORT).show()
-            }
+
+            showToast(context, "Sonnerie modifiée avec succès !")
             true
+        } catch (e: SecurityException) {
+            // Autorisation retirée entre-temps, ou refus du système : échec propre.
+            Log.w(TAG, "Modification de la sonnerie refusée", e)
+            showToast(context, "Autorisation refusée : impossible de modifier la sonnerie")
+            false
         } catch (e: Exception) {
-            e.printStackTrace()
-            withContext(Dispatchers.Main) {
-                Toast.makeText(context, "Erreur lors de la modification de la sonnerie", Toast.LENGTH_SHORT).show()
-            }
+            Log.w(TAG, "Modification de la sonnerie impossible", e)
+            showToast(context, "Erreur lors de la modification de la sonnerie")
             false
         }
     }
+
+    private suspend fun showToast(context: Context, message: String) = withContext(Dispatchers.Main) {
+        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+    }
+
+    private const val TAG = "RingtoneHelper"
 }

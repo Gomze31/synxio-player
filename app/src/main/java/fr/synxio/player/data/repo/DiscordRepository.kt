@@ -52,6 +52,9 @@ class DiscordRepository @Inject constructor(
     suspend fun announce(song: Song) = withContext(Dispatchers.IO) {
         val current = settings.settings.first()
         if (!current.discordEnabled || current.discordWebhookUrl.isBlank()) return@withContext
+        // Une URL qui n'est pas un webhook Discord en HTTPS n'est jamais contactée :
+        // le titre en cours ne doit pas partir vers un serveur arbitraire.
+        if (!looksLikeWebhook(current.discordWebhookUrl)) return@withContext
 
         val now = System.currentTimeMillis()
         if (song.id == lastAnnouncedSongId) return@withContext
@@ -66,6 +69,9 @@ class DiscordRepository @Inject constructor(
 
     /** Message de vérification, envoyé depuis les réglages. */
     suspend fun sendTest(url: String): Result<Unit> = withContext(Dispatchers.IO) {
+        if (!looksLikeWebhook(url)) {
+            return@withContext Result.failure(IllegalArgumentException("URL de webhook Discord invalide"))
+        }
         val payload = JSONObject().apply {
             put("content", "Synxio est bien connecté à ce salon.")
             put("username", USERNAME)
@@ -74,10 +80,11 @@ class DiscordRepository @Inject constructor(
         else Result.failure(IllegalStateException("Discord a refusé le message"))
     }
 
-    /** Valide la forme de l'URL avant d'essayer quoi que ce soit. */
-    fun looksLikeWebhook(url: String): Boolean =
-        url.startsWith("https://discord.com/api/webhooks/") ||
-            url.startsWith("https://discordapp.com/api/webhooks/")
+    /**
+     * Valide la forme de l'URL avant d'essayer quoi que ce soit.
+     * Utilisable par l'écran de réglages pour refuser une saisie invalide.
+     */
+    fun looksLikeWebhook(url: String): Boolean = DiscordWebhookUrl.isValid(url)
 
     private fun nowPlayingPayload(song: Song): JSONObject {
         val fields = JSONArray().apply {
@@ -115,8 +122,10 @@ class DiscordRepository @Inject constructor(
     }
 
     private fun post(url: String, payload: JSONObject): Boolean = runCatching {
+        // Dernier verrou : aucune requête ne part vers autre chose qu'un webhook Discord HTTPS.
+        if (!looksLikeWebhook(url)) return false
         val request = Request.Builder()
-            .url(url)
+            .url(url.trim())
             .post(payload.toString().toRequestBody(JSON))
             .build()
         http.newCall(request).execute().use { it.isSuccessful }
@@ -133,5 +142,30 @@ class DiscordRepository @Inject constructor(
         const val EMBED_COLOR = 0x6C5CE7
         const val MIN_INTERVAL_MS = 20_000L
         val JSON = "application/json; charset=utf-8".toMediaType()
+    }
+}
+
+/**
+ * Validation pure (JVM) d'une URL de webhook Discord.
+ *
+ * Exige HTTPS, un hôte Discord officiel, aucun identifiant ni port explicite, et un
+ * chemin `/api/webhooks/<id>/<jeton>` (éventuellement versionné : `/api/v10/webhooks/…`).
+ */
+object DiscordWebhookUrl {
+    private val HOSTS = setOf(
+        "discord.com", "discordapp.com", "ptb.discord.com", "canary.discord.com",
+    )
+    private val PATH = Regex("""^/api(/v\d+)?/webhooks/\d+/[A-Za-z0-9_-]+/?$""")
+
+    fun isValid(url: String): Boolean {
+        val trimmed = url.trim()
+        if (trimmed.isEmpty() || trimmed.any { it.isWhitespace() || it.isISOControl() }) return false
+        val uri = runCatching { java.net.URI(trimmed) }.getOrNull() ?: return false
+        if (!uri.scheme.equals("https", ignoreCase = true)) return false
+        val host = uri.host?.lowercase() ?: return false
+        if (host !in HOSTS) return false
+        if (uri.rawUserInfo != null || (uri.port != -1 && uri.port != 443)) return false
+        if (uri.rawFragment != null) return false
+        return PATH.matches(uri.rawPath ?: return false)
     }
 }

@@ -74,7 +74,8 @@ class LoudnessAnalyzer @Inject constructor() {
         } catch (error: Throwable) {
             // Un fichier corrompu ou un codec exotique ne doit pas interrompre l'analyse
             // de toute la bibliothèque : on le signale et on passe au suivant.
-            Log.w(TAG, "Analyse impossible pour $path", error)
+            // Seul le nom du fichier est journalisé, jamais son chemin complet.
+            Log.w(TAG, "Analyse impossible pour ${java.io.File(path).name}", error)
             null
         } finally {
             runCatching { codec?.stop() }

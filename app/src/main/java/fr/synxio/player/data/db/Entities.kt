@@ -45,7 +45,12 @@ data class FavoriteEntity(
  * Statistiques d'écoute par morceau. [skipCount] alimente le classement « à revoir »
  * et permet plus tard d'exclure les titres systématiquement zappés du mode aléatoire.
  */
-@Entity(tableName = "play_stats")
+@Entity(
+    tableName = "play_stats",
+    // « Récemment écoutés » trie sur lastPlayedAt, « Les plus écoutés » sur le couple
+    // (playCount, lastPlayedAt) : sans index, chaque émission relisait toute la table.
+    indices = [Index("lastPlayedAt"), Index(value = ["playCount", "lastPlayedAt"])],
+)
 data class PlayStatEntity(
     @PrimaryKey val songId: Long,
     val songPath: String,
@@ -118,7 +123,11 @@ data class AudiobookFolderEntity(
 )
 
 /** Historique de lecture. */
-@Entity(tableName = "play_history")
+@Entity(
+    tableName = "play_history",
+    // Toutes les lectures trient ou filtrent par date ; l'historique d'un titre filtre par id.
+    indices = [Index("playedAt"), Index("songId")],
+)
 data class PlayHistoryEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val songId: Long,

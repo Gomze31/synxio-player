@@ -138,11 +138,13 @@ fun HomeScreen(
 
         item { SectionHeader("Albums", actionLabel = "Tout voir", onAction = onSeeAll) }
         item {
+            // Trié par le ViewModel hors du thread principal, pas à chaque recomposition.
+            val recentAlbums by viewModel.recentAlbums.collectAsStateWithLifecycle()
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                items(library.albums.sortedByDescending { it.dateAddedSec }.take(20), key = { it.id }) { album ->
+                items(recentAlbums, key = { it.id }) { album ->
                     AlbumCard(
                         album = album,
                         onClick = { onOpenAlbum(album.id) },
@@ -154,11 +156,12 @@ fun HomeScreen(
 
         item { SectionHeader("Artistes", actionLabel = "Tout voir", onAction = onSeeAll) }
         item {
+            val topArtists by viewModel.topArtists.collectAsStateWithLifecycle()
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 20.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                items(library.artists.sortedByDescending { it.songCount }.take(20), key = { it.name }) { artist ->
+                items(topArtists, key = { it.name }) { artist ->
                     Column(
                         modifier = Modifier
                             .width(104.dp)

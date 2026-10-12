@@ -27,8 +27,8 @@ android {
         // 36 = Android 16. L'API 37 n'existe qu'en canal preview du SDK : on ne cible pas
         // un SDK canary, ce serait impubliable et instable.
         targetSdk = 36
-        versionCode = 20260938
-        versionName = "4.3.0"
+        versionCode = 20260939
+        versionName = "4.4.0"
         vectorDrawables.useSupportLibrary = true
 
         // Le dépôt devient public, l'app peut donc chercher ses mises à jour ici directement
@@ -53,6 +53,28 @@ android {
                 keyAlias = keystoreProperties.getProperty("keyAlias")
                 keyPassword = keystoreProperties.getProperty("keyPassword")
             } else {
+                // Interrupteur de sécurité : -Psynxio.requireReleaseKey=true ou
+                // SYNXIO_REQUIRE_RELEASE_KEY=true. Activé, un build release ÉCHOUE plutôt que de
+                // retomber sur la clé publique du dépôt (voir docs/KEY_ROTATION.md).
+                val requireReleaseKey = (
+                    providers.gradleProperty("synxio.requireReleaseKey").orNull
+                        ?: providers.environmentVariable("SYNXIO_REQUIRE_RELEASE_KEY").orNull
+                    )?.trim()?.equals("true", ignoreCase = true) == true
+                val releaseRequested = gradle.startParameter.taskNames.any {
+                    it.contains("Release", ignoreCase = true) || it.contains("bundle", ignoreCase = true)
+                }
+                if (requireReleaseKey && releaseRequested) {
+                    throw GradleException(
+                        "Clé de release absente (keystore.properties) alors que synxio.requireReleaseKey=true : " +
+                            "refus de signer avec la clé publique app/synxio-release.keystore."
+                    )
+                }
+                if (releaseRequested) {
+                    logger.warn(
+                        "ATTENTION : signature release avec la clé de SECOURS app/synxio-release.keystore, " +
+                            "dont le mot de passe est public dans le dépôt. Voir docs/KEY_ROTATION.md."
+                    )
+                }
                 // Keystore de release officiel embarqué pour garantir une signature
                 // 100% identique entre GitHub Actions, les APKs et les mises à jour in-app.
                 storeFile = file("synxio-release.keystore")

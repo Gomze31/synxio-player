@@ -4,7 +4,9 @@ import android.annotation.SuppressLint
 import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
@@ -35,6 +37,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import fr.synxio.player.data.repo.YoutubeUrls
 import fr.synxio.player.ui.viewmodel.AppViewModel
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -73,10 +76,12 @@ fun DownloadScreen(
                 clipboard.primaryClipDescription?.hasMimeType(ClipDescription.MIMETYPE_TEXT_PLAIN) == true
             ) {
                 val clipText = clipboard.primaryClip?.getItemAt(0)?.text?.toString()?.trim()
-                if (!clipText.isNullOrBlank() && (clipText.contains("youtube.com") || clipText.contains("youtu.be"))) {
-                    inputUrl = clipText
-                    currentUrl = clipText
-                    webViewInstance?.loadUrl(clipText)
+                // Seul un lien YouTube validé et reconstruit en https:// est repris.
+                val safeUrl = YoutubeUrls.normalize(clipText)
+                if (safeUrl != null) {
+                    inputUrl = safeUrl
+                    currentUrl = safeUrl
+                    webViewInstance?.loadUrl(safeUrl)
                     Toast.makeText(context, "Lien YouTube détecté dans le presse-papier", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -86,9 +91,15 @@ fun DownloadScreen(
     fun loadTargetUrl(rawUrl: String) {
         val trimmed = rawUrl.trim()
         if (trimmed.isEmpty()) return
+        val youtubeUrl = YoutubeUrls.normalize(trimmed)
         val finalUrl = when {
-            trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
-            trimmed.contains("youtube.com") || trimmed.contains("youtu.be") -> "https://$trimmed"
+            youtubeUrl != null -> youtubeUrl
+            // Lien vers un autre site (ou autre schéma) : jamais chargé dans la WebView.
+            // Tout autre texte devient une simple recherche YouTube (encodée), donc inoffensif.
+            trimmed.contains("://") || trimmed.startsWith("javascript:", ignoreCase = true) -> {
+                Toast.makeText(context, "Seuls les liens YouTube sont acceptés", Toast.LENGTH_SHORT).show()
+                return
+            }
             else -> "https://m.youtube.com/results?search_query=${android.net.Uri.encode(trimmed)}"
         }
         currentUrl = finalUrl
@@ -97,7 +108,7 @@ fun DownloadScreen(
         focusManager.clearFocus()
     }
 
-    val isVideoUrl = currentUrl.contains("watch") || currentUrl.contains("youtu.be") || currentUrl.contains("shorts")
+    val isVideoUrl = YoutubeUrls.normalizeVideo(currentUrl) != null
 
     Scaffold(
         topBar = {
@@ -278,8 +289,10 @@ fun DownloadScreen(
             } else {
                 ExtendedFloatingActionButton(
                     onClick = {
-                        val target = if (inputUrl.contains("watch") || inputUrl.contains("youtu.be")) inputUrl else currentUrl
-                        if (target.contains("watch") || target.contains("youtu.be") || target.contains("shorts")) {
+                        // Le lien saisi d'abord, sinon la page affichée : toujours validé et canonique.
+                        val target = YoutubeUrls.normalizeVideo(inputUrl)
+                            ?: YoutubeUrls.normalizeVideo(currentUrl)
+                        if (target != null) {
                             viewModel.downloadYoutube(target)
                             Toast.makeText(context, "Extraction et téléchargement audio lancés…", Toast.LENGTH_SHORT).show()
                         } else {
@@ -354,11 +367,33 @@ fun DownloadScreen(
                     WebView(ctx).apply {
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true
+                        settings.allowFileAccess = false
+                        settings.allowContentAccess = false
                         settings.useWideViewPort = true
                         settings.loadWithOverviewMode = true
                         settings.userAgentString = settings.userAgentString.replace("; wv", "")
 
                         webViewClient = object : WebViewClient() {
+                            // La WebView reste sur YouTube : les autres liens HTTPS s'ouvrent dans
+                            // le navigateur, tout autre schéma (intent://, javascript:, file:…) est bloqué.
+                            override fun shouldOverrideUrlLoading(
+                                view: WebView?,
+                                request: WebResourceRequest?
+                            ): Boolean {
+                                val target = request?.url ?: return true
+                                if (YoutubeUrls.isAllowedInWebView(target.toString())) return false
+                                if (request.isForMainFrame && target.scheme.equals("https", ignoreCase = true)) {
+                                    runCatching {
+                                        ctx.startActivity(
+                                            Intent(Intent.ACTION_VIEW, target)
+                                                .addCategory(Intent.CATEGORY_BROWSABLE)
+                                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        )
+                                    }
+                                }
+                                return true
+                            }
+
                             override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
                                 url?.let {
                                     currentUrl = it

@@ -60,6 +60,8 @@ enum class LibraryTab(val label: String) {
     GENRES("Genres"),
     FOLDERS("Dossiers"),
     PODCASTS("Podcasts"),
-    RADIOS("Radios IA"),
+    // « Ambiances » et non « Radios » : l'onglet Radios de la barre basse désigne déjà
+    // les webradios, deux sens pour un même mot désorientaient.
+    RADIOS("Ambiances"),
     PLAYLISTS("Playlists")
 }

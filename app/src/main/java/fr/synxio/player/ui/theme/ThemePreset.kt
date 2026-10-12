@@ -99,10 +99,13 @@ enum class ThemePreset(
         val step = if (flat) 0.025f else 0.055f
         fun surface(level: Int) = lerpColor(base, Color.White, step * level)
 
-        val onAccent = accentDark.contrastingOn()
+        // Accent et contour garantis lisibles sur le fond : WCAG 4,5:1 pour l'accent
+        // (texte), 3:1 pour le contour des champs et cartes (élément d'interface).
+        val accent = accentDark.ensureContrast(base, 4.5f)
+        val onAccent = accent.contrastingOn()
 
         return darkColorScheme(
-            primary = accentDark,
+            primary = accent,
             onPrimary = onAccent,
             primaryContainer = lerpColor(base, accentDark, 0.28f),
             onPrimaryContainer = Color.White,
@@ -123,8 +126,8 @@ enum class ThemePreset(
             surfaceContainer = surface(2),
             surfaceContainerHigh = surface(3),
             surfaceContainerHighest = surface(4),
-            surfaceTint = accentDark,
-            outline = surface(7),
+            surfaceTint = accent,
+            outline = surface(7).ensureContrast(base, 3f),
             outlineVariant = surface(4),
             error = Color(0xFFFFB4AB),
             onError = Color(0xFF690005),
@@ -135,10 +138,11 @@ enum class ThemePreset(
         val base = if (flat) Color(0xFFFFFFFF) else Color(0xFFFBF8FF)
         val step = if (flat) 0.018f else 0.035f
         fun surface(level: Int) = lerpColor(base, Color.Black, step * level)
+        val accent = accentLight.ensureContrast(base, 4.5f)
 
         return lightColorScheme(
-            primary = accentLight,
-            onPrimary = Color.White,
+            primary = accent,
+            onPrimary = accent.contrastingOn(),
             primaryContainer = lerpColor(base, accentLight, 0.16f),
             onPrimaryContainer = lerpColor(accentLight, Color.Black, 0.45f),
             secondary = accentLight.shift(0.15f),
@@ -158,8 +162,8 @@ enum class ThemePreset(
             surfaceContainer = surface(2),
             surfaceContainerHigh = surface(3),
             surfaceContainerHighest = surface(4),
-            surfaceTint = accentLight,
-            outline = surface(10),
+            surfaceTint = accent,
+            outline = surface(10).ensureContrast(base, 3f),
             outlineVariant = surface(5),
         )
     }
@@ -172,17 +176,20 @@ enum class ThemePreset(
         fun customScheme(accent: Color, preset: ThemePreset, dark: Boolean, amoled: Boolean): ColorScheme {
             val base = preset.darkScheme(amoled)
             return if (dark) {
+                val primary = accent.shift(0.1f).ensureContrast(base.surface, 4.5f)
                 base.copy(
-                    primary = accent.shift(0.1f),
-                    onPrimary = accent.contrastingOn(),
+                    primary = primary,
+                    onPrimary = primary.contrastingOn(),
                     secondary = accent.shift(-0.15f),
                     tertiary = accent.shift(0.3f),
                     surfaceTint = accent,
                 )
             } else {
-                preset.lightScheme().copy(
-                    primary = accent.shift(-0.2f),
-                    onPrimary = Color.White,
+                val light = preset.lightScheme()
+                val primary = accent.shift(-0.2f).ensureContrast(light.surface, 4.5f)
+                light.copy(
+                    primary = primary,
+                    onPrimary = primary.contrastingOn(),
                     secondary = accent,
                     tertiary = accent.shift(-0.35f),
                     surfaceTint = accent,

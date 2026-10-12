@@ -138,7 +138,39 @@ fun lerpColor(start: Color, stop: Color, fraction: Float): Color {
     )
 }
 
-/** Noir ou blanc, selon ce qui contraste le mieux avec [this]. */
-fun Color.contrastingOn(): Color = if (luminance() > 0.45f) Color.Black else Color.White
+/** Rapport de contraste WCAG 2.x entre deux couleurs opaques (1 à 21). */
+fun contrastRatio(a: Color, b: Color): Float {
+    val la = a.luminance()
+    val lb = b.luminance()
+    return (maxOf(la, lb) + 0.05f) / (minOf(la, lb) + 0.05f)
+}
+
+/**
+ * Noir ou blanc, selon ce qui contraste le mieux avec [this].
+ *
+ * Comparaison des deux rapports WCAG plutôt qu'un seuil de luminance : l'ancien seuil
+ * à 0,45 posait du blanc sur le violet Synxio (3,5:1), sous le minimum de 4,5:1 pour
+ * le texte des boutons.
+ */
+fun Color.contrastingOn(): Color =
+    if (contrastRatio(this, Color.Black) >= contrastRatio(this, Color.White)) Color.Black else Color.White
+
+/**
+ * Ajuste [this] jusqu'à atteindre [minRatio] contre [background].
+ *
+ * Éclaircit sur fond sombre, assombrit sur fond clair, par petits pas pour garder la
+ * teinte. Sert aux accents tirés des pochettes, imprévisibles par nature.
+ */
+fun Color.ensureContrast(background: Color, minRatio: Float = 4.5f): Color {
+    if (contrastRatio(this, background) >= minRatio) return this
+    val towards = if (background.luminance() < 0.5f) Color.White else Color.Black
+    var fraction = 0f
+    var candidate = this
+    while (fraction < 1f && contrastRatio(candidate, background) < minRatio) {
+        fraction += 0.04f
+        candidate = lerpColor(this, towards, fraction)
+    }
+    return candidate
+}
 
 internal fun Color.argb(): Int = toArgb()

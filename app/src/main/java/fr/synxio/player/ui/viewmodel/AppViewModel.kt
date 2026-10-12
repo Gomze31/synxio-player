@@ -8,7 +8,9 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import fr.synxio.player.core.prefs.Settings
 import fr.synxio.player.core.prefs.SettingsRepository
 import fr.synxio.player.data.media.DeleteOutcome
+import fr.synxio.player.data.model.Album
 import fr.synxio.player.data.model.AlbumSort
+import fr.synxio.player.data.model.Artist
 import fr.synxio.player.data.model.ArtistSort
 import fr.synxio.player.data.model.Playlist
 import fr.synxio.player.data.model.Song
@@ -41,9 +43,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -142,10 +144,27 @@ class AppViewModel @Inject constructor(
     private val _deleteIntentSenders = MutableSharedFlow<android.content.IntentSender>(extraBufferCapacity = 1)
     val deleteIntentSenders: SharedFlow<android.content.IntentSender> = _deleteIntentSenders
 
-    /** Titres triés selon la préférence courante, recalculés à chaque changement. */
-    val sortedSongs: StateFlow<List<Song>> = combine(library, settings) { lib, s ->
-        musicRepository.sortSongs(lib.songs, s.songSort, s.songSortDescending)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    // Les listes de la bibliothèque, ne réémises que si le scan en a produit de nouvelles :
+    // une bibliothèque recopiée (drapeau de chargement) ne relance aucun tri.
+    private val librarySongs = library.map { it.songs }.distinctUntilChanged { a, b -> a === b }
+    private val libraryAlbums = library.map { it.albums }.distinctUntilChanged { a, b -> a === b }
+    private val libraryArtists = library.map { it.artists }.distinctUntilChanged { a, b -> a === b }
+
+    /**
+     * Titres triés selon la préférence courante.
+     *
+     * Seuls les champs de tri sont suivis dans les réglages : changer de thème ou de
+     * vitesse ne doit pas retrier toute la bibliothèque. Le tri tourne hors du thread
+     * principal.
+     */
+    val sortedSongs: StateFlow<List<Song>> = combine(
+        librarySongs,
+        settings.map { it.songSort to it.songSortDescending }.distinctUntilChanged(),
+    ) { songs, (sort, descending) ->
+        musicRepository.sortSongs(songs, sort, descending)
+    }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     
     val podcasts: StateFlow<List<Song>> = library
         .map { it.podcasts }
@@ -166,26 +185,63 @@ class AppViewModel @Inject constructor(
         musicRepository.removeAudiobookFolder(path)
     }
 
-    val sortedAlbums = combine(library, settings) { lib, s ->
-        musicRepository.sortAlbums(lib.albums, s.albumSort, s.albumSortDescending)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val sortedAlbums: StateFlow<List<Album>> = combine(
+        libraryAlbums,
+        settings.map { it.albumSort to it.albumSortDescending }.distinctUntilChanged(),
+    ) { albums, (sort, descending) ->
+        musicRepository.sortAlbums(albums, sort, descending)
+    }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val sortedArtists = combine(library, settings) { lib, s ->
-        musicRepository.sortArtists(lib.artists, s.artistSort, s.artistSortDescending)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val sortedArtists: StateFlow<List<Artist>> = combine(
+        libraryArtists,
+        settings.map { it.artistSort to it.artistSortDescending }.distinctUntilChanged(),
+    ) { artists, (sort, descending) ->
+        musicRepository.sortArtists(artists, sort, descending)
+    }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Section « Albums » de l'accueil : les 20 derniers ajouts, triés hors composition. */
+    val recentAlbums: StateFlow<List<Album>> = libraryAlbums
+        .map { albums -> albums.sortedByDescending { it.dateAddedSec }.take(HOME_SECTION_SIZE) }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Section « Artistes » de l'accueil : les 20 artistes les plus fournis. */
+    val topArtists: StateFlow<List<Artist>> = libraryArtists
+        .map { artists ->
+            musicRepository.sortArtists(artists, ArtistSort.SONG_COUNT, descending = true)
+                .take(HOME_SECTION_SIZE)
+        }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // --- Recherche -----------------------------------------------------------------------
 
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query.asStateFlow()
 
-    val searchResults: StateFlow<SearchResults> = _query
-        .debounce(180)
-        .distinctUntilChanged()
-        .flatMapLatest { q -> flowOf(musicRepository.search(q)) }
+    /**
+     * Résultats de recherche, calculés sur Dispatchers.Default.
+     *
+     * `mapLatest` annule le classement en cours dès qu'une frappe plus récente arrive ;
+     * suivre la bibliothèque rafraîchit les résultats après un rescan.
+     */
+    val searchResults: StateFlow<SearchResults> = combine(
+        _query.debounce(180).distinctUntilChanged(),
+        library,
+    ) { q, lib -> q to lib }
+        .mapLatest { (q, lib) -> musicRepository.searchCancellable(q, library = lib) }
+        .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SearchResults())
 
     fun onQueryChange(value: String) { _query.value = value }
+
+    /** Filtre de la recherche avancée : insensible aux accents, hors du thread principal. */
+    suspend fun filterSongs(query: String, lib: Library = library.value): List<Song> =
+        withContext(Dispatchers.Default) { musicRepository.filterSongs(query, lib) }
 
     // --- Permission ----------------------------------------------------------------------
 
@@ -505,5 +561,10 @@ class AppViewModel @Inject constructor(
 
     private fun emit(message: String) {
         viewModelScope.launch { _messages.emit(message) }
+    }
+
+    private companion object {
+        /** Nombre de cartes des carrousels de l'accueil. */
+        const val HOME_SECTION_SIZE = 20
     }
 }

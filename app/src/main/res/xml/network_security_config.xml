@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Politique réseau de Synxio.
+
+    Le trafic en clair (http://) reste autorisé par défaut : les flux des webradios
+    viennent de l'annuaire radio-browser (champ url_resolved) et une grande partie des
+    serveurs Icecast/Shoutcast ne diffusent qu'en http. ExoPlayer passe par la pile HTTP
+    du système, soumise à cette politique : interdire le clair casserait ces radios.
+
+    En revanche, toutes les API connues de l'application sont forcées en HTTPS : un lien
+    http:// vers ces domaines (configuration, redirection) est refusé.
+    Seules les autorités de certification du système sont approuvées (pas celles ajoutées
+    par l'utilisateur).
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">discord.com</domain>
+        <domain includeSubdomains="true">discordapp.com</domain>
+        <domain includeSubdomains="true">github.com</domain>
+        <domain includeSubdomains="true">githubusercontent.com</domain>
+        <domain includeSubdomains="true">audioscrobbler.com</domain>
+        <domain includeSubdomains="true">last.fm</domain>
+        <domain includeSubdomains="true">lrclib.net</domain>
+        <domain includeSubdomains="true">deezer.com</domain>
+        <domain includeSubdomains="true">itunes.apple.com</domain>
+        <domain includeSubdomains="true">radio-browser.info</domain>
+        <domain includeSubdomains="true">youtube.com</domain>
+        <domain includeSubdomains="true">youtu.be</domain>
+        <domain includeSubdomains="true">googlevideo.com</domain>
+    </domain-config>
+</network-security-config>

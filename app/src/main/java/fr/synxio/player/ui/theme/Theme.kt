@@ -11,6 +11,9 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -27,6 +30,8 @@ fun SynxioTheme(
     artworkColors: ArtworkColors = ArtworkColors(),
     themePreset: ThemePreset = ThemePreset.SYNXIO,
     customAccent: String = "",
+    reduceAnimations: Boolean = false,
+    textScale: Float = 1f,
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
@@ -54,9 +59,22 @@ fun SynxioTheme(
 
     // On anime la transition : changer de morceau repeint l'app en douceur
     // au lieu de faire clignoter toute l'interface.
-    val scheme = target.animated()
+    val reduceMotion = reduceAnimations || rememberSystemAnimationsDisabled()
+    val scheme = if (reduceMotion) target else target.animated()
 
-    CompositionLocalProvider(LocalArtworkColors provides artworkColors) {
+    // « Taille du texte » des réglages : multiplie l'échelle de police système au lieu
+    // de la remplacer, pour que le réglage d'accessibilité d'Android reste respecté.
+    val density = LocalDensity.current
+    val scaledDensity = remember(density, textScale) {
+        if (textScale == 1f) density else Density(density.density, density.fontScale * textScale)
+    }
+
+    CompositionLocalProvider(
+        LocalArtworkColors provides artworkColors,
+        LocalReduceMotion provides reduceMotion,
+        LocalSynxioColors provides SynxioColors(),
+        LocalDensity provides scaledDensity,
+    ) {
         MaterialTheme(
             colorScheme = scheme,
             typography = SynxioTypography,
@@ -75,7 +93,9 @@ fun SynxioTheme(
  * la couleur de l'album.
  */
 private fun ColorScheme.tintedWith(seed: Color, dark: Boolean): ColorScheme {
-    val accent = if (dark) seed.shift(0.15f) else seed.shift(-0.25f)
+    val raw = if (dark) seed.shift(0.15f) else seed.shift(-0.25f)
+    // Une pochette peut donner n'importe quelle teinte : on la rend lisible sur le fond.
+    val accent = raw.ensureContrast(surface, 4.5f)
     val onAccent = accent.contrastingOn()
     val surfaceTintAmount = if (dark) 0.06f else 0.04f
 
@@ -104,7 +124,7 @@ private fun ColorScheme.tintedWith(seed: Color, dark: Boolean): ColorScheme {
 
 @Composable
 private fun ColorScheme.animated(): ColorScheme {
-    val spec = tween<Color>(durationMillis = 600)
+    val spec = tween<Color>(durationMillis = Motion.LONG, easing = Motion.Standard)
 
     @Composable
     fun animate(color: Color) = animateColorAsState(color, spec, label = "scheme").value

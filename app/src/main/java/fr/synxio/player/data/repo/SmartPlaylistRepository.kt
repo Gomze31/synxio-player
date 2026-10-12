@@ -4,9 +4,12 @@ import fr.synxio.player.data.db.PlayStatEntity
 import fr.synxio.player.data.model.Song
 import fr.synxio.player.di.ApplicationScope
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
@@ -38,7 +41,7 @@ data class SmartPlaylist(
 ) {
     val songCount: Int get() = songs.size
     val durationMs: Long get() = songs.sumOf { it.durationMs }
-    val artworkUris get() = songs.distinctBy { it.albumId }.take(4).map { it.artworkUri }
+    val artworkUris get() = songs.asSequence().distinctBy { it.albumId }.take(4).map { it.artworkUri }.toList()
 }
 
 @Singleton
@@ -52,9 +55,12 @@ class SmartPlaylistRepository @Inject constructor(
      *
      * Les listes vides sont retirées : une playlist « Les plus zappés » sans morceau
      * zappé n'a rien à dire, et une grille de cartes vides donne l'impression d'un bug.
+     *
+     * Six filtres et tris sur toute la bibliothèque à chaque écoute : le calcul tourne
+     * sur Dispatchers.Default, et une bibliothèque simplement recopiée ne le relance pas.
      */
     val playlists: StateFlow<List<SmartPlaylist>> = combine(
-        musicRepository.library.map { it.songs },
+        musicRepository.library.map { it.songs }.distinctUntilChanged { a, b -> a === b },
         musicRepository.allStats,
         musicRepository.favoriteIds,
     ) { songs, stats, favoriteIds ->
@@ -67,7 +73,9 @@ class SmartPlaylistRepository @Inject constructor(
             add(forgottenFavorites(songs, stats, favoriteIds))
             add(mostSkipped(songs, stats))
         }.filter { it.songs.isNotEmpty() }
-    }.stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }
+        .flowOn(Dispatchers.Default)
+        .stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun byId(id: SmartPlaylistId): SmartPlaylist? = playlists.value.firstOrNull { it.id == id }
 

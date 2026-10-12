@@ -16,7 +16,9 @@ import fr.synxio.player.data.model.BackupPlayStat
 import fr.synxio.player.data.model.BackupPlaylist
 import fr.synxio.player.data.model.BackupPlaylistSong
 import fr.synxio.player.data.model.BackupSettings
+import fr.synxio.player.data.db.SynxioDatabase
 import fr.synxio.player.di.ApplicationScope
+import androidx.room.withTransaction
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -43,8 +45,46 @@ class BackupRepository @Inject constructor(
     private val playStatDao: fr.synxio.player.data.db.PlayStatDao,
     private val playHistoryDao: fr.synxio.player.data.db.PlayHistoryDao,
     private val settingsRepository: SettingsRepository,
+    private val database: SynxioDatabase,
     @ApplicationScope private val scope: CoroutineScope
 ) {
+
+    /**
+     * Lit un fichier de sauvegarde en refusant tout ce qui dépasse [MAX_BACKUP_BYTES] :
+     * la taille annoncée est vérifiée d'abord, puis la lecture elle-même est bornée
+     * (un fournisseur de contenu peut mentir ou ne pas connaître la taille).
+     */
+    private fun readBackupText(uri: Uri): String {
+        val declared = runCatching {
+            context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length }
+        }.getOrNull()
+        if (declared != null && declared > MAX_BACKUP_BYTES) {
+            throw IOException("Fichier de sauvegarde trop volumineux")
+        }
+        val input = context.contentResolver.openInputStream(uri)
+            ?: throw IOException("Impossible d'ouvrir le fichier d'entrée")
+        return input.use { readCapped(it, MAX_BACKUP_BYTES) }.toString(Charsets.UTF_8)
+    }
+
+    internal companion object {
+        /** 20 Mo : très au-delà d'une sauvegarde réelle (quelques centaines de Ko). */
+        const val MAX_BACKUP_BYTES = 20L * 1024 * 1024
+
+        /** Lit au plus [maxBytes] octets ; au-delà, lève une IOException. */
+        fun readCapped(input: java.io.InputStream, maxBytes: Long): ByteArray {
+            val out = java.io.ByteArrayOutputStream()
+            val buffer = ByteArray(64 * 1024)
+            var total = 0L
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                total += read
+                if (total > maxBytes) throw IOException("Fichier de sauvegarde trop volumineux")
+                out.write(buffer, 0, read)
+            }
+            return out.toByteArray()
+        }
+    }
 
     private val json = Json {
         prettyPrint = true
@@ -131,20 +171,31 @@ class BackupRepository @Inject constructor(
      */
     suspend fun importFromFile(uri: Uri): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
-            context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                val jsonString = inputStream.bufferedReader().use { reader ->
-                    reader.readText()
-                }
+            run {
+                // Taille plafonnée : un fichier énorme ne doit pas saturer la mémoire.
+                val jsonString = readBackupText(uri)
 
                 val backupData = json.decodeFromString<BackupData>(jsonString)
 
+                // Noms déjà présents, lus avant la transaction : une playlist du même nom
+                // n'est pas recréée lors d'un second import du même fichier.
+                val existingNames = database.playlistDao().observePlaylists().first()
+                    .map { it.name }
+                    .toMutableSet()
+                val songsById = musicRepository.library.value.songs.associateBy { it.id }
+
+                // Base de données : tout ou rien. Une erreur au milieu de l'import
+                // n'y laisse pas de données à moitié restaurées.
+                database.withTransaction {
+
                 // Restaurer les playlists
                 backupData.playlists.forEach { backupPlaylist ->
+                    if (!existingNames.add(backupPlaylist.name)) return@forEach
                     // Trouver les chansons correspondantes dans la bibliothèque
                     val songs = backupPlaylist.songs.mapNotNull { backupSong ->
-                        musicRepository.library.value.songs.find { it.id == backupSong.songId }
+                        songsById[backupSong.songId]
                     }
-                    val playlistId = playlistRepository.create(
+                    playlistRepository.create(
                         name = backupPlaylist.name,
                         songs = songs
                     )
@@ -187,6 +238,8 @@ class BackupRepository @Inject constructor(
                         )
                     )
                 }
+
+                } // fin de la transaction
 
                 // Restaurer les réglages
                 backupData.settings?.let { backupSettings ->
@@ -234,7 +287,8 @@ class BackupRepository @Inject constructor(
                         }
                     }
                 }
-            } ?: throw IOException("Impossible d'ouvrir le fichier d'entrée")
+            }
+            Unit
         }
     }
 
@@ -251,14 +305,9 @@ class BackupRepository @Inject constructor(
      */
     suspend fun isValidBackupFile(uri: Uri): Boolean = withContext(Dispatchers.IO) {
         runCatching {
-            context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                val jsonString = inputStream.bufferedReader().use { reader ->
-                    reader.readText()
-                }
-                val backupData = json.decodeFromString<BackupData>(jsonString)
-                // Vérifier que le fichier contient les champs attendus
-                backupData.version == 1
-            } ?: false
+            val backupData = json.decodeFromString<BackupData>(readBackupText(uri))
+            // Vérifier que le fichier contient les champs attendus
+            backupData.version == 1
         }.getOrDefault(false)
     }
 
@@ -267,11 +316,8 @@ class BackupRepository @Inject constructor(
      */
     suspend fun getBackupInfo(uri: Uri): Result<BackupInfo> = withContext(Dispatchers.IO) {
         runCatching {
-            context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                val jsonString = inputStream.bufferedReader().use { reader ->
-                    reader.readText()
-                }
-                val backupData = json.decodeFromString<BackupData>(jsonString)
+            run {
+                val backupData = json.decodeFromString<BackupData>(readBackupText(uri))
 
                 // Compter les éléments
                 val playlistCount = backupData.playlists.size
@@ -293,7 +339,7 @@ class BackupRepository @Inject constructor(
                     historyCount = historyCount,
                     hasSettings = backupData.settings != null
                 )
-            } ?: throw IOException("Impossible de lire le fichier")
+            }
         }
     }
 
@@ -324,8 +370,9 @@ class BackupRepository @Inject constructor(
             }
 
             // Supprimer tous les favoris
-            val favorites = favoriteDao.observeAll().first { it.isNotEmpty() }
-            favorites.forEach { favorite ->
+            // first() et non first { isNotEmpty() } : sans favori, ce dernier ne rendait
+            // jamais la main et la suite (stats, historique, réglages) n'était pas effacée.
+            favoriteDao.observeAll().first().forEach { favorite ->
                 favoriteDao.remove(favorite.songId)
             }
 

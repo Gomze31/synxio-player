@@ -113,7 +113,13 @@ data class Album(
     val songCount: Int get() = songs.size
     val durationMs: Long get() = songs.sumOf { it.durationMs }
     val artworkUri: Uri get() = ContentUris.withAppendedId(ALBUM_ART_BASE, id)
-    val dateAddedSec: Long get() = songs.maxOfOrNull { it.dateAddedSec } ?: 0L
+    /**
+     * Ajout le plus récent parmi les morceaux de l'album.
+     *
+     * Calculé une fois à la construction : l'accueil et le tri « date d'ajout » le
+     * lisent à chaque comparaison, soit des milliers de parcours par tri en getter.
+     */
+    val dateAddedSec: Long = songs.maxOfOrNull { it.dateAddedSec } ?: 0L
 }
 
 @Immutable
@@ -122,7 +128,8 @@ data class Artist(
     val name: String,
     val albums: List<Album>,
 ) {
-    val songs: List<Song> get() = albums.flatMap { it.songs }
+    /** Aplati une seule fois : les statistiques le parcourent pour chaque artiste. */
+    val songs: List<Song> by lazy { albums.flatMap { it.songs } }
     val songCount: Int get() = albums.sumOf { it.songCount }
     val albumCount: Int get() = albums.size
     val durationMs: Long get() = albums.sumOf { it.durationMs }
@@ -136,7 +143,7 @@ data class Genre(
     val songs: List<Song>,
 ) {
     val songCount: Int get() = songs.size
-    val artworkUris: List<Uri> get() = songs.distinctBy { it.albumId }.take(4).map { it.artworkUri }
+    val artworkUris: List<Uri> get() = songs.asSequence().distinctBy { it.albumId }.take(4).map { it.artworkUri }.toList()
 }
 
 /** Un dossier du système de fichiers contenant au moins un morceau. */
@@ -159,7 +166,7 @@ data class Playlist(
 ) {
     val songCount: Int get() = songs.size
     val durationMs: Long get() = songs.sumOf { it.durationMs }
-    val artworkUris: List<Uri> get() = songs.distinctBy { it.albumId }.take(4).map { it.artworkUri }
+    val artworkUris: List<Uri> get() = songs.asSequence().distinctBy { it.albumId }.take(4).map { it.artworkUri }.toList()
 }
 
 /** Une ligne de paroles ; [timeMs] vaut null pour des paroles non synchronisées. */

@@ -5,7 +5,16 @@ import android.content.Intent
 import android.os.Build
 import android.util.Base64
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.navigation.NavBackStackEntry
+import com.google.accompanist.permissions.shouldShowRationale
+import fr.synxio.player.ui.theme.LocalReduceMotion
+import fr.synxio.player.ui.theme.Motion
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -93,18 +102,19 @@ import fr.synxio.player.ui.screens.nowplaying.NowPlayingScreen
 import fr.synxio.player.ui.viewmodel.AppViewModel
 import fr.synxio.player.ui.viewmodel.UpdateViewModel
 
-/** Destinations de la barre de navigation basse. */
 /**
- * Libellés courts volontairement : à cinq onglets, "Bibliothèque" et "Recherche"
- * passent à la ligne sur un écran étroit.
+ * Destinations de la barre de navigation basse.
+ *
+ * Cinq au plus (règle Material) : les livres audio, sixième onglet auparavant, sont
+ * accessibles depuis l'en-tête de la bibliothèque. Libellés courts volontairement :
+ * "Bibliothèque" passerait à la ligne sur un écran étroit.
  */
 enum class TopLevel(val route: String, val label: String, val icon: ImageVector) {
     HOME("home", "Accueil", Icons.Rounded.Home),
     LIBRARY("library", "Musique", Icons.Rounded.LibraryMusic),
-    AUDIOBOOKS("audiobooks", "Livres audio", Icons.AutoMirrored.Rounded.MenuBook),
     SEARCH("search", "Recherche", Icons.Rounded.Search),
     RADIOS("radios", "Radios", Icons.Rounded.Radio),
-    SETTINGS("settings", "Paramètres", Icons.Rounded.Settings),
+    SETTINGS("settings", "Réglages", Icons.Rounded.Settings),
 }
 
 object Routes {
@@ -124,7 +134,6 @@ object Routes {
     const val ADVANCED_SEARCH = "advanced_search"
     const val DUPLICATES = "duplicates"
     const val RECENTS = "recents"
-    const val COMING_SOON = "coming_soon"
     const val DRIVE_MODE = "drive_mode"
     const val SMART = "smart/{smartId}"
     const val RULE = "rule/{ruleId}"
@@ -158,7 +167,7 @@ object Routes {
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
-fun SynxioRoot(viewModel: AppViewModel, openPlayerOnStart: Boolean) {
+fun SynxioRoot(viewModel: AppViewModel, openPlayerRequest: Long) {
     val permission = rememberPermissionState(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             Manifest.permission.READ_MEDIA_AUDIO
@@ -167,21 +176,31 @@ fun SynxioRoot(viewModel: AppViewModel, openPlayerOnStart: Boolean) {
         }
     )
 
+    var permissionAsked by rememberSaveable { mutableStateOf(false) }
+
     LaunchedEffect(permission.status.isGranted) {
         if (permission.status.isGranted) viewModel.onPermissionGranted()
     }
 
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         if (permission.status.isGranted) {
-            MainScaffold(viewModel, openPlayerOnStart)
+            MainScaffold(viewModel, openPlayerRequest)
         } else {
-            PermissionScreen(onRequest = { permission.launchPermissionRequest() })
+            PermissionScreen(
+                // Après « Ne plus demander », la demande système ne s'affiche plus : le
+                // bouton renvoie alors vers les réglages de l'app au lieu de ne rien faire.
+                permanentlyDenied = permissionAsked && !permission.status.shouldShowRationale,
+                onRequest = {
+                    permissionAsked = true
+                    permission.launchPermissionRequest()
+                },
+            )
         }
     }
 }
 
 @Composable
-private fun MainScaffold(viewModel: AppViewModel, openPlayerOnStart: Boolean) {
+private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
     val navController = rememberNavController()
     val showBottomBar = shouldShowBottomBar(navController)
     val snackbarHost = remember { SnackbarHostState() }
@@ -191,9 +210,12 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerOnStart: Boolean) {
     val updateViewModel: UpdateViewModel = hiltViewModel()
     val updateState by updateViewModel.state.collectAsStateWithLifecycle()
 
-    LaunchedEffect(openPlayerOnStart) {
-        if (openPlayerOnStart) playerExpanded = true
+    // Un jeton plutôt qu'un booléen : la notification peut demander le lecteur plusieurs
+    // fois pendant que l'app tourne, chaque demande doit l'ouvrir.
+    LaunchedEffect(openPlayerRequest) {
+        if (openPlayerRequest > 0L) playerExpanded = true
     }
+    val reduceMotion = LocalReduceMotion.current
 
     LaunchedEffect(Unit) {
         viewModel.messages.collect { snackbarHost.showSnackbar(it) }
@@ -276,8 +298,8 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerOnStart: Boolean) {
                 Column {
                     AnimatedVisibility(
                         visible = playerState.currentSong != null && !playerExpanded,
-                        enter = slideInVertically { it } + fadeIn(),
-                        exit = slideOutVertically { it } + fadeOut(),
+                        enter = slideInVertically(Motion.enter()) { it / 2 } + fadeIn(Motion.enter()),
+                        exit = slideOutVertically(Motion.exit()) { it / 2 } + fadeOut(Motion.exit()),
                     ) {
                         MiniPlayer(
                             state = playerState,
@@ -312,10 +334,20 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerOnStart: Boolean) {
             )
         }
 
+        // Le lecteur monte depuis le mini-lecteur et redescend vers lui : même axe, même
+        // courbe que le reste de l'app. Animations réduites : simple fondu.
         AnimatedVisibility(
             visible = playerExpanded,
-            enter = slideInVertically(tween(320)) { it } + fadeIn(tween(220)),
-            exit = slideOutVertically(tween(280)) { it } + fadeOut(tween(180)),
+            enter = if (reduceMotion) {
+                fadeIn(Motion.enter(Motion.SHORT))
+            } else {
+                slideInVertically(Motion.enter(Motion.LONG)) { it } + fadeIn(Motion.enter(Motion.MEDIUM))
+            },
+            exit = if (reduceMotion) {
+                fadeOut(Motion.exit())
+            } else {
+                slideOutVertically(Motion.exit(Motion.MEDIUM)) { it } + fadeOut(Motion.exit(Motion.MEDIUM))
+            },
         ) {
             NowPlayingScreen(
                 viewModel = viewModel,
@@ -374,7 +406,6 @@ private fun shouldShowBottomBar(navController: NavHostController): Boolean {
             route.startsWith("rule_editor/") ||
             route.startsWith("tags/") ||
             route.startsWith("trim/") ||
-            route == Routes.COMING_SOON ||
             route == Routes.EQUALIZER ||
             route == Routes.REPAIR ||
             route == Routes.DOWNLOAD ||
@@ -400,14 +431,7 @@ private fun BottomBar(navController: NavHostController) {
             TopLevel.entries.forEach { destination ->
                 NavigationBarItem(
                     selected = currentRoute == destination.route,
-                    onClick = {
-                        navController.navigate(destination.route) {
-                            // Un seul exemplaire de chaque onglet dans la pile, état conservé.
-                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    },
+                    onClick = { navController.navigateToTopLevel(destination.route) },
                     icon = { Icon(destination.icon, contentDescription = destination.label) },
                     label = {
                         Text(
@@ -422,6 +446,15 @@ private fun BottomBar(navController: NavHostController) {
     }
 }
 
+/** Un seul exemplaire de chaque onglet dans la pile, état conservé. */
+private fun NavHostController.navigateToTopLevel(route: String) {
+    navigate(route) {
+        popUpTo(graph.findStartDestination().id) { saveState = true }
+        launchSingleTop = true
+        restoreState = true
+    }
+}
+
 @Composable
 private fun AppNavHost(
     navController: NavHostController,
@@ -429,10 +462,47 @@ private fun AppNavHost(
     onOpenPlayer: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val reduceMotion = LocalReduceMotion.current
+    val topLevelRoutes = remember { TopLevel.entries.map { it.route }.toSet() }
+    fun AnimatedContentTransitionScope<NavBackStackEntry>.isTabSwitch() =
+        initialState.destination.route in topLevelRoutes && targetState.destination.route in topLevelRoutes
+
+    // Deux gestes de navigation, deux mouvements :
+    //  - entre onglets, un fondu enchaîné (« fade through ») : pas de direction, ce sont
+    //    des lieux voisins ;
+    //  - vers un détail, un glissement court sur l'axe horizontal (« shared axis ») qui
+    //    dit « j'avance », et l'inverse au retour.
+    // Le défaut de Navigation était un fondu de 700 ms, deux fois plus lent que le reste.
     NavHost(
         navController = navController,
         startDestination = TopLevel.HOME.route,
         modifier = modifier,
+        enterTransition = {
+            when {
+                reduceMotion -> fadeIn(Motion.enter(Motion.SHORT))
+                isTabSwitch() -> fadeIn(Motion.enter()) + scaleIn(Motion.enter(), initialScale = 0.98f)
+                else -> fadeIn(Motion.enter()) + slideInHorizontally(Motion.enter()) { it / 10 }
+            }
+        },
+        exitTransition = {
+            when {
+                reduceMotion || isTabSwitch() -> fadeOut(Motion.exit())
+                else -> fadeOut(Motion.exit()) + slideOutHorizontally(Motion.exit(Motion.MEDIUM)) { -it / 20 }
+            }
+        },
+        popEnterTransition = {
+            when {
+                reduceMotion -> fadeIn(Motion.enter(Motion.SHORT))
+                isTabSwitch() -> fadeIn(Motion.enter())
+                else -> fadeIn(Motion.enter()) + slideInHorizontally(Motion.enter()) { -it / 20 }
+            }
+        },
+        popExitTransition = {
+            when {
+                reduceMotion || isTabSwitch() -> fadeOut(Motion.exit())
+                else -> fadeOut(Motion.exit()) + slideOutHorizontally(Motion.exit(Motion.MEDIUM)) { it / 10 }
+            }
+        },
     ) {
         composable(TopLevel.HOME.route) {
             HomeScreen(
@@ -440,7 +510,9 @@ private fun AppNavHost(
                 onOpenAlbum = { navController.navigate(Routes.album(it)) },
                 onOpenArtist = { navController.navigate(Routes.artist(it)) },
                 onOpenPlayer = onOpenPlayer,
-                onSeeAll = { navController.navigate(TopLevel.LIBRARY.route) },
+                // Comme un appui sur l'onglet : sans ces options, « Tout voir » empilait une
+                // seconde bibliothèque par-dessus celle de la barre de navigation.
+                onSeeAll = { navController.navigateToTopLevel(TopLevel.LIBRARY.route) },
                 onSeeRecents = { navController.navigate(Routes.RECENTS) },
             )
         }
@@ -458,10 +530,11 @@ private fun AppNavHost(
                 onOpenRulePlaylist = { navController.navigate(Routes.rule(it)) },
                 onCreateRulePlaylist = { navController.navigate(Routes.ruleEditor()) },
                 onEditRulePlaylist = { navController.navigate(Routes.ruleEditor(it)) },
+                onOpenAudiobooks = { navController.navigate(Routes.AUDIOBOOKS) },
             )
         }
 
-        composable(TopLevel.AUDIOBOOKS.route) {
+        composable(Routes.AUDIOBOOKS) {
             AudiobooksScreen(
                 viewModel = viewModel,
                 onOpenFolder = { navController.navigate(Routes.folder(it)) },
@@ -495,15 +568,9 @@ private fun AppNavHost(
                 onNavigateToBackup = { navController.navigate(Routes.BACKUP) },
                 onNavigateToAbout = { navController.navigate(Routes.ABOUT) },
                 onNavigateToAdvancedSearch = { navController.navigate(Routes.ADVANCED_SEARCH) },
-                onNavigateToComingSoon = { navController.navigate(Routes.COMING_SOON) }
             )
         }
         
-        composable(Routes.COMING_SOON) {
-            fr.synxio.player.ui.screens.ComingSoonScreen(
-                onBack = { navController.popBackStack() }
-            )
-        }
 
         composable(Routes.ALBUM) { entry ->
             val id = entry.arguments?.getString("albumId")?.toLongOrNull()
@@ -722,10 +789,9 @@ private fun AppNavHost(
                 onBack = { navController.popBackStack() },
                 onOpenArtist = { navController.navigate(Routes.artist(it)) },
                 onOpenAlbum = { navController.navigate(Routes.album(it)) },
-                onPlaySong = { songs, index ->
-                    viewModel.play(songs, index)
-                    navController.popBackStack()
-                }
+                // On reste sur l'écran : le mini-lecteur apparaît et l'on peut continuer à
+                // parcourir. Le renvoyer en arrière coupait l'utilisateur dans son élan.
+                onPlaySong = { songs, index -> viewModel.play(songs, index) }
             )
         }
 
@@ -735,10 +801,9 @@ private fun AppNavHost(
                 onBack = { navController.popBackStack() },
                 onOpenArtist = { navController.navigate(Routes.artist(it)) },
                 onOpenAlbum = { navController.navigate(Routes.album(it)) },
-                onPlaySong = { songs, index ->
-                    viewModel.play(songs, index)
-                    navController.popBackStack()
-                }
+                // On reste sur l'écran : le mini-lecteur apparaît et l'on peut continuer à
+                // parcourir. Le renvoyer en arrière coupait l'utilisateur dans son élan.
+                onPlaySong = { songs, index -> viewModel.play(songs, index) }
             )
         }
 
@@ -759,10 +824,7 @@ private fun AppNavHost(
             AdvancedSearchScreen(
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() },
-                onPlaySong = { songs, index ->
-                    viewModel.play(songs, index)
-                    navController.popBackStack()
-                },
+                onPlaySong = { songs, index -> viewModel.play(songs, index) },
                 onOpenArtist = { navController.navigate(Routes.artist(it)) },
                 onOpenAlbum = { navController.navigate(Routes.album(it)) }
             )

@@ -4,18 +4,21 @@ import fr.synxio.player.data.db.PlayStatDao
 import fr.synxio.player.data.db.PlayStatEntity
 import fr.synxio.player.data.model.AlbumStats
 import fr.synxio.player.data.model.ArtistStats
-import fr.synxio.player.data.model.Playlist
+import fr.synxio.player.data.model.PlayHistory
 import fr.synxio.player.data.model.Song
 import fr.synxio.player.data.model.StatsPeriod
 import fr.synxio.player.data.model.StatsSummary
 import fr.synxio.player.data.model.formatDate
 import fr.synxio.player.di.ApplicationScope
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import java.time.Instant
@@ -24,6 +27,11 @@ import javax.inject.Singleton
 
 /**
  * Repository pour gérer les statistiques d'écoute.
+ *
+ * Toutes les vues dérivent du flux partagé [MusicRepository.allStats] : chaque
+ * `playStatDao.observeAll()` ouvrait auparavant son propre observateur Room, relu en
+ * entier à chaque morceau joué. Les flux exposés ne vivent que tant qu'un écran les
+ * observe, et leurs calculs tournent sur Dispatchers.Default.
  */
 @Singleton
 class StatsRepository @Inject constructor(
@@ -33,221 +41,103 @@ class StatsRepository @Inject constructor(
     @ApplicationScope private val scope: CoroutineScope
 ) {
 
+    private val statsMap: StateFlow<Map<Long, PlayStatEntity>> = musicRepository.allStats
+
+    /** Titres de la bibliothèque, réémis seulement quand un scan en produit de nouveaux. */
+    private val librarySongs: Flow<List<Song>> = musicRepository.library
+        .map { it.songs }
+        .distinctUntilChanged { a, b -> a === b }
+
     /**
      * Flux du résumé des statistiques.
      */
     val statsSummary: StateFlow<StatsSummary> = combine(
         musicRepository.library,
-        playStatDao.observeAll(),
-        historyRepository.history
-    ) { library, statsEntities, history ->
-        // Calculer les statistiques
-        val statsMap = statsEntities.associateBy { it.songId }
-
-        // Top artistes
-        val artistPlayCounts = mutableMapOf<String, Pair<Int, Long>>()
-        library.artists.forEach { artist ->
-            val artistSongs = artist.songs
-            val totalPlays = artistSongs.sumOf { statsMap[it.id]?.playCount ?: 0 }
-            val totalTime = artistSongs.sumOf { statsMap[it.id]?.totalListenedMs ?: 0L }
-            if (totalPlays > 0) {
-                artistPlayCounts[artist.name] = totalPlays to totalTime
-            }
-        }
-
-        val topArtists = artistPlayCounts.entries
-            .sortedByDescending { it.value.first }
-            .take(10)
-            .mapNotNull { entry ->
-                library.artists.find { it.name == entry.key }?.let { artist ->
-                    ArtistStats(
-                        artist = artist,
-                        playCount = entry.value.first,
-                        totalListenedMs = entry.value.second
-                    )
-                }
-            }
-
-        // Top albums
-        val albumPlayCounts = mutableMapOf<Long, Int>()
-        library.albums.forEach { album ->
-            val albumPlays = album.songs.sumOf { statsMap[it.id]?.playCount ?: 0 }
-            if (albumPlays > 0) {
-                albumPlayCounts[album.id] = albumPlays
-            }
-        }
-
-        val topAlbums = albumPlayCounts.entries
-            .sortedByDescending { it.value }
-            .take(10)
-            .mapNotNull { entry ->
-                library.albums.find { it.id == entry.key }?.let { album ->
-                    AlbumStats(
-                        album = album,
-                        playCount = entry.value
-                    )
-                }
-            }
-
-        // Top genres
-        val genrePlayCounts = mutableMapOf<String, Int>()
-        library.genres.forEach { genre ->
-            val genrePlays = genre.songs.sumOf { statsMap[it.id]?.playCount ?: 0 }
-            if (genrePlays > 0) {
-                genrePlayCounts[genre.name] = genrePlays
-            }
-        }
-
-        val topGenres = genrePlayCounts.entries
-            .sortedByDescending { it.value }
-            .take(10)
-            .map { it.key to it.value }
-
-        // Temps total d'écoute
-        val totalListenedMs = statsEntities.sumOf { it.totalListenedMs }
-
-        StatsSummary(
-            totalSongs = library.songs.size,
-            totalPlayTimeMs = totalListenedMs,
-            totalPlayCount = statsEntities.sumOf { it.playCount },
-            topArtists = topArtists,
-            topAlbums = topAlbums,
-            topGenres = topGenres,
-            recentActivity = history.take(20)
-        )
+        statsMap,
+        historyRepository.observeRecent(RECENT_ACTIVITY_SIZE)
+    ) { library, stats, recent ->
+        summarize(library, stats, periodStartMs = null, recent = recent)
     }
-    .stateIn(scope, SharingStarted.Eagerly, StatsSummary())
+        .flowOn(Dispatchers.Default)
+        .stateIn(scope, SharingStarted.WhileSubscribed(5_000), StatsSummary())
 
     /**
-     * Récupère les statistiques pour une période spécifique.
+     * Statistiques pour une période spécifique.
+     *
+     * Flux froid : l'appelant le partage dans sa propre portée. En créer un `stateIn`
+     * sur la portée de l'application à chaque appel accumulait des abonnements.
      */
-    fun getStatsForPeriod(period: StatsPeriod): StateFlow<StatsSummary> = combine(
+    fun getStatsForPeriod(period: StatsPeriod): Flow<StatsSummary> = combine(
         musicRepository.library,
-        playStatDao.observeAll(),
-        historyRepository.getHistoryForPeriod(period)
-    ) { library, statsEntities, history ->
-        val statsMap = statsEntities.associateBy { it.songId }
+        statsMap,
+        historyRepository.observeRecentForPeriod(period, RECENT_ACTIVITY_SIZE)
+    ) { library, stats, recent ->
+        summarize(library, stats, periodStartMs = period.startMillis(), recent = recent)
+    }.flowOn(Dispatchers.Default)
 
-        // Filtrer les statistiques pour la période
-        val periodStats = statsEntities.filter { entity ->
-            val song = library.songs.find { it.id == entity.songId }
-            song != null && isInPeriod(entity.lastPlayedAt, period)
-        }
+    /**
+     * Calcule un résumé.
+     *
+     * [periodStartMs] nul : toutes les statistiques comptent dans les totaux, y compris
+     * celles de morceaux sortis de la bibliothèque (comportement historique du résumé
+     * global). Sinon, seuls les morceaux présents et joués depuis ce début sont comptés.
+     */
+    private fun summarize(
+        library: Library,
+        stats: Map<Long, PlayStatEntity>,
+        periodStartMs: Long?,
+        recent: List<PlayHistory>,
+    ): StatsSummary {
+        val start = periodStartMs ?: Long.MIN_VALUE
+        fun statOf(song: Song): PlayStatEntity? = stats[song.id]?.takeIf { it.lastPlayedAt >= start }
 
-        // Top artistes pour la période
-        val artistPlayCounts = mutableMapOf<String, Pair<Int, Long>>()
-        library.artists.forEach { artist ->
-            val artistSongs = artist.songs
-            val artistPeriodPlays = artistSongs.sumOf { song ->
-                statsMap[song.id]?.takeIf { isInPeriod(it.lastPlayedAt, period) }?.playCount ?: 0
-            }
-            val artistPeriodTime = artistSongs.sumOf { song ->
-                statsMap[song.id]?.takeIf { isInPeriod(it.lastPlayedAt, period) }?.totalListenedMs ?: 0L
-            }
-            if (artistPeriodPlays > 0) {
-                artistPlayCounts[artist.name] = artistPeriodPlays to artistPeriodTime
-            }
-        }
-
-        val topArtists = artistPlayCounts.entries
-            .sortedByDescending { it.value.first }
-            .take(10)
-            .mapNotNull { entry ->
-                library.artists.find { it.name == entry.key }?.let { artist ->
-                    ArtistStats(
-                        artist = artist,
-                        playCount = entry.value.first,
-                        totalListenedMs = entry.value.second
-                    )
+        val topArtists = library.artists
+            .mapNotNull { artist ->
+                var plays = 0
+                var time = 0L
+                for (song in artist.songs) {
+                    val stat = statOf(song) ?: continue
+                    plays += stat.playCount
+                    time += stat.totalListenedMs
                 }
+                if (plays > 0) ArtistStats(artist = artist, playCount = plays, totalListenedMs = time) else null
             }
+            .sortedByDescending { it.playCount }
+            .take(TOP_SIZE)
 
-        // Top albums pour la période
-        val albumPlayCounts = mutableMapOf<Long, Int>()
-        library.albums.forEach { album ->
-            val albumPeriodPlays = album.songs.sumOf { song ->
-                statsMap[song.id]?.takeIf { isInPeriod(it.lastPlayedAt, period) }?.playCount ?: 0
+        val topAlbums = library.albums
+            .mapNotNull { album ->
+                val plays = album.songs.sumOf { statOf(it)?.playCount ?: 0 }
+                if (plays > 0) AlbumStats(album = album, playCount = plays) else null
             }
-            if (albumPeriodPlays > 0) {
-                albumPlayCounts[album.id] = albumPeriodPlays
+            .sortedByDescending { it.playCount }
+            .take(TOP_SIZE)
+
+        val topGenres = library.genres
+            .mapNotNull { genre ->
+                val plays = genre.songs.sumOf { statOf(it)?.playCount ?: 0 }
+                if (plays > 0) genre.name to plays else null
             }
+            .sortedByDescending { it.second }
+            .take(TOP_SIZE)
+
+        val counted: Collection<PlayStatEntity> = if (periodStartMs == null) {
+            stats.values
+        } else {
+            // Ensemble d'ids plutôt qu'un `songs.find {}` par statistique : O(n) au lieu de O(n²).
+            val songIds = library.songs.mapTo(HashSet(library.songs.size)) { it.id }
+            stats.values.filter { it.songId in songIds && it.lastPlayedAt >= periodStartMs }
         }
 
-        val topAlbums = albumPlayCounts.entries
-            .sortedByDescending { it.value }
-            .take(10)
-            .mapNotNull { entry ->
-                library.albums.find { it.id == entry.key }?.let { album ->
-                    AlbumStats(
-                        album = album,
-                        playCount = entry.value
-                    )
-                }
-            }
-
-        // Top genres pour la période
-        val genrePlayCounts = mutableMapOf<String, Int>()
-        library.genres.forEach { genre ->
-            val genrePeriodPlays = genre.songs.sumOf { song ->
-                statsMap[song.id]?.takeIf { isInPeriod(it.lastPlayedAt, period) }?.playCount ?: 0
-            }
-            if (genrePeriodPlays > 0) {
-                genrePlayCounts[genre.name] = genrePeriodPlays
-            }
-        }
-
-        val topGenres = genrePlayCounts.entries
-            .sortedByDescending { it.value }
-            .take(10)
-            .map { it.key to it.value }
-
-        StatsSummary(
+        return StatsSummary(
             totalSongs = library.songs.size,
-            totalPlayTimeMs = periodStats.sumOf { it.totalListenedMs },
-            totalPlayCount = periodStats.sumOf { it.playCount },
+            totalPlayTimeMs = counted.sumOf { it.totalListenedMs },
+            totalPlayCount = counted.sumOf { it.playCount },
             topArtists = topArtists,
             topAlbums = topAlbums,
             topGenres = topGenres,
-            recentActivity = history.take(20)
+            recentActivity = recent
         )
-    }
-    .stateIn(scope, SharingStarted.WhileSubscribed(5000), StatsSummary())
-
-    /**
-     * Vérifie si un timestamp est dans une période.
-     */
-    private fun isInPeriod(timestamp: Long, period: StatsPeriod): Boolean {
-        val now = System.currentTimeMillis()
-        val periodStart = when (period) {
-            StatsPeriod.TODAY -> {
-                val calendar = java.util.Calendar.getInstance()
-                calendar.timeInMillis = now
-                calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
-                calendar.set(java.util.Calendar.MINUTE, 0)
-                calendar.set(java.util.Calendar.SECOND, 0)
-                calendar.timeInMillis
-            }
-            StatsPeriod.WEEK -> {
-                val calendar = java.util.Calendar.getInstance()
-                calendar.timeInMillis = now
-                calendar.add(java.util.Calendar.DAY_OF_YEAR, -7)
-                calendar.timeInMillis
-            }
-            StatsPeriod.MONTH -> {
-                val calendar = java.util.Calendar.getInstance()
-                calendar.timeInMillis = now
-                calendar.add(java.util.Calendar.MONTH, -1)
-                calendar.timeInMillis
-            }
-            StatsPeriod.YEAR -> {
-                val calendar = java.util.Calendar.getInstance()
-                calendar.timeInMillis = now
-                calendar.add(java.util.Calendar.YEAR, -1)
-                calendar.timeInMillis
-            }
-            StatsPeriod.ALL_TIME -> 0L
-        }
-        return timestamp >= periodStart
     }
 
     /**
@@ -320,33 +210,30 @@ class StatsRepository @Inject constructor(
     }
 
     /**
-     * Récupère les morceaux les plus écoutés.
+     * Morceaux les plus écoutés, en flux froid à partager côté appelant.
+     *
+     * Suit aussi l'index de la bibliothèque : lu en instantané, il donnait une liste
+     * vide tant que le premier scan n'était pas terminé.
      */
-    fun getMostPlayedSongs(limit: Int = 50): StateFlow<List<Song>> = playStatDao.observeMostPlayed(limit)
-        .map { entities ->
-            entities.mapNotNull { musicRepository.songById(it.songId) }
-        }
-        .stateIn(scope, SharingStarted.Eagerly, emptyList())
+    fun getMostPlayedSongs(limit: Int = 50): Flow<List<Song>> = combine(
+        playStatDao.observeMostPlayed(limit),
+        musicRepository.songsById,
+    ) { entities, index -> entities.mapNotNull { index[it.songId] } }
 
     /**
-     * Récupère les morceaux récemment écoutés.
+     * Morceaux récemment écoutés, en flux froid à partager côté appelant.
      */
-    fun getRecentlyPlayedSongs(limit: Int = 50): StateFlow<List<Song>> = playStatDao.observeRecentlyPlayed(limit)
-        .map { entities ->
-            entities.mapNotNull { musicRepository.songById(it.songId) }
-        }
-        .stateIn(scope, SharingStarted.Eagerly, emptyList())
+    fun getRecentlyPlayedSongs(limit: Int = 50): Flow<List<Song>> = combine(
+        playStatDao.observeRecentlyPlayed(limit),
+        musicRepository.songsById,
+    ) { entities, index -> entities.mapNotNull { index[it.songId] } }
 
     /**
-     * Récupère les morceaux jamais écoutés.
+     * Morceaux jamais écoutés, en flux froid à partager côté appelant.
      */
-    fun getNeverPlayedSongs(): StateFlow<List<Song>> = musicRepository.library
-        .map { library ->
-            val statsEntities = playStatDao.observeAll().first()
-            val playedSongIds = statsEntities.map { it.songId }.toSet()
-            library.songs.filter { it.id !in playedSongIds }
-        }
-        .stateIn(scope, SharingStarted.Eagerly, emptyList())
+    fun getNeverPlayedSongs(): Flow<List<Song>> = combine(librarySongs, statsMap) { songs, stats ->
+        songs.filter { it.id !in stats }
+    }.flowOn(Dispatchers.Default)
 
     /**
      * Récupère les statistiques par jour pour la dernière semaine.
@@ -426,23 +313,21 @@ class StatsRepository @Inject constructor(
     }
 
     /**
-     * Récupère les genres les plus écoutés.
+     * Genres les plus écoutés, en flux froid à partager côté appelant.
+     *
+     * Suit désormais les statistiques : l'ancienne version ne les relisait qu'au
+     * changement de bibliothèque.
      */
-    fun getTopGenres(limit: Int = 10): StateFlow<List<Pair<String, Int>>> = musicRepository.library
-        .map { library ->
-            val statsEntities = playStatDao.observeAll().first()
-            val statsMap = statsEntities.associateBy { it.songId }
-
-            library.genres
-                .map { genre ->
-                    val playCount = genre.songs.sumOf { statsMap[it.id]?.playCount ?: 0 }
-                    genre.name to playCount
-                }
-                .filter { it.second > 0 }
-                .sortedByDescending { it.second }
-                .take(limit)
-        }
-        .stateIn(scope, SharingStarted.Eagerly, emptyList())
+    fun getTopGenres(limit: Int = 10): Flow<List<Pair<String, Int>>> = combine(
+        musicRepository.library,
+        statsMap,
+    ) { library, stats ->
+        library.genres
+            .map { genre -> genre.name to genre.songs.sumOf { stats[it.id]?.playCount ?: 0 } }
+            .filter { it.second > 0 }
+            .sortedByDescending { it.second }
+            .take(limit)
+    }.flowOn(Dispatchers.Default)
 
     /**
      * Récupère le temps moyen d'écoute par morceau.
@@ -463,69 +348,75 @@ class StatsRepository @Inject constructor(
 
     /**
      * Flux du nombre de chansons jouées au moins une fois.
+     *
+     * Combiné aux statistiques plutôt qu'un `first { it.isNotEmpty() }`, qui restait
+     * suspendu pour toujours sur une table vide et ne voyait jamais les écoutes suivantes.
      */
-    val playedSongsCount: StateFlow<Int> = musicRepository.library
-        .map { library ->
-            val allSongs = library.songs
-            val playedSongIds = playStatDao.observeAll()
-                .first { it.isNotEmpty() }
-                .map { it.songId }
-                .toSet()
-            allSongs.count { it.id in playedSongIds }
-        }
-        .stateIn(scope, SharingStarted.Eagerly, 0)
+    val playedSongsCount: StateFlow<Int> = combine(librarySongs, statsMap) { songs, stats ->
+        songs.count { it.id in stats }
+    }
+        .flowOn(Dispatchers.Default)
+        .stateIn(scope, SharingStarted.WhileSubscribed(5_000), 0)
 
     /**
      * Flux du nombre de chansons jamais écoutées.
      */
-    val unplayedSongsCount: StateFlow<Int> = musicRepository.library
-        .map { library ->
-            val allSongs = library.songs
-            val playedSongIds = playStatDao.observeAll()
-                .first { it.isNotEmpty() }
-                .map { it.songId }
-                .toSet()
-            allSongs.count { it.id !in playedSongIds }
-        }
-        .stateIn(scope, SharingStarted.Eagerly, 0)
+    val unplayedSongsCount: StateFlow<Int> = combine(librarySongs, statsMap) { songs, stats ->
+        songs.count { it.id !in stats }
+    }
+        .flowOn(Dispatchers.Default)
+        .stateIn(scope, SharingStarted.WhileSubscribed(5_000), 0)
 
     /**
      * Statistiques par jour.
      */
-    val dailyStats: StateFlow<Map<String, Int>> = playStatDao.observeAll()
-        .map { entities ->
-            entities.groupBy { entity ->
+    val dailyStats: StateFlow<Map<String, Int>> = statsMap
+        .map { stats ->
+            stats.values.groupBy { entity ->
                 val instant = java.time.Instant.ofEpochMilli(entity.lastPlayedAt)
                 instant.formatDate()
             }
                 .mapValues { (_, list) -> list.sumOf { it.playCount } }
         }
-        .stateIn(scope, SharingStarted.Eagerly, emptyMap())
+        .flowOn(Dispatchers.Default)
+        .stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /**
      * Statistiques par jour de la semaine.
      */
-    val weekdayStats: StateFlow<Map<String, Int>> = playStatDao.observeAll()
-        .map { entities ->
+    val weekdayStats: StateFlow<Map<String, Int>> = statsMap
+        .map { stats ->
             val weekdayNames = listOf("Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche")
-            entities.groupBy { 
-                val dayOfWeek = java.time.Instant.ofEpochMilli(it.lastPlayedAt).atZone(java.time.ZoneId.systemDefault()).dayOfWeek
+            val zone = java.time.ZoneId.systemDefault()
+            stats.values.groupBy {
+                val dayOfWeek = java.time.Instant.ofEpochMilli(it.lastPlayedAt).atZone(zone).dayOfWeek
                 weekdayNames[dayOfWeek.value - 1]
             }
                 .mapValues { (_, list) -> list.sumOf { it.playCount } }
         }
-        .stateIn(scope, SharingStarted.Eagerly, emptyMap())
+        .flowOn(Dispatchers.Default)
+        .stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /**
      * Statistiques par heure.
      */
-    val hourlyStats: StateFlow<Map<String, Int>> = playStatDao.observeAll()
-        .map { entities ->
-            entities.groupBy { 
-                val hour = java.time.Instant.ofEpochMilli(it.lastPlayedAt).atZone(java.time.ZoneId.systemDefault()).hour
+    val hourlyStats: StateFlow<Map<String, Int>> = statsMap
+        .map { stats ->
+            val zone = java.time.ZoneId.systemDefault()
+            stats.values.groupBy {
+                val hour = java.time.Instant.ofEpochMilli(it.lastPlayedAt).atZone(zone).hour
                 "${hour}h"
             }
                 .mapValues { (_, list) -> list.sumOf { it.playCount } }
         }
-        .stateIn(scope, SharingStarted.Eagerly, emptyMap())
+        .flowOn(Dispatchers.Default)
+        .stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    private companion object {
+        /** Taille des classements (artistes, albums, genres). */
+        const val TOP_SIZE = 10
+
+        /** Nombre d'écoutes affichées dans l'activité récente. */
+        const val RECENT_ACTIVITY_SIZE = 20
+    }
 }

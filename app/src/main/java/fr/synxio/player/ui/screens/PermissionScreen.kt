@@ -1,6 +1,12 @@
 package fr.synxio.player.ui.screens
 
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.platform.LocalContext
+import fr.synxio.player.ui.theme.SynxioShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,8 +32,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun PermissionScreen(onRequest: () -> Unit, modifier: Modifier = Modifier) {
+fun PermissionScreen(
+    onRequest: () -> Unit,
+    modifier: Modifier = Modifier,
+    permanentlyDenied: Boolean = false,
+) {
     val scheme = MaterialTheme.colorScheme
+    val context = LocalContext.current
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -62,19 +73,42 @@ fun PermissionScreen(onRequest: () -> Unit, modifier: Modifier = Modifier) {
         )
         Spacer(Modifier.height(24.dp))
         Text(
-            text = "Synxio a besoin d'accéder aux fichiers audio de ton appareil pour " +
-                "construire ta bibliothèque. Aucune donnée ne quitte ton téléphone : " +
-                "pas de compte, pas de traceur, pas de publicité.",
+            text = if (permanentlyDenied) {
+                "L'accès a été refusé. Ouvre les réglages de l'app, puis Autorisations > " +
+                    "Musique et audio, pour que Synxio puisse lire ta bibliothèque."
+            } else {
+                "Synxio a besoin d'accéder aux fichiers audio de ton appareil pour " +
+                    "construire ta bibliothèque. Elle reste sur ton téléphone : pas de " +
+                    "compte, pas de traceur, pas de publicité."
+            },
             style = MaterialTheme.typography.bodyMedium,
             color = scheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(32.dp))
         Button(
-            onClick = onRequest,
-            modifier = Modifier.fillMaxWidth(),
+            onClick = {
+                if (permanentlyDenied) {
+                    // La demande système ne s'affiche plus après « Ne plus demander » :
+                    // seuls les réglages de l'app permettent encore d'accorder l'accès.
+                    context.startActivity(
+                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                            .setData(Uri.fromParts("package", context.packageName, null))
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                } else {
+                    onRequest()
+                }
+            },
+            shape = SynxioShape.pill,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 56.dp),
         ) {
-            Text("Autoriser l'accès", modifier = Modifier.padding(vertical = 6.dp))
+            Text(
+                if (permanentlyDenied) "Ouvrir les réglages" else "Autoriser l'accès",
+                style = MaterialTheme.typography.titleMedium,
+            )
         }
     }
 }

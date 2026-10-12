@@ -1,7 +1,9 @@
 package fr.synxio.player.data.repo
 
 import fr.synxio.player.core.prefs.SettingsRepository
-import fr.synxio.player.core.util.fuzzyScore
+import fr.synxio.player.core.util.fuzzyScoreNormalized
+import fr.synxio.player.core.util.newSortCollator
+import fr.synxio.player.core.util.normalizeForSearch
 import fr.synxio.player.data.db.ExcludedFolderDao
 import fr.synxio.player.data.db.ExcludedFolderEntity
 import fr.synxio.player.data.db.AudiobookFolderDao
@@ -24,19 +26,27 @@ import fr.synxio.player.data.model.splitArtistTag
 import fr.synxio.player.di.ApplicationScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -54,6 +64,190 @@ data class Library(
 ) {
     val isEmpty: Boolean get() = songs.isEmpty() && podcasts.isEmpty() && audiobooks.isEmpty()
     val totalDurationMs: Long get() = songs.sumOf { it.durationMs } + podcasts.sumOf { it.durationMs } + audiobooks.sumOf { it.durationMs }
+
+    /**
+     * Clés de recherche normalisées, construites une seule fois par bibliothèque.
+     *
+     * Hors du constructeur pour ne pas peser sur `equals`/`copy` ; [MusicRepository.refresh]
+     * le force sur le thread d'E/S pour que la première frappe n'ait rien à construire.
+     */
+    val searchIndex: SearchIndex by lazy { SearchIndex.build(this) }
+}
+
+/**
+ * Textes de la bibliothèque passés une fois par [normalizeForSearch].
+ *
+ * Avant, chaque frappe re-normalisait (NFD + regex) chaque titre, artiste et album :
+ * plusieurs dizaines de milliers d'allocations par caractère tapé. Les tableaux sont
+ * alignés sur les listes de [Library] : `songTitles[i]` est la clé de `songs[i]`.
+ */
+class SearchIndex private constructor(
+    val songTitles: Array<String>,
+    /** « artiste album », comparé avec une pénalité comme critère secondaire. */
+    val songExtras: Array<String>,
+    val albumTitles: Array<String>,
+    val albumArtists: Array<String>,
+    val artistNames: Array<String>,
+    val genreNames: Array<String>,
+) {
+    companion object {
+        fun build(library: Library): SearchIndex = SearchIndex(
+            songTitles = Array(library.songs.size) { library.songs[it].title.normalizeForSearch() },
+            songExtras = Array(library.songs.size) {
+                val song = library.songs[it]
+                "${song.displayArtist} ${song.displayAlbum}".normalizeForSearch()
+            },
+            albumTitles = Array(library.albums.size) { library.albums[it].title.normalizeForSearch() },
+            albumArtists = Array(library.albums.size) { library.albums[it].artist.normalizeForSearch() },
+            artistNames = Array(library.artists.size) { library.artists[it].name.normalizeForSearch() },
+            genreNames = Array(library.genres.size) { library.genres[it].name.normalizeForSearch() },
+        )
+    }
+}
+
+/**
+ * Classe [library] pour [query] ; cœur commun des recherches synchrone et suspendue.
+ *
+ * Barème identique à l'ancienne version : score du champ principal, ou score du champ
+ * secondaire diminué de 100. Le tri est stable, donc à score égal l'ordre de la
+ * bibliothèque est conservé. [checkpoint] est appelé régulièrement pour permettre
+ * d'abandonner une recherche devenue obsolète.
+ */
+internal fun searchLibrary(
+    library: Library,
+    query: String,
+    limitPerSection: Int,
+    checkpoint: () -> Unit = {},
+): SearchResults {
+    if (query.isBlank()) return SearchResults()
+    val needle = query.normalizeForSearch()
+    if (needle.isEmpty()) return SearchResults()
+    val index = library.searchIndex
+
+    fun <T> rank(items: List<T>, keys: Array<String>, extras: Array<String>?): List<T> {
+        val scored = ArrayList<Pair<T, Int>>()
+        for (i in items.indices) {
+            if (i and 0xFF == 0) checkpoint()
+            val main = fuzzyScoreNormalized(keys[i], needle)
+            val score = if (extras == null) main
+            else maxOf(main, fuzzyScoreNormalized(extras[i], needle) - 100)
+            if (score > 0) scored += items[i] to score
+        }
+        return scored.asSequence()
+            .sortedByDescending { it.second }
+            .take(limitPerSection)
+            .map { it.first }
+            .toList()
+    }
+
+    return SearchResults(
+        songs = rank(library.songs, index.songTitles, index.songExtras),
+        albums = rank(library.albums, index.albumTitles, index.albumArtists),
+        artists = rank(library.artists, index.artistNames, null),
+        genres = rank(library.genres, index.genreNames, null),
+    )
+}
+
+/**
+ * Filtre simple de la recherche avancée : titre, artiste ou album contient [query],
+ * sans tenir compte des accents ni de la casse.
+ */
+internal fun filterLibrarySongs(
+    library: Library,
+    query: String,
+    checkpoint: () -> Unit = {},
+): List<Song> {
+    if (query.isBlank()) return library.songs
+    val needle = query.trim().normalizeForSearch()
+    val index = library.searchIndex
+    val result = ArrayList<Song>()
+    for (i in library.songs.indices) {
+        if (i and 0xFF == 0) checkpoint()
+        if (index.songTitles[i].contains(needle) || index.songExtras[i].contains(needle)) {
+            result += library.songs[i]
+        }
+    }
+    return result
+}
+
+// --- Tri ---------------------------------------------------------------------------
+
+/**
+ * Élément accompagné de ses clés de collation.
+ *
+ * Les clés sont calculées une fois par élément ; un comparateur qui appellerait le
+ * collator (ou `lowercase()`) à chaque comparaison referait ce travail n·log n fois.
+ */
+private class Keyed<T>(val item: T, val k1: java.text.CollationKey, val k2: java.text.CollationKey?)
+
+private fun <T> List<T>.sortedByCollation(
+    descending: Boolean,
+    primary: (T) -> String,
+    secondary: ((T) -> String)? = null,
+    tieBreak: Comparator<T>? = null,
+): List<T> {
+    val collator = newSortCollator()
+    val keyed = map { item ->
+        Keyed(item, collator.getCollationKey(primary(item)), secondary?.let { collator.getCollationKey(it(item)) })
+    }
+    var comparator: Comparator<Keyed<T>> = Comparator { a, b -> a.k1.compareTo(b.k1) }
+    if (secondary != null) comparator = comparator.thenComparator { a, b -> a.k2!!.compareTo(b.k2!!) }
+    if (tieBreak != null) comparator = comparator.thenComparator { a, b -> tieBreak.compare(a.item, b.item) }
+    return keyed.sortedWith(if (descending) comparator.reversed() else comparator).map { it.item }
+}
+
+/** Tri des titres, indépendant du dépôt pour pouvoir être testé sur la JVM. */
+internal fun sortSongsWith(
+    songs: List<Song>,
+    sort: SongSort,
+    descending: Boolean,
+    playCount: (Song) -> Int,
+): List<Song> {
+    fun plain(comparator: Comparator<Song>) =
+        songs.sortedWith(if (descending) comparator.reversed() else comparator)
+    return when (sort) {
+        SongSort.TITLE -> songs.sortedByCollation(descending, { it.title })
+        SongSort.ARTIST -> songs.sortedByCollation(descending, { it.displayArtist }, { it.title })
+        SongSort.ALBUM -> songs.sortedByCollation(
+            descending, { it.displayAlbum }, tieBreak = compareBy({ it.disc }, { it.track }),
+        )
+        SongSort.DURATION -> plain(compareBy { it.durationMs })
+        SongSort.DATE_ADDED -> plain(compareBy { it.dateAddedSec })
+        SongSort.DATE_MODIFIED -> plain(compareBy { it.dateModifiedSec })
+        SongSort.YEAR -> plain(compareBy { it.year })
+        SongSort.TRACK -> plain(compareBy({ it.disc }, { it.track }))
+        SongSort.SIZE -> plain(compareBy { it.sizeBytes })
+        SongSort.PLAY_COUNT -> plain(compareBy(playCount))
+    }
+}
+
+internal fun sortAlbumsWith(albums: List<Album>, sort: AlbumSort, descending: Boolean): List<Album> {
+    fun plain(comparator: Comparator<Album>) =
+        albums.sortedWith(if (descending) comparator.reversed() else comparator)
+    return when (sort) {
+        AlbumSort.TITLE -> albums.sortedByCollation(descending, { it.title })
+        AlbumSort.ARTIST -> albums.sortedByCollation(descending, { it.artist }, tieBreak = compareBy { it.year })
+        AlbumSort.YEAR -> plain(compareBy { it.year })
+        AlbumSort.SONG_COUNT -> plain(compareBy { it.songCount })
+        AlbumSort.DATE_ADDED -> plain(compareBy { it.dateAddedSec })
+    }
+}
+
+internal fun sortArtistsWith(artists: List<Artist>, sort: ArtistSort, descending: Boolean): List<Artist> {
+    return when (sort) {
+        ArtistSort.NAME -> artists.sortedByCollation(descending, { it.name })
+        ArtistSort.ALBUM_COUNT -> {
+            val comparator = compareBy<Artist> { it.albumCount }
+            artists.sortedWith(if (descending) comparator.reversed() else comparator)
+        }
+        // Le nombre de titres est une somme sur les albums : on le calcule une fois par artiste.
+        ArtistSort.SONG_COUNT -> {
+            val comparator = compareBy<Pair<Artist, Int>> { it.second }
+            artists.map { it to it.songCount }
+                .sortedWith(if (descending) comparator.reversed() else comparator)
+                .map { it.first }
+        }
+    }
 }
 
 data class SearchResults(
@@ -86,6 +280,15 @@ class MusicRepository @Inject constructor(
 
     private var permissionGranted = false
 
+    // Déclarés avant `init` : le premier refresh() peut partir sur un autre thread
+    // avant la fin de la construction.
+
+    /** Un seul scan à la fois : MediaStore, réglages et UI déclenchent tous des rafraîchissements. */
+    private val refreshMutex = Mutex()
+
+    /** Une demande de rafraîchissement attend d'être servie. */
+    private val refreshRequested = AtomicBoolean(false)
+
     init {
         // Le service de lecture peut démarrer sans passer par l'UI (Bluetooth, Auto) :
         // si la permission est déjà accordée, on scanne sans attendre l'activité.
@@ -106,14 +309,33 @@ class MusicRepository @Inject constructor(
 
     val hasPermission: Boolean get() = permissionGranted
 
+    /**
+     * Rescanne MediaStore et republie la bibliothèque.
+     *
+     * Les demandes concurrentes sont fusionnées : pendant un scan, N nouvelles demandes
+     * donnent lieu à un seul scan supplémentaire, pas à N. Chaque appelant ne reprend la
+     * main qu'une fois servi par un scan démarré après sa demande.
+     */
     suspend fun refresh() {
-        _library.value = _library.value.copy(isLoading = true)
+        refreshRequested.set(true)
+        refreshMutex.withLock {
+            // Un scan lancé après notre demande vient de se terminer : il l'a couverte.
+            if (!refreshRequested.getAndSet(false)) return
+            doRefresh()
+        }
+    }
+
+    private suspend fun doRefresh() {
+        // Le drapeau n'est lu par l'accueil que tant que la bibliothèque est vide :
+        // republier une bibliothèque pleine pour lui ferait tout recalculer en aval.
+        val current = _library.value
+        if (current.isEmpty && !current.isLoading) _library.value = current.copy(isLoading = true)
         val library = withContext(Dispatchers.IO) {
             val minDurationSec = settingsRepository.settings.first().minDurationSec
             val excluded = excludedFolderDao.paths().toSet()
             val audiobooks = audiobookFolderDao.paths().toSet()
             val songs = scanner.scan(minDurationSec * 1000L, excluded, audiobooks)
-            buildLibrary(songs)
+            buildLibrary(songs).also { it.searchIndex }
         }
         _songsById.value = library.songs.associateBy { it.id }
         _library.value = library
@@ -211,12 +433,28 @@ class MusicRepository @Inject constructor(
      * maintenir une seconde requête en parallèle.
      */
     suspend fun resolveSong(id: Long): Song? {
-        songById(id)?.let { return it }
+        findInMemory(id)?.let { return it }
+        // Le scan a eu lieu et ne contient pas ce morceau : le relire avec les mêmes
+        // filtres ne le trouverait pas davantage.
+        if (_library.value.hasScanned) return null
+        // Démarrage à froid avec permission : le scan est déjà en route, on l'attend
+        // plutôt que d'en lancer un second en parallèle.
+        if (permissionGranted) {
+            withTimeoutOrNull(RESOLVE_SCAN_WAIT_MS) { _library.first { it.hasScanned } }
+            if (_library.value.hasScanned) return findInMemory(id)
+        }
         return withContext(Dispatchers.IO) {
             val minDurationSec = settingsRepository.settings.first().minDurationSec
             scanner.scan(minDurationSec * 1000L, excludedFolderDao.paths().toSet())
                 .firstOrNull { it.id == id }
         }
+    }
+
+    /** Index des titres, puis podcasts et livres audio, qui n'y figurent pas. */
+    private fun findInMemory(id: Long): Song? {
+        songById(id)?.let { return it }
+        val lib = _library.value
+        return lib.podcasts.firstOrNull { it.id == id } ?: lib.audiobooks.firstOrNull { it.id == id }
     }
 
     fun deleteSongs(songs: List<Song>): DeleteOutcome = scanner.deleteSongs(songs)
@@ -279,13 +517,23 @@ class MusicRepository @Inject constructor(
             stats.mapNotNull { index[it.songId] }
         }.stateIn(scope, SharingStarted.Eagerly, emptyList())
 
+    /**
+     * Toutes les statistiques indexées par morceau.
+     *
+     * Flux partagé de référence : statistiques, playlists intelligentes et playlists à
+     * règles s'y abonnent plutôt que d'ouvrir chacun leur propre observateur Room.
+     */
     val allStats: StateFlow<Map<Long, PlayStatEntity>> = playStatDao.observeAll()
         .map { list -> list.associateBy { it.songId } }
+        .flowOn(Dispatchers.Default)
         .stateIn(scope, SharingStarted.Eagerly, emptyMap())
 
     /** Les 25 derniers ajouts, base de la section « Nouveautés » de l'accueil. */
     val recentlyAdded: StateFlow<List<Song>> = _library
-        .map { lib -> lib.songs.sortedByDescending { it.dateAddedSec }.take(25) }
+        .map { lib -> lib.songs }
+        .distinctUntilChanged { a, b -> a === b }
+        .map { songs -> songs.sortedByDescending { it.dateAddedSec }.take(25) }
+        .flowOn(Dispatchers.Default)
         .stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     /**
@@ -345,68 +593,53 @@ class MusicRepository @Inject constructor(
 
     // --- Recherche -------------------------------------------------------------------
 
-    fun search(query: String, limitPerSection: Int = 20): SearchResults {
-        if (query.isBlank()) return SearchResults()
-        val lib = _library.value
+    /**
+     * Recherche synchrone sur la bibliothèque courante.
+     *
+     * Gardée pour les appelants hors coroutine (Assistant, Android Auto) ; l'UI passe par
+     * [searchCancellable], qui s'interrompt dès qu'une frappe plus récente arrive.
+     */
+    fun search(query: String, limitPerSection: Int = 20): SearchResults =
+        searchLibrary(_library.value, query, limitPerSection)
 
-        fun <T> rank(items: List<T>, key: (T) -> String, extra: (T) -> String = { "" }): List<T> =
-            items.asSequence()
-                .map { it to maxOf(fuzzyScore(key(it), query), fuzzyScore(extra(it), query) - 100) }
-                .filter { it.second > 0 }
-                .sortedByDescending { it.second }
-                .take(limitPerSection)
-                .map { it.first }
-                .toList()
+    /** Variante annulable de [search], à appeler hors du thread principal. */
+    suspend fun searchCancellable(
+        query: String,
+        limitPerSection: Int = 20,
+        library: Library = _library.value,
+    ): SearchResults {
+        val context = currentCoroutineContext()
+        return searchLibrary(library, query, limitPerSection) { context.ensureActive() }
+    }
 
-        return SearchResults(
-            songs = rank(lib.songs, { it.title }, { "${it.displayArtist} ${it.displayAlbum}" }),
-            albums = rank(lib.albums, { it.title }, { it.artist }),
-            artists = rank(lib.artists, { it.name }),
-            genres = rank(lib.genres, { it.name }),
-        )
+    /** Filtre insensible aux accents de la recherche avancée, annulable. */
+    suspend fun filterSongs(query: String, library: Library = _library.value): List<Song> {
+        val context = currentCoroutineContext()
+        return filterLibrarySongs(library, query) { context.ensureActive() }
     }
 
     // --- Tri -------------------------------------------------------------------------
 
+    /**
+     * Les tris alphabétiques passent par un `Collator` de la locale : « Édith » se range
+     * avec les E, et non après « Zazie » comme avec une simple comparaison de chaînes.
+     */
     fun sortSongs(songs: List<Song>, sort: SongSort, descending: Boolean): List<Song> {
         val stats = allStats.value
-        val comparator: Comparator<Song> = when (sort) {
-            SongSort.TITLE -> compareBy { it.title.lowercase() }
-            SongSort.ARTIST -> compareBy({ it.displayArtist.lowercase() }, { it.title.lowercase() })
-            SongSort.ALBUM -> compareBy({ it.displayAlbum.lowercase() }, { it.disc }, { it.track })
-            SongSort.DURATION -> compareBy { it.durationMs }
-            SongSort.DATE_ADDED -> compareBy { it.dateAddedSec }
-            SongSort.DATE_MODIFIED -> compareBy { it.dateModifiedSec }
-            SongSort.YEAR -> compareBy { it.year }
-            SongSort.TRACK -> compareBy({ it.disc }, { it.track })
-            SongSort.SIZE -> compareBy { it.sizeBytes }
-            SongSort.PLAY_COUNT -> compareBy { stats[it.id]?.playCount ?: 0 }
-        }
-        return songs.sortedWith(if (descending) comparator.reversed() else comparator)
+        return sortSongsWith(songs, sort, descending) { stats[it.id]?.playCount ?: 0 }
     }
 
-    fun sortAlbums(albums: List<Album>, sort: AlbumSort, descending: Boolean): List<Album> {
-        val comparator: Comparator<Album> = when (sort) {
-            AlbumSort.TITLE -> compareBy { it.title.lowercase() }
-            AlbumSort.ARTIST -> compareBy({ it.artist.lowercase() }, { it.year })
-            AlbumSort.YEAR -> compareBy { it.year }
-            AlbumSort.SONG_COUNT -> compareBy { it.songCount }
-            AlbumSort.DATE_ADDED -> compareBy { it.dateAddedSec }
-        }
-        return albums.sortedWith(if (descending) comparator.reversed() else comparator)
-    }
+    fun sortAlbums(albums: List<Album>, sort: AlbumSort, descending: Boolean): List<Album> =
+        sortAlbumsWith(albums, sort, descending)
 
-    fun sortArtists(artists: List<Artist>, sort: ArtistSort, descending: Boolean): List<Artist> {
-        val comparator: Comparator<Artist> = when (sort) {
-            ArtistSort.NAME -> compareBy { it.name.lowercase() }
-            ArtistSort.ALBUM_COUNT -> compareBy { it.albumCount }
-            ArtistSort.SONG_COUNT -> compareBy { it.songCount }
-        }
-        return artists.sortedWith(if (descending) comparator.reversed() else comparator)
-    }
+    fun sortArtists(artists: List<Artist>, sort: ArtistSort, descending: Boolean): List<Artist> =
+        sortArtistsWith(artists, sort, descending)
 
     private companion object {
         /** En dessous, filtrer l'aléatoire appauvrirait trop la file. */
         const val MIN_SHUFFLE_POOL = 10
+
+        /** Attente maximale d'un scan déjà lancé avant de relire MediaStore soi-même. */
+        const val RESOLVE_SCAN_WAIT_MS = 5_000L
     }
 }

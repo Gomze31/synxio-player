@@ -3,28 +3,35 @@ package fr.synxio.player.ui.screens
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import fr.synxio.player.data.model.Song
 import fr.synxio.player.ui.components.SongRow
 import fr.synxio.player.ui.viewmodel.AppViewModel
+import kotlinx.coroutines.delay
+
+/** Délai sans frappe avant de relancer le filtre. */
+private const val FILTER_DEBOUNCE_MS = 150L
 
 /**
  * Écran de recherche avancée - version simplifiée.
@@ -33,21 +40,19 @@ import fr.synxio.player.ui.viewmodel.AppViewModel
 fun AdvancedSearchScreen(
     viewModel: AppViewModel,
     onBack: () -> Unit,
-    onPlaySong: (List<fr.synxio.player.data.model.Song>, Int) -> Unit,
+    onPlaySong: (List<Song>, Int) -> Unit,
     onOpenArtist: (String) -> Unit,
     onOpenAlbum: (Long) -> Unit
 ) {
     var query by remember { mutableStateOf("") }
 
     val library by viewModel.library.collectAsStateWithLifecycle()
-    val allSongs = library.songs
-    val filteredSongs = remember(query, allSongs) {
-        if (query.isBlank()) allSongs
-        else allSongs.filter { song ->
-            song.title.contains(query, ignoreCase = true) ||
-            song.artist.contains(query, ignoreCase = true) ||
-            song.album.contains(query, ignoreCase = true)
-        }
+
+    // Le filtre tourne hors du thread principal et ne part qu'une fois la frappe posée :
+    // produceState annule le calcul précédent à chaque nouvelle requête.
+    val filteredSongs by produceState(initialValue = library.songs, query, library) {
+        if (query.isNotBlank()) delay(FILTER_DEBOUNCE_MS)
+        value = viewModel.filterSongs(query, library)
     }
 
     Column(
@@ -73,7 +78,10 @@ fun AdvancedSearchScreen(
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
-                modifier = Modifier.fillMaxSize(),
+                // fillMaxSize faisait occuper tout l'écran au champ et poussait les
+                // résultats hors de la vue.
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
                 label = { Text("Rechercher") },
                 leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) }
             )
@@ -84,14 +92,14 @@ fun AdvancedSearchScreen(
 
             Spacer(Modifier.height(8.dp))
 
-            filteredSongs.take(50).forEach { song ->
-                SongRow(
-                    song = song,
-                    onClick = { onPlaySong(filteredSongs, filteredSongs.indexOf(song)) },
-                    
-                    
-                )
-                Spacer(Modifier.height(4.dp))
+            LazyColumn(modifier = Modifier.weight(1f)) {
+                itemsIndexed(filteredSongs, key = { _, song -> song.id }) { index, song ->
+                    SongRow(
+                        song = song,
+                        onClick = { onPlaySong(filteredSongs, index) },
+                    )
+                    Spacer(Modifier.height(4.dp))
+                }
             }
         }
     }

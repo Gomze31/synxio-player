@@ -9,6 +9,7 @@ import fr.synxio.player.data.model.Song
 import fr.synxio.player.data.model.StatsPeriod
 import fr.synxio.player.data.model.StatsSummary
 import fr.synxio.player.data.repo.StatsRepository
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -23,7 +24,11 @@ import javax.inject.Inject
 
 /**
  * ViewModel pour gérer les statistiques d'écoute.
+ *
+ * Tous les flux sont partagés en `WhileSubscribed` : quitter l'écran coupe les
+ * observateurs Room et les recalculs, au lieu de les laisser tourner à chaque écoute.
  */
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class StatsViewModel @Inject constructor(
     private val statsRepository: StatsRepository
@@ -59,49 +64,49 @@ class StatsViewModel @Inject constructor(
      */
     val totalSongsCount: StateFlow<Int> = statsSummary
         .map { it.totalSongs }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     /**
      * Flux du nombre total de lectures.
      */
     val totalPlayCount: StateFlow<Int> = statsSummary
         .map { it.totalPlayCount }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     /**
      * Flux du temps total d'écoute en millisecondes.
      */
     val totalPlayTimeMs: StateFlow<Long> = statsSummary
         .map { it.totalPlayTimeMs }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
 
     /**
      * Flux des top artistes.
      */
     val topArtists: StateFlow<List<fr.synxio.player.data.model.ArtistStats>> = periodStats
         .map { it.topArtists }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /**
      * Flux des top albums.
      */
     val topAlbums: StateFlow<List<fr.synxio.player.data.model.AlbumStats>> = periodStats
         .map { it.topAlbums }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /**
      * Flux des top genres.
      */
     val topGenres: StateFlow<List<Pair<String, Int>>> = periodStats
         .map { it.topGenres }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /**
      * Flux de l'historique récent.
      */
     val recentActivity: StateFlow<List<fr.synxio.player.data.model.PlayHistory>> = periodStats
         .map { it.recentActivity }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /**
      * Flux du temps total d'écoute formaté.
@@ -116,7 +121,7 @@ class StatsViewModel @Inject constructor(
                 else -> "0 min"
             }
         }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, "0 min")
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "0 min")
 
     /**
      * Flux du nombre de morceaux écoutés au moins une fois.
@@ -137,24 +142,29 @@ class StatsViewModel @Inject constructor(
     ) { played, total ->
         if (total > 0) (played.toFloat() / total) * 100 else 0f
     }
-    .stateIn(viewModelScope, SharingStarted.Eagerly, 0f)
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0f)
 
     /**
-     * Récupère les morceaux les plus écoutés.
+     * Les 20 morceaux les plus écoutés.
+     *
+     * Une propriété stable et non une fonction : appelée depuis la composition, chaque
+     * recomposition créait un nouveau flux partagé, jamais libéré, sur la portée de
+     * l'application.
      */
-    fun getMostPlayedSongs(limit: Int = 20): StateFlow<List<Song>> =
-        statsRepository.getMostPlayedSongs(limit)
+    val mostPlayedSongs: StateFlow<List<Song>> = statsRepository.getMostPlayedSongs(MOST_PLAYED_SIZE)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /**
-     * Récupère les morceaux récemment écoutés.
+     * Les 10 morceaux récemment écoutés.
      */
-    fun getRecentlyPlayedSongs(limit: Int = 20): StateFlow<List<Song>> =
-        statsRepository.getRecentlyPlayedSongs(limit)
+    val recentlyPlayedSongs: StateFlow<List<Song>> = statsRepository.getRecentlyPlayedSongs(RECENTLY_PLAYED_SIZE)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /**
      * Récupère les morceaux jamais écoutés.
      */
     val neverPlayedSongs: StateFlow<List<Song>> = statsRepository.getNeverPlayedSongs()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /**
      * Récupère les statistiques par jour pour la dernière semaine.
@@ -175,9 +185,9 @@ class StatsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     /**
-     * Récupère les top genres.
+     * Récupère les top genres, en flux froid : à collecter, ou à partager une seule fois.
      */
-    fun getTopGenres(limit: Int = 10): StateFlow<List<Pair<String, Int>>> =
+    fun getTopGenres(limit: Int = 10): Flow<List<Pair<String, Int>>> =
         statsRepository.getTopGenres(limit)
 
     /**
@@ -195,7 +205,7 @@ class StatsViewModel @Inject constructor(
                 "0 s"
             }
         }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, "0 s")
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "0 s")
 
     /**
      * Récupère les statistiques pour un artiste.
@@ -233,7 +243,7 @@ class StatsViewModel @Inject constructor(
         .map { artistStatsList ->
             artistStatsList.map { it.artist.name to it.playCount }
         }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /**
      * Récupère les top albums sous forme de paires (nom, count).
@@ -242,5 +252,10 @@ class StatsViewModel @Inject constructor(
         .map { albumStatsList ->
             albumStatsList.map { it.album.title to it.playCount }
         }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private companion object {
+        const val MOST_PLAYED_SIZE = 20
+        const val RECENTLY_PLAYED_SIZE = 10
+    }
 }

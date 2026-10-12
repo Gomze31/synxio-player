@@ -261,9 +261,11 @@ class DiscordRpcClient(
                     Log.w(TAG, lastError!!)
                 }
 
-                else -> Log.d(TAG, "Trame Discord : $frame")
+                // Le contenu brut des trames n'est jamais journalisé : il peut contenir des
+                // données de compte (pseudo, identifiants). Seul le type d'événement est noté.
+                else -> Log.d(TAG, "Trame Discord ignorée (evt=${json.optString("evt")}, ${frame.length} car.)")
             }
-        }.onFailure { Log.w(TAG, "Trame illisible : $frame", it) }
+        }.onFailure { Log.w(TAG, "Trame illisible (${frame.length} car.)", it) }
     }
 
     private companion object {

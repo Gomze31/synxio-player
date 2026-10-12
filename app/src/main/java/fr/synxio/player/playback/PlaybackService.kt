@@ -11,9 +11,13 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
+import androidx.media3.common.Timeline
+import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder
 import androidx.media3.session.CommandButton
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
@@ -54,8 +58,13 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.random.Random
 import javax.inject.Inject
 
 /**
@@ -81,6 +90,30 @@ class PlaybackService : MediaLibraryService() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
+    /**
+     * Écritures en base qui doivent survivre à la destruction du service.
+     *
+     * `serviceScope` est annulé dans `onDestroy` : les dernières écritures (écoute en
+     * cours, scrobble, progression de podcast) lancées juste avant y étaient annulées
+     * avant d'aboutir.
+     */
+    private val writeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * Écritures de file / position, appliquées une à une dans l'ordre d'émission.
+     *
+     * Annuler une écriture en cours pour la remplacer annulait aussi sa transaction Room :
+     * une file modifiée pouvait alors ne jamais être enregistrée si l'écriture suivante ne
+     * portait que sur la position. Ici rien n'est annulé, et la dernière photo gagne.
+     */
+    private val queueWrites = Channel<QueueSnapshot>(Channel.UNLIMITED)
+    private val queueWriter: Job = writeScope.launch {
+        for (snapshot in queueWrites) {
+            runCatching { writeSnapshot(snapshot) }
+                .onFailure { android.util.Log.w(TAG, "File non enregistrée", it) }
+        }
+    }
+
     private lateinit var player: ExoPlayer
     private lateinit var session: MediaLibrarySession
     private var castPlayer: androidx.media3.cast.CastPlayer? = null
@@ -96,8 +129,36 @@ class PlaybackService : MediaLibraryService() {
     private var listenedMs: Long = 0L
     private var lastResumeUptime: Long = 0L
     private var trackStartedAtSec: Long = 0L
-    private var persistJob: Job? = null
+    private var persistSoonJob: Job? = null
+    private var positionSaveJob: Job? = null
     private var widgetJob: Job? = null
+
+    /** Vrai quand la composition de la file a changé depuis la dernière écriture. */
+    private var queueDirty = true
+
+    /** Neutralise la persistance pendant la restauration : l'état n'est pas encore complet. */
+    private var restoring = false
+
+    /**
+     * Vrai une fois la file sauvegardée relue (ou une file présente dans le lecteur).
+     *
+     * Avant cela, un lecteur vide ne veut pas dire « file vidée » : la restauration attend
+     * la fin du scan. Écrire ce vide effaçait la file sauvegardée si le service s'arrêtait
+     * avant (connexion brève de la reprise système après un redémarrage, app balayée
+     * pendant le démarrage).
+     */
+    private var queueLoaded = false
+
+    /** Erreurs de lecture consécutives : au-delà d'un seuil on arrête d'enchaîner. */
+    private var consecutiveErrors = 0
+
+    /** Dernier morceau annoncé à Last.fm / Discord : une annonce par morceau, en lecture seulement. */
+    private var announcedSongId: Long = -1L
+
+    /** Instant et morceau de la dernière pause, pour le retour en arrière automatique. */
+    private var pausedAtUptime: Long = 0L
+    private var pausedMediaId: String? = null
+    private var inactivityJob: Job? = null
 
     /**
      * Derniers réglages connus.
@@ -167,7 +228,7 @@ class PlaybackService : MediaLibraryService() {
             .setCustomLayout(ImmutableList.of(favoriteButton(false)))
             .build()
 
-        sleepTimer.setCallback { pauseForSleepTimer() }
+        sleepTimer.setCallback(sleepTimerCallback)
 
         observeSettings()
         observeLibraryForQueueRestore()
@@ -269,12 +330,16 @@ class PlaybackService : MediaLibraryService() {
         return if (server != null && activePlayer === castPlayer) items.map(server::toCastItem) else items
     }
 
+    private val sleepTimerCallback: () -> Unit = { pauseForSleepTimer() }
+
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession =
         session
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         // Si rien ne joue quand l'utilisateur balaie l'app, inutile de garder le service.
-        if (!activePlayer.playWhenReady || activePlayer.mediaItemCount == 0) {
+        // shouldShowPlayButton couvre aussi la fin de file et l'erreur, où
+        // playWhenReady reste vrai alors que plus rien ne joue.
+        if (Util.shouldShowPlayButton(activePlayer) || activePlayer.mediaItemCount == 0) {
             persistQueue()
             stopSelf()
         }
@@ -282,8 +347,18 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onDestroy() {
-        persistQueue()
-        finalizeCurrentTrack(skipped = false)
+        // Écriture synchrone et bornée : lancée en tâche de fond, elle était annulée par
+        // serviceScope.cancel() quelques lignes plus bas, et la dernière position perdue.
+        persistSoonJob?.cancel()
+        if (canPersist()) queueWrites.trySend(queueSnapshot(includeQueue = queueDirty))
+        queueWrites.close()
+        runCatching {
+            runBlocking { withTimeoutOrNull(FINAL_WRITE_TIMEOUT_MS) { queueWriter.join() } }
+        }
+        // Fin de service : la piste en cours n'est ni terminée ni passée, juste interrompue.
+        finalizeCurrentTrack(skipped = false, finished = false)
+        positionSaveJob?.cancel()
+        sleepTimer.clearCallback(sleepTimerCallback)
         headsetCallback?.let { callback ->
             runCatching {
                 getSystemService(AudioManager::class.java)?.unregisterAudioDeviceCallback(callback)
@@ -349,6 +424,7 @@ class PlaybackService : MediaLibraryService() {
                 }
 
                 vocalRemover.setEnabled(s.karaokeEnabled)
+                fade.volumeCap = if (s.maxVolumeLimit) s.maxVolumeValue else 1f
 
                 if (s.partyEnabled && partyServer == null) {
                     partyServer = runCatching { PartyServer(8080).apply { start() } }.getOrNull()
@@ -371,45 +447,148 @@ class PlaybackService : MediaLibraryService() {
     /** Le bouton « favori » de la notification doit refléter le morceau courant. */
     private fun observeFavoriteForCustomLayout() {
         musicRepository.favoriteIds
-            .map { favorites -> activePlayer.currentMediaItem?.songId?.let { it in favorites } ?: false }
-            .distinctUntilChanged()
-            .onEach { isFavorite ->
-                session.setCustomLayout(ImmutableList.of(favoriteButton(isFavorite)))
-            }
+            .onEach { refreshFavoriteButton(it) }
             .launchIn(serviceScope)
+    }
+
+    private var favoriteButtonState: Boolean? = null
+
+    /**
+     * Recalculé aussi à chaque changement de piste : n'écouter que les favoris laissait
+     * le cœur de la notification dans l'état du morceau précédent.
+     */
+    private fun refreshFavoriteButton(favorites: Set<Long> = musicRepository.favoriteIds.value) {
+        val isFavorite = activePlayer.currentMediaItem?.songId?.let { it in favorites } ?: false
+        if (favoriteButtonState == isFavorite) return
+        favoriteButtonState = isFavorite
+        session.setCustomLayout(ImmutableList.of(favoriteButton(isFavorite)))
     }
 
     private suspend fun restoreQueueOnce() {
         if (queueRestored || player.mediaItemCount > 0) return
         queueRestored = true
+        try {
+            restoreSavedQueue()
+        } finally {
+            queueLoaded = true
+        }
+    }
 
-        val saved = queueDao.queue()
-        if (saved.isEmpty()) return
-        val songs = musicRepository.songsByIds(saved.sortedBy { it.position }.map { it.songId })
-        if (songs.isEmpty()) return
+    private suspend fun restoreSavedQueue() {
+        // « Mémoriser la file » désactivé : on démarre à vide, comme demandé.
+        if (!settingsRepository.settings.first().rememberQueue) return
 
+        val restored = runCatching { loadSavedQueue() }
+            .onFailure { android.util.Log.w(TAG, "File sauvegardée illisible", it) }
+            .getOrNull() ?: return
+        val (queue, state) = restored
+
+        // Les lectures en base ci-dessus suspendent : une commande arrivée entre-temps
+        // (« tout lire au hasard » depuis un raccourci) a pu remplir la file. On ne
+        // l'écrase pas avec l'ancienne.
+        if (activePlayer.mediaItemCount > 0) return
+
+        restoring = true
+        try {
+            activePlayer.setMediaItems(forActivePlayer(queue.items), queue.index, queue.positionMs)
+            activePlayer.shuffleModeEnabled = state?.shuffle ?: false
+            activePlayer.repeatMode = state?.repeatMode ?: Player.REPEAT_MODE_OFF
+            activePlayer.prepare()
+            // On restaure en pause : reprendre tout seul au démarrage est intrusif.
+        } catch (e: RuntimeException) {
+            // Une file corrompue ne doit jamais empêcher l'app de démarrer.
+            android.util.Log.w(TAG, "Restauration de la file impossible", e)
+        } finally {
+            restoring = false
+        }
+        // Des titres disparus ont pu être écartés : on réécrit la file réelle.
+        queueDirty = true
+        queueLoaded = true
+        persistQueue()
+    }
+
+    /** Relit la file et l'état sauvegardés, en écartant proprement les morceaux disparus. */
+    private suspend fun loadSavedQueue(): Pair<RestoredQueue<MediaItem>, PlaybackStateEntity?>? {
+        val saved = queueDao.queue().sortedBy { it.position }
+        if (saved.isEmpty()) return null
+        val ids = saved.map { it.songId }
+        val byId = musicRepository.songsByIds(ids).associateBy { it.id }
         val state = queueDao.state()
-        activePlayer.setMediaItems(forActivePlayer(songs.toMediaItems()), state?.currentIndex ?: 0, state?.positionMs ?: 0L)
-        activePlayer.shuffleModeEnabled = state?.shuffle ?: false
-        activePlayer.repeatMode = state?.repeatMode ?: Player.REPEAT_MODE_OFF
-        activePlayer.prepare()
-        // On restaure en pause : reprendre tout seul au démarrage est intrusif.
+        val queue = restoreQueue(
+            savedIds = ids,
+            savedIndex = state?.currentIndex ?: 0,
+            savedPositionMs = state?.positionMs ?: 0L,
+            available = byId,
+        ) ?: return null
+        return RestoredQueue(queue.items.toMediaItems(), queue.index, queue.positionMs) to state
+    }
+
+    /** Photo de l'état du lecteur, prise sur le thread principal. */
+    private class QueueSnapshot(val ids: List<Long>?, val state: PlaybackStateEntity?)
+
+    private fun queueSnapshot(includeQueue: Boolean): QueueSnapshot {
+        val p = activePlayer
+        val count = p.mediaItemCount
+        if (count == 0) return QueueSnapshot(ids = emptyList(), state = null)
+        val ids = if (includeQueue) (0 until count).map { p.getMediaItemAt(it).songId } else null
+        val state = PlaybackStateEntity(
+            currentIndex = p.currentMediaItemIndex,
+            positionMs = p.currentPosition.coerceAtLeast(0),
+            shuffle = p.shuffleModeEnabled,
+            repeatMode = p.repeatMode,
+            queueTitle = p.currentMediaItem?.mediaMetadata?.albumTitle?.toString().orEmpty(),
+            isPlaying = p.isPlaying,
+        )
+        return QueueSnapshot(ids, state)
+    }
+
+    private suspend fun writeSnapshot(snapshot: QueueSnapshot) {
+        val ids = snapshot.ids
+        val state = snapshot.state
+        when {
+            // File vidée : sans cet effacement, l'ancienne file revenait au démarrage suivant.
+            ids != null && ids.isEmpty() -> queueDao.clear()
+            ids != null && state != null -> queueDao.persist(ids, state)
+            state != null -> queueDao.saveState(state)
+        }
+    }
+
+    /**
+     * Enregistre la file et la position.
+     *
+     * La file complète n'est réécrite que si sa composition a changé ([queueDirty]) :
+     * la réécrire à chaque pause ou changement de piste coûtait un DELETE + N INSERT,
+     * soit des dizaines de milliers de lignes après un « tout lire au hasard ».
+     */
+    /** Un lecteur vide n'est enregistré qu'une fois la file sauvegardée relue. */
+    private fun canPersist(): Boolean {
+        if (activePlayer.mediaItemCount > 0) queueLoaded = true
+        return queueLoaded
     }
 
     private fun persistQueue() {
-        persistJob?.cancel()
-        if (activePlayer.mediaItemCount == 0) return
-        val ids = (0 until activePlayer.mediaItemCount).map { activePlayer.getMediaItemAt(it).songId }
-        val state = PlaybackStateEntity(
-            currentIndex = activePlayer.currentMediaItemIndex,
-            positionMs = activePlayer.currentPosition,
-            shuffle = activePlayer.shuffleModeEnabled,
-            repeatMode = activePlayer.repeatMode,
-            queueTitle = activePlayer.currentMediaItem?.mediaMetadata?.albumTitle?.toString().orEmpty(),
-            isPlaying = activePlayer.isPlaying,
-        )
-        persistJob = serviceScope.launch(Dispatchers.IO) { queueDao.persist(ids, state) }
+        if (restoring || !canPersist()) return
+        val includeQueue = queueDirty || activePlayer.mediaItemCount == 0
+        queueDirty = false
+        queueWrites.trySend(queueSnapshot(includeQueue))
         refreshWidgetSoon()
+    }
+
+    /**
+     * Sauvegarde la position régulièrement pendant la lecture.
+     *
+     * Si le système tue le processus, la reprise se fait à quelques secondes près au lieu
+     * de repartir du début du morceau.
+     */
+    private fun startPositionSaver() {
+        if (positionSaveJob?.isActive == true) return
+        positionSaveJob = serviceScope.launch {
+            while (isActive) {
+                delay(POSITION_SAVE_INTERVAL_MS)
+                if (!activePlayer.isPlaying) break
+                persistQueue()
+            }
+        }
     }
 
     /**
@@ -453,9 +632,20 @@ class PlaybackService : MediaLibraryService() {
         trackStartedAtSec = System.currentTimeMillis() / 1000
 
         val song = musicRepository.songById(trackedSongId) ?: return
+        announceIfPlaying(song)
+        publishPresence(song)
+    }
+
+    /**
+     * Annonce « en écoute » à Last.fm et au webhook Discord, une fois par morceau et
+     * seulement quand il joue vraiment : restaurer la file en pause au démarrage, ou
+     * zapper en pause, publiait sinon des écoutes qui n'avaient pas lieu.
+     */
+    private fun announceIfPlaying(song: Song? = musicRepository.songById(trackedSongId)) {
+        if (song == null || !activePlayer.isPlaying || announcedSongId == song.id) return
+        announcedSongId = song.id
         serviceScope.launch { scrobbler.updateNowPlaying(song) }
         serviceScope.launch { discord.announce(song) }
-        publishPresence(song)
     }
 
     private fun accumulate() {
@@ -469,9 +659,9 @@ class PlaybackService : MediaLibraryService() {
      * Un morceau écouté à plus de la moitié compte comme lu ; en dessous, c'est un skip.
      * C'est ce qui rend « Les plus écoutés » fiable au lieu de compter chaque effleurement.
      */
-    private fun finalizeCurrentTrack(skipped: Boolean) {
+    private fun finalizeCurrentTrack(skipped: Boolean, finished: Boolean = !skipped) {
         accumulate()
-        persistPodcastProgress(finished = !skipped)
+        persistPodcastProgress(finished = finished)
         
         val song: Song = musicRepository.songById(trackedSongId) ?: return
         val listened = listenedMs
@@ -479,7 +669,7 @@ class PlaybackService : MediaLibraryService() {
         if (listened < 3_000) return
 
         val counted = !skipped || listened >= song.durationMs / 2
-        serviceScope.launch(Dispatchers.IO) {
+        writeScope.launch {
             if (counted) musicRepository.registerPlay(song, listened)
             else musicRepository.registerSkip(song, listened)
 
@@ -493,7 +683,7 @@ class PlaybackService : MediaLibraryService() {
         if (!song.isPodcast) return
         
         val position = if (finished) 0L else activePlayer.currentPosition.coerceAtLeast(0)
-        serviceScope.launch(Dispatchers.IO) {
+        writeScope.launch {
             podcastProgressDao.saveProgress(
                 fr.synxio.player.data.db.PodcastProgressEntity(
                     songId = song.id,
@@ -560,8 +750,20 @@ class PlaybackService : MediaLibraryService() {
     private inner class PlayerListener : Player.Listener {
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            val skipped = reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK
-            finalizeCurrentTrack(skipped)
+            // Seule une fin naturelle (ou une répétition) termine la piste. Choisir un autre
+            // titre (PLAYLIST_CHANGED) ou zapper (SEEK) l'interrompt : compter cela comme
+            // « terminé » remettait à zéro la progression d'un podcast à moitié écouté.
+            val endedNaturally = reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
+                reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT
+            finalizeCurrentTrack(skipped = !endedNaturally, finished = endedNaturally)
+
+            // Nouvelle file lancée alors que l'aléatoire était déjà actif : l'ordre tiré
+            // par ExoPlayer ne commence pas forcément par le titre choisi.
+            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED &&
+                activePlayer.shuffleModeEnabled
+            ) {
+                anchorShuffleOrderOnCurrent()
+            }
 
             if (sleepTimer.shouldStopAtTrackEnd()) {
                 sleepTimer.cancel()
@@ -573,12 +775,15 @@ class PlaybackService : MediaLibraryService() {
             // Restore podcast progress
             val current = currentSong()
             if (current != null && current.isPodcast && reason != Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) {
-                serviceScope.launch(Dispatchers.IO) {
-                    val progress = podcastProgressDao.getProgress(current.id)
-                    if (progress != null && progress.positionMs > 0) {
-                        withContext(Dispatchers.Main) {
-                            activePlayer.seekTo(progress.positionMs)
-                        }
+                val mediaId = mediaItem?.mediaId
+                serviceScope.launch {
+                    val progress = withContext(Dispatchers.IO) { podcastProgressDao.getProgress(current.id) }
+                    // L'utilisateur a pu zapper pendant la lecture en base : on ne saute
+                    // jamais dans un autre morceau à la position du podcast.
+                    if (progress != null && progress.positionMs > 0 &&
+                        activePlayer.currentMediaItem?.mediaId == mediaId
+                    ) {
+                        activePlayer.seekTo(progress.positionMs)
                     }
                 }
             }
@@ -587,7 +792,7 @@ class PlaybackService : MediaLibraryService() {
             // l'a demandé — sinon un album ou une playlist ne s'arrêterait jamais.
             if (latestSettings?.autoDjEnabled == true &&
                 activePlayer.mediaItemCount > 0 &&
-                activePlayer.currentMediaItemIndex >= activePlayer.mediaItemCount - 2
+                isNearEndOfPlaybackOrder()
             ) {
                 if (current != null && !current.isPodcast) {
                     val queued = (0 until activePlayer.mediaItemCount)
@@ -606,15 +811,69 @@ class PlaybackService : MediaLibraryService() {
             fade.resetVolume()
             persistQueue()
             updatePartyServerState()
+            refreshFavoriteButton()
+        }
+
+        override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+            if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED) {
+                queueDirty = true
+                persistQueueSoon()
+            }
+        }
+
+        override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+            if (shuffleModeEnabled) anchorShuffleOrderOnCurrent()
+            persistQueue()
+        }
+
+        override fun onRepeatModeChanged(repeatMode: Int) {
+            persistQueue()
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            // « Fin du morceau » sur la dernière piste : aucune transition ne suit, et la
+            // minuterie restait active à 0:00 indéfiniment.
+            if (playbackState == Player.STATE_ENDED && sleepTimer.shouldStopAtTrackEnd()) {
+                sleepTimer.cancel()
+            }
+        }
+
+        /**
+         * Erreur de lecture (fichier supprimé, corrompu, radio hors ligne).
+         *
+         * Sans traitement, ExoPlayer s'arrêtait net sur le morceau fautif : un seul fichier
+         * illisible au milieu d'un album ou d'une lecture aléatoire coupait la musique.
+         * On passe au suivant, avec une limite pour ne pas boucler sur une file entièrement
+         * illisible.
+         */
+        override fun onPlayerError(error: PlaybackException) {
+            android.util.Log.w(TAG, "Lecture impossible : ${error.errorCodeName}")
+            val p = activePlayer
+            if (p.mediaItemCount == 0) return
+            consecutiveErrors++
+            if (consecutiveErrors > minOf(p.mediaItemCount, MAX_CONSECUTIVE_ERRORS) || !p.hasNextMediaItem()) {
+                consecutiveErrors = 0
+                return
+            }
+            p.seekToNextMediaItem()
+            p.prepare()
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             if (isPlaying) {
+                consecutiveErrors = 0
+                inactivityJob?.cancel()
+                applyAutoRewind()
                 lastResumeUptime = SystemClock.elapsedRealtime()
                 if (trackedSongId < 0) startTracking(activePlayer.currentMediaItem)
+                announceIfPlaying()
+                startPositionSaver()
             } else {
                 accumulate()
                 persistPodcastProgress()
+                pausedAtUptime = SystemClock.elapsedRealtime()
+                pausedMediaId = activePlayer.currentMediaItem?.mediaId
+                scheduleInactivityStop()
             }
 
             // Persisté dans les deux sens, et non à la seule pause.
@@ -636,9 +895,82 @@ class PlaybackService : MediaLibraryService() {
             newPosition: Player.PositionInfo,
             reason: Int,
         ) {
-            if (reason == Player.DISCONTINUITY_REASON_SEEK) fade.resetVolume()
+            if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+                fade.resetVolume()
+                // Une recherche manuelle est un point de reprise que l'on veut retrouver.
+                if (oldPosition.mediaItemIndex == newPosition.mediaItemIndex) persistQueueSoon()
+            }
             updatePartyServerState()
         }
+    }
+
+    /**
+     * « Retour en arrière à la reprise » : après une vraie pause sur le même morceau, on
+     * recule de quelques secondes pour retrouver le fil (livres audio, podcasts).
+     */
+    private fun applyAutoRewind() {
+        val seconds = latestSettings?.autoRewindSec ?: 0
+        val pausedFor = SystemClock.elapsedRealtime() - pausedAtUptime
+        val sameTrack = pausedMediaId != null && pausedMediaId == activePlayer.currentMediaItem?.mediaId
+        if (seconds <= 0 || pausedAtUptime == 0L || !sameTrack || pausedFor < AUTO_REWIND_MIN_PAUSE_MS) return
+        pausedAtUptime = 0L
+        activePlayer.seekTo((activePlayer.currentPosition - seconds * 1_000L).coerceAtLeast(0L))
+    }
+
+    /** « Arrêter après inactivité » : libère le service si la pause dure trop longtemps. */
+    private fun scheduleInactivityStop() {
+        inactivityJob?.cancel()
+        val minutes = latestSettings?.stopAfterInactivityMin ?: 0
+        if (minutes <= 0) return
+        inactivityJob = serviceScope.launch {
+            delay(minutes * 60_000L)
+            if (!activePlayer.isPlaying) {
+                persistQueue()
+                // L'app garde un contrôleur connecté : stopSelf seul ne détruit pas le
+                // service. stop() passe le lecteur au repos, ce qui retire la notification
+                // et libère le décodeur.
+                activePlayer.stop()
+                stopSelf()
+            }
+        }
+    }
+
+    /** Regroupe les rafales (ajouts multiples, glissements de curseur) en une écriture. */
+    private fun persistQueueSoon() {
+        if (restoring) return
+        persistSoonJob?.cancel()
+        persistSoonJob = serviceScope.launch {
+            delay(PERSIST_DEBOUNCE_MS)
+            persistQueue()
+        }
+    }
+
+    /**
+     * Fige le morceau courant en tête de l'ordre aléatoire.
+     *
+     * L'ordre aléatoire par défaut d'ExoPlayer ne place pas l'index de départ en premier :
+     * activer l'aléatoire (ou « tout lire au hasard ») sautait alors tous les titres
+     * tirés avant lui, soit en moyenne la moitié de la sélection.
+     */
+    private fun anchorShuffleOrderOnCurrent() {
+        if (activePlayer !== player) return
+        val count = player.mediaItemCount
+        if (count < 2) return
+        val current = player.currentMediaItemIndex.coerceIn(0, count - 1)
+        val rest = (0 until count).filter { it != current }.shuffled()
+        val order = IntArray(count)
+        order[0] = current
+        rest.forEachIndexed { i, index -> order[i + 1] = index }
+        player.setShuffleOrder(DefaultShuffleOrder(order, Random.nextLong()))
+    }
+
+    /** Vrai s'il reste au plus un morceau à jouer, dans l'ordre réel (aléatoire compris). */
+    private fun isNearEndOfPlaybackOrder(): Boolean {
+        val p = activePlayer
+        val next = p.nextMediaItemIndex
+        if (next == C.INDEX_UNSET) return true
+        val afterNext = p.currentTimeline.getNextWindowIndex(next, Player.REPEAT_MODE_OFF, p.shuffleModeEnabled)
+        return afterNext == C.INDEX_UNSET
     }
 
     /**
@@ -694,14 +1026,16 @@ class PlaybackService : MediaLibraryService() {
             val caps = equalizer.capabilities
             if (!caps.available || caps.bands.isEmpty()) return@launch
 
-            equalizer.setEnabled(true)
-            equalizer.setBandLevels(
-                curve.toBandLevels(
-                    bandFrequenciesHz = caps.bands.map { it.centerFreqHz },
-                    minMb = caps.minLevel,
-                    maxMb = caps.maxLevel,
-                )
+            val levels = curve.toBandLevels(
+                bandFrequenciesHz = caps.bands.map { it.centerFreqHz },
+                minMb = caps.minLevel,
+                maxMb = caps.maxLevel,
             )
+            equalizer.setEnabled(true)
+            equalizer.setBandLevels(levels)
+            // Les bandes sont enregistrées aussi : sinon observeSettings réappliquait
+            // aussitôt les anciennes et la courbe du casque était écrasée.
+            settingsRepository.setEqualizerBands(levels)
             settingsRepository.setEqualizerEnabled(true)
             settingsRepository.setEqualizerCurve(curve.id)
         }
@@ -765,11 +1099,19 @@ class PlaybackService : MediaLibraryService() {
             session: MediaSession,
             controller: MediaSession.ControllerInfo,
         ): MediaSession.ConnectionResult {
+            // Les commandes maison (favori, minuterie) ne sont offertes qu'à l'app elle-même
+            // et aux contrôleurs de confiance (notification, système). Le service est
+            // exporté : n'importe quelle app installée pouvait sinon modifier les favoris.
+            val trusted = controller.packageName == packageName || controller.isTrusted
             val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS
                 .buildUpon()
-                .add(SessionCommand(CMD_TOGGLE_FAVORITE, Bundle.EMPTY))
-                .add(SessionCommand(CMD_SLEEP_TIMER, Bundle.EMPTY))
-                .add(SessionCommand(CMD_CANCEL_SLEEP_TIMER, Bundle.EMPTY))
+                .apply {
+                    if (trusted) {
+                        add(SessionCommand(CMD_TOGGLE_FAVORITE, Bundle.EMPTY))
+                        add(SessionCommand(CMD_SLEEP_TIMER, Bundle.EMPTY))
+                        add(SessionCommand(CMD_CANCEL_SLEEP_TIMER, Bundle.EMPTY))
+                    }
+                }
                 .build()
 
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
@@ -900,17 +1242,16 @@ class PlaybackService : MediaLibraryService() {
             val future = com.google.common.util.concurrent.SettableFuture
                 .create<MediaSession.MediaItemsWithStartPosition>()
             serviceScope.launch {
-                val saved = queueDao.queue().sortedBy { it.position }
-                val state = queueDao.state()
-                val songs = musicRepository.songsByIds(saved.map { it.songId })
-                if (songs.isEmpty()) {
+                val restored = runCatching { loadSavedQueue() }.getOrNull()
+                if (restored == null) {
                     future.setException(UnsupportedOperationException("Aucune file sauvegardée"))
                 } else {
+                    val (queue, _) = restored
                     future.set(
                         MediaSession.MediaItemsWithStartPosition(
-                            forActivePlayer(songs.toMediaItems()),
-                            state?.currentIndex ?: 0,
-                            state?.positionMs ?: 0L,
+                            forActivePlayer(queue.items),
+                            queue.index,
+                            queue.positionMs,
                         )
                     )
                 }
@@ -944,6 +1285,13 @@ class PlaybackService : MediaLibraryService() {
 
         /** Laisse la persistance écrire, et absorbe les appels groupés. */
         private const val WIDGET_REFRESH_DELAY_MS = 400L
+
+        private const val TAG = "PlaybackService"
+        private const val POSITION_SAVE_INTERVAL_MS = 10_000L
+        private const val PERSIST_DEBOUNCE_MS = 500L
+        private const val FINAL_WRITE_TIMEOUT_MS = 1_500L
+        private const val MAX_CONSECUTIVE_ERRORS = 5
+        private const val AUTO_REWIND_MIN_PAUSE_MS = 5_000L
 
         /** Sorties considérées comme « un casque » pour la reprise automatique. */
         private val HEADSET_TYPES = setOf(

@@ -1,12 +1,51 @@
 package fr.synxio.player.playback
 
 import fi.iki.elonen.NanoHTTPD
+import fr.synxio.player.core.util.NetworkUtils
 import fr.synxio.player.data.model.Song
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONObject
+import java.security.MessageDigest
+import java.security.SecureRandom
+import java.util.Base64
 
-class PartyServer(port: Int = 8080) : NanoHTTPD(port) {
-    
-    private var currentSong: Song? = null
+/**
+ * Page web « Synxio Party » servie aux invités du même réseau local.
+ *
+ * Sécurité :
+ * - le serveur se lie à l'adresse IPv4 Wi-Fi de l'appareil (jamais 0.0.0.0, qui exposerait
+ *   aussi le réseau mobile ou un VPN) ; sans réseau local, il reste sur la boucle locale ;
+ * - chaque démarrage tire un jeton aléatoire (128 bits, URL-safe) placé en préfixe de chemin :
+ *   `http://<ip>:8080/<jeton>/`. Toute autre URL répond 404 ;
+ * - aucun en-tête CORS : la page et son API sont servies depuis la même origine.
+ *
+ * L'URL complète (avec jeton) est publiée dans [activeUrl] pour l'écran Party (QR code).
+ */
+class PartyServer(
+    port: Int = DEFAULT_PORT,
+    private val bindAddress: String = NetworkUtils.findLanIpv4Address() ?: LOOPBACK,
+) : NanoHTTPD(bindAddress, port) {
+
+    private val token: String = newToken()
+
+    /** URL à partager (QR code), jeton compris. Valide une fois le serveur démarré. */
+    val url: String get() = "http://$bindAddress:$listeningPort/$token/"
+
+    override fun start(timeout: Int, daemon: Boolean) {
+        super.start(timeout, daemon)
+        // Sur la boucle locale, l'URL n'est d'aucune utilité pour les invités.
+        _activeUrl.value = if (bindAddress == LOOPBACK) null else url
+    }
+
+    override fun stop() {
+        val published = runCatching { url }.getOrNull()
+        super.stop()
+        if (published != null) _activeUrl.compareAndSet(published, null)
+    }
+
+    @Volatile private var currentSong: Song? = null
     private var isPlaying: Boolean = false
     private var currentPosition: Long = 0
     private var lastUpdate: Long = System.currentTimeMillis()
@@ -19,25 +58,41 @@ class PartyServer(port: Int = 8080) : NanoHTTPD(port) {
     }
 
     override fun serve(session: IHTTPSession): Response {
-        val uri = session.uri
-        
-        if (uri == "/api/status") {
-            val json = JSONObject()
-            json.put("title", currentSong?.title ?: "Aucune lecture")
-            json.put("artist", currentSong?.displayArtist ?: "En attente")
-            json.put("album", currentSong?.displayAlbum ?: "")
-            val estimatedPosition = if (isPlaying) currentPosition + (System.currentTimeMillis() - lastUpdate) else currentPosition
-            json.put("position", estimatedPosition.coerceAtLeast(0L))
-            json.put("duration", currentSong?.durationMs ?: 0L)
-            json.put("playing", isPlaying)
-            
-            val response = newFixedLengthResponse(Response.Status.OK, "application/json", json.toString())
-            response.addHeader("Access-Control-Allow-Origin", "*")
-            return response
+        if (session.method != Method.GET && session.method != Method.HEAD) {
+            return secured(newFixedLengthResponse(Response.Status.METHOD_NOT_ALLOWED, MIME_PLAINTEXT, ""))
         }
+        return when (route(session.uri, token)) {
+            Route.STATUS -> secured(statusResponse())
+            Route.PAGE -> secured(newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", pageHtml()))
+            Route.NOT_FOUND -> secured(newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, ""))
+        }
+    }
 
+    /** En-têtes communs : pas de cache, pas de Referer (le jeton ne fuit pas vers Google Fonts). */
+    private fun secured(response: Response): Response = response.apply {
+        addHeader("Cache-Control", "no-store")
+        addHeader("Referrer-Policy", "no-referrer")
+        addHeader("X-Content-Type-Options", "nosniff")
+        addHeader("X-Frame-Options", "DENY")
+    }
+
+    private fun statusResponse(): Response {
+        val json = JSONObject()
+        json.put("title", currentSong?.title ?: "Aucune lecture")
+        json.put("artist", currentSong?.displayArtist ?: "En attente")
+        json.put("album", currentSong?.displayAlbum ?: "")
+        val estimatedPosition = if (isPlaying) currentPosition + (System.currentTimeMillis() - lastUpdate) else currentPosition
+        json.put("position", estimatedPosition.coerceAtLeast(0L))
+        json.put("duration", currentSong?.durationMs ?: 0L)
+        json.put("playing", isPlaying)
+
+        // Pas d'en-tête CORS : seule la page servie par ce serveur (même origine) lit l'API.
+        return newFixedLengthResponse(Response.Status.OK, "application/json", json.toString())
+    }
+
+    private fun pageHtml(): String {
         // Interface web moderne et immersive pour les invités
-        val html = """
+        return """
             <!DOCTYPE html>
             <html lang="fr">
             <head>
@@ -229,7 +284,7 @@ class PartyServer(port: Int = 8080) : NanoHTTPD(port) {
 
                     async function fetchStatus() {
                         try {
-                            const res = await fetch('/api/status');
+                            const res = await fetch('/$token/api/status', { cache: 'no-store' });
                             const data = await res.json();
 
                             document.getElementById('title').innerText = data.title || "Aucune lecture";
@@ -271,7 +326,43 @@ class PartyServer(port: Int = 8080) : NanoHTTPD(port) {
             </body>
             </html>
         """.trimIndent()
+    }
 
-        return newFixedLengthResponse(Response.Status.OK, "text/html", html)
+    internal enum class Route { PAGE, STATUS, NOT_FOUND }
+
+    companion object {
+        const val DEFAULT_PORT = 8080
+        private const val LOOPBACK = "127.0.0.1"
+
+        private val _activeUrl = MutableStateFlow<String?>(null)
+
+        /** URL (jeton compris) du serveur Party en cours, ou null s'il est arrêté / hors réseau local. */
+        val activeUrl: StateFlow<String?> = _activeUrl.asStateFlow()
+
+        private val random = SecureRandom()
+
+        /** Jeton aléatoire de 128 bits, encodé en Base64 URL-safe sans remplissage (22 caractères). */
+        internal fun newToken(): String {
+            val bytes = ByteArray(16).also(random::nextBytes)
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+        }
+
+        /**
+         * Associe un chemin de requête à une ressource. Le premier segment doit être le jeton
+         * (comparaison à temps constant) ; tout le reste répond 404.
+         */
+        internal fun route(uri: String?, token: String): Route {
+            val path = uri?.removePrefix("/") ?: return Route.NOT_FOUND
+            val first = path.substringBefore('/')
+            val rest = if ('/' in path) path.substringAfter('/') else ""
+            if (token.isEmpty() || !MessageDigest.isEqual(first.toByteArray(), token.toByteArray())) {
+                return Route.NOT_FOUND
+            }
+            return when (rest) {
+                "" -> Route.PAGE
+                "api/status" -> Route.STATUS
+                else -> Route.NOT_FOUND
+            }
+        }
     }
 }

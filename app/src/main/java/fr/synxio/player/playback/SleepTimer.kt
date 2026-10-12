@@ -46,6 +46,11 @@ class SleepTimer @Inject constructor(
         onElapsed = callback
     }
 
+    /** Détache le rappel du service détruit, que ce singleton retenait sinon. */
+    fun clearCallback(callback: () -> Unit) {
+        if (onElapsed === callback) onElapsed = null
+    }
+
     fun start(durationMs: Long, finishCurrentTrack: Boolean) {
         cancel()
         _state.value = SleepTimerState(true, durationMs, finishCurrentTrack)

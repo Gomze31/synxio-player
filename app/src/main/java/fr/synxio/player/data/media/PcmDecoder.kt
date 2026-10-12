@@ -84,7 +84,8 @@ class PcmDecoder @Inject constructor() {
         } catch (error: Throwable) {
             // Un fichier corrompu ou un codec exotique ne doit pas interrompre l'analyse
             // de toute la bibliothèque : on le signale et on passe au suivant.
-            Log.w(TAG, "Décodage impossible pour $path", error)
+            // Seul le nom du fichier est journalisé, jamais son chemin complet.
+            Log.w(TAG, "Décodage impossible pour ${java.io.File(path).name}", error)
             emptyList()
         } finally {
             runCatching { codec?.stop() }

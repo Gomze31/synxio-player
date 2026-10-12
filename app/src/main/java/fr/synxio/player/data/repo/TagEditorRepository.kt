@@ -89,12 +89,19 @@ class TagEditorRepository @Inject constructor(
         // song.path échoue avec EACCES, même après le consentement accordé — celui-ci
         // porte sur l'URI de contenu, pas sur le chemin.
         val workDir = File(context.cacheDir, WORK_DIR).apply { mkdirs() }
-        val work = File(workDir, "edit.${song.extension.lowercase().ifBlank { "mp3" }}")
+        val ext = song.extension.lowercase().ifBlank { "mp3" }
+        // Noms uniques : deux éditions simultanées ne doivent pas partager leurs fichiers.
+        val work = File.createTempFile("edit-", ".$ext", workDir)
+        // Copie intacte de l'original : seule assurance si la réécriture échoue à mi-chemin.
+        val backup = File.createTempFile("orig-", ".$ext", workDir)
+        var originalTruncated = false
+        var restoreFailed = false
 
         runCatching {
             source.inputStream().use { input ->
                 work.outputStream().use { output -> input.copyTo(output) }
             }
+            work.copyTo(backup, overwrite = true)
 
             val audioFile = AudioFileIO.read(work)
             val tag = audioFile.tagOrCreateAndSetDefault
@@ -130,11 +137,9 @@ class TagEditorRepository @Inject constructor(
             // Réécriture par l'URI de contenu, seul canal autorisé.
             //
             // Le mode "rwt" tronque avant d'écrire.
-            context.contentResolver.openFileDescriptor(song.uri, "rwt")?.use { pfd ->
-                java.io.FileOutputStream(pfd.fileDescriptor).use { output ->
-                    work.inputStream().use { input -> input.copyTo(output) }
-                }
-            } ?: error("Flux d'écriture indisponible")
+            // Le mode "rwt" tronque avant d'écrire : à partir d'ici, l'original n'existe plus
+            // que dans [backup]. On vérifie la taille écrite et on restaure en cas d'échec.
+            writeThroughUri(song, work, onTruncated = { originalTruncated = true })
 
             // Forcer la mise à jour des colonnes du MediaStore pour que l'app voie
             // les changements immédiatement au prochain scan (et que l'observer se déclenche).
@@ -162,11 +167,41 @@ class TagEditorRepository @Inject constructor(
                         ?: TagWriteResult.Failure("Accès en écriture refusé")
 
                 else -> {
-                    Log.w(TAG, "Écriture impossible pour ${song.title}", error)
-                    TagWriteResult.Failure(error.message ?: "Écriture des tags impossible")
+                    Log.w(TAG, "Écriture des tags impossible", error)
+                    if (originalTruncated) {
+                        restoreFailed = runCatching { writeThroughUri(song, backup) {} }.isFailure
+                    }
+                    TagWriteResult.Failure(
+                        if (restoreFailed) {
+                            "Écriture interrompue. Copie de l'original conservée dans le cache de l'app."
+                        } else {
+                            error.message ?: "Écriture des tags impossible"
+                        }
+                    )
                 }
             }
-        }.also { work.delete() }
+        }.also {
+            work.delete()
+            // On ne jette la copie de l'original que si le fichier source est sain.
+            if (!restoreFailed) backup.delete()
+        }
+    }
+
+    /** Remplace le contenu de [song] par [file] via son URI, et vérifie la taille écrite. */
+    private fun writeThroughUri(song: Song, file: File, onTruncated: () -> Unit) {
+        val pfd = context.contentResolver.openFileDescriptor(song.uri, "rwt")
+            ?: error("Flux d'écriture indisponible")
+        pfd.use {
+            onTruncated()
+            java.io.FileOutputStream(it.fileDescriptor).use { output ->
+                file.inputStream().use { input -> input.copyTo(output) }
+                output.fd.sync()
+            }
+            val written = it.statSize
+            check(written < 0 || written == file.length()) {
+                "Écriture incomplète ($written / ${file.length()} octets)"
+            }
+        }
     }
 
     private fun requestConsent(song: Song): IntentSender? = when {

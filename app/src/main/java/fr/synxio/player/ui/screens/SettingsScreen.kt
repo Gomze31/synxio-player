@@ -22,12 +22,16 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -40,7 +44,6 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ColorLens
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DataSaverOn
-import androidx.compose.material.icons.rounded.DeveloperMode
 import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.Folder
@@ -72,11 +75,9 @@ import androidx.compose.material.icons.rounded.SurroundSound
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.Tune
-import androidx.compose.material.icons.rounded.SystemSecurityUpdate
 import androidx.compose.material.icons.rounded.SmartDisplay
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.Backup
-import androidx.compose.material.icons.rounded.NewReleases
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
@@ -113,6 +114,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -128,15 +134,17 @@ import fr.synxio.player.data.model.AccentSource
 import fr.synxio.player.data.model.AlbumSort
 import fr.synxio.player.data.model.LibraryTab
 import fr.synxio.player.data.model.NowPlayingSkin
-import fr.synxio.player.data.model.PlaylistSort
 import fr.synxio.player.data.model.SongSort
-import fr.synxio.player.data.model.StatsPeriod
 import fr.synxio.player.data.model.TextSize
 import fr.synxio.player.data.model.ThemeColor
 import fr.synxio.player.data.model.ThemeMode
 import fr.synxio.player.data.repo.AnalysisProgress
+import fr.synxio.player.data.repo.DiscordWebhookUrl
 import fr.synxio.player.data.repo.LoudnessProgress
 import fr.synxio.player.ui.viewmodel.AppViewModel
+import fr.synxio.player.ui.theme.Radius
+import fr.synxio.player.ui.theme.Space
+import fr.synxio.player.ui.theme.SynxioShape
 import fr.synxio.player.ui.theme.ThemePreset
 import fr.synxio.player.ui.components.SynxioDialog
 import fr.synxio.player.ui.viewmodel.DiscordViewModel
@@ -146,10 +154,8 @@ import fr.synxio.player.ui.viewmodel.UpdateViewModel
 // Fonctions utilitaires pour convertir String en enum
 private fun String.toThemeColor(): ThemeColor = ThemeColor.entries.firstOrNull { it.value == this } ?: ThemeColor.DEFAULT
 private fun String.toTextSize(): TextSize = TextSize.entries.firstOrNull { it.name == this } ?: TextSize.NORMAL
-private fun String.toPlaylistSort(): PlaylistSort = PlaylistSort.entries.firstOrNull { it.name == this } ?: PlaylistSort.NAME
 private fun String.toAlbumSort(): AlbumSort = AlbumSort.entries.firstOrNull { it.name == this } ?: AlbumSort.TITLE
 private fun String.toSongSort(): SongSort = SongSort.entries.firstOrNull { it.name == this } ?: SongSort.TITLE
-private fun String.toStatsPeriod(): StatsPeriod = StatsPeriod.entries.firstOrNull { it.name == this } ?: StatsPeriod.ALL_TIME
 
 /**
  * Catégories de sous-menus des paramètres.
@@ -169,19 +175,14 @@ enum class SettingsSubMenu(
         "Fondu, gapless, silences, reprise casque et rembobinage",
         Icons.Rounded.PlayCircle,
     ),
-    LIQUID_GLASS_WIDGET(
-        "Widget Liquid Glass",
-        "Rendu verre liquide, vagues spectrales et teintes néon",
-        Icons.Rounded.BlurOn,
-    ),
     VOLUME(
         "Volume & Normalisation",
-        "Normalisation dynamique LUFS et limiteur de volume",
+        "Normalisation du volume et limiteur",
         Icons.AutoMirrored.Rounded.VolumeUp,
     ),
     LIBRARY(
         "Bibliothèque & Fichiers",
-        "Durée minimale, albums, maintenance et doublons",
+        "Durée minimale, onglet par défaut, scan et doublons",
         Icons.Rounded.Folder,
     ),
     EQUALIZER(
@@ -206,14 +207,9 @@ enum class SettingsSubMenu(
     ),
     SYSTEM_AND_ABOUT(
         "Système & À propos",
-        "Mises à jour, purge du cache, performances et version",
+        "Mises à jour, purge du cache et version",
         Icons.Rounded.Info,
     ),
-    COMING_SOON(
-        "Prochainement",
-        "Nouvelles fonctionnalités à venir",
-        Icons.Rounded.NewReleases,
-    )
 }
 
 private fun SettingsSubMenu.getSummary(
@@ -224,10 +220,8 @@ private fun SettingsSubMenu.getSummary(
         "${settings.themeMode.label} • ${ThemePreset.fromName(settings.themePreset).label} • ${settings.nowPlayingSkin.label}"
     SettingsSubMenu.PLAYBACK ->
         "Gapless ${if (settings.gaplessEnabled) "Actif" else "Désactivé"} • Fondu ${settings.crossfadeMs / 1000}s • ${if (settings.autoRewindSec > 0) "Rembobinage ${settings.autoRewindSec}s" else "Direct"}"
-    SettingsSubMenu.LIQUID_GLASS_WIDGET ->
-        "Verre ${(settings.widgetGlassOpacity * 100).toInt()}% • Vagues ${if (settings.widgetShowWave) "actives" else "masquées"} • ${settings.widgetWaveTint}"
     SettingsSubMenu.VOLUME ->
-        "Vol. départ ${(settings.defaultVolume * 100).toInt()}% • Normalisation ${if (settings.normalizeVolume) "Active (${settings.normalizeTargetDbfs.toInt()} dBFS)" else "Désactivée"}"
+        "Normalisation ${if (settings.normalizeVolume) "active (${settings.normalizeTargetDbfs.toInt()} dBFS)" else "désactivée"} • Limite ${if (settings.maxVolumeLimit) "${(settings.maxVolumeValue * 100).toInt()} %" else "aucune"}"
     SettingsSubMenu.LIBRARY ->
         "Min. ${settings.minDurationSec}s • Onglet ${settings.defaultTab.label} • ${library.albums.size} albums"
     SettingsSubMenu.EQUALIZER ->
@@ -235,13 +229,11 @@ private fun SettingsSubMenu.getSummary(
     SettingsSubMenu.LYRICS_AND_SOCIAL ->
         "Paroles ${if (settings.lyricsOnlineEnabled) "LRCLIB" else "Locale"} • ${if (settings.scrobbleEnabled) "Last.fm connecté" else "Last.fm inactif"}"
     SettingsSubMenu.STATS_AND_HISTORY ->
-        "Période ${settings.defaultStatsPeriod.toStatsPeriod().label}"
+        "Top écoutes et journal de lecture"
     SettingsSubMenu.BACKUP_AND_RESTORE ->
         "Export et import JSON des données"
     SettingsSubMenu.SYSTEM_AND_ABOUT ->
         "Synxio v${BuildConfig.VERSION_NAME} • Mises à jour & Cache"
-    SettingsSubMenu.COMING_SOON ->
-        "Découvrir ce qui arrive bientôt"
 }
 
 @Composable
@@ -256,8 +248,8 @@ private fun SubMenuCard(
         onClick = onClick,
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 5.dp),
-        shape = RoundedCornerShape(16.dp),
+            .padding(horizontal = Space.lg, vertical = Space.xs),
+        shape = SubMenuShape,
         colors = androidx.compose.material3.CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow
         )
@@ -265,13 +257,14 @@ private fun SubMenuCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
+                .heightIn(min = RowMinHeight)
+                .padding(horizontal = Space.lg, vertical = Space.md),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
                     .size(44.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(IconTileShape)
                     .background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center
             ) {
@@ -283,7 +276,7 @@ private fun SubMenuCard(
                 )
             }
 
-            Spacer(Modifier.width(14.dp))
+            Spacer(Modifier.width(Space.md))
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -291,7 +284,7 @@ private fun SubMenuCard(
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                     color = MaterialTheme.colorScheme.onSurface
                 )
-                Spacer(Modifier.height(2.dp))
+                Spacer(Modifier.height(Space.xxs))
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
@@ -301,11 +294,12 @@ private fun SubMenuCard(
                 )
             }
 
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(Space.sm))
 
+            // Chevron décoratif : la carte entière est déjà annoncée comme un bouton.
             Icon(
                 imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                contentDescription = "Ouvrir",
+                contentDescription = null,
                 modifier = Modifier
                     .size(18.dp)
                     .rotate(180f),
@@ -315,80 +309,59 @@ private fun SubMenuCard(
     }
 }
 
+/**
+ * En-tête du hub : identité et état de la bibliothèque, sans raccourcis.
+ *
+ * Les puces rapides d'avant répétaient mot pour mot la liste des sous-menus juste en
+ * dessous : deux chemins vers la même chose, et autant de bruit à lire.
+ */
 @Composable
 private fun SettingsHeroBanner(
     songCount: Int,
     albumCount: Int,
-    onQuickAction: (SettingsSubMenu) -> Unit,
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(16.dp),
-        shape = RoundedCornerShape(20.dp),
+            .padding(Space.lg),
+        shape = SynxioShape.card,
         colors = androidx.compose.material3.CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
         )
     ) {
-        Column(modifier = Modifier.padding(18.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(50.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(MaterialTheme.colorScheme.primary),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Tune,
-                        contentDescription = null,
-                        modifier = Modifier.size(28.dp),
-                        tint = MaterialTheme.colorScheme.onPrimary
-                    )
-                }
-
-                Spacer(Modifier.width(16.dp))
-
-                Column {
-                    Text(
-                        text = "Synxio Player",
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        text = "Version ${BuildConfig.VERSION_NAME} • ${songCount.pluralSongs()} • $albumCount albums",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+        Row(
+            modifier = Modifier.padding(Space.lg),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(50.dp)
+                    .clip(RoundedCornerShape(Radius.md))
+                    .background(MaterialTheme.colorScheme.primary),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Tune,
+                    contentDescription = null,
+                    modifier = Modifier.size(28.dp),
+                    tint = MaterialTheme.colorScheme.onPrimary
+                )
             }
 
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.width(Space.lg))
 
-            androidx.compose.foundation.layout.FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                FilterChip(
-                    selected = false,
-                    onClick = { onQuickAction(SettingsSubMenu.APPEARANCE) },
-                    label = { Text("Thèmes") }
+            Column {
+                Text(
+                    text = "Synxio Player",
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.semantics { heading() },
                 )
-                FilterChip(
-                    selected = false,
-                    onClick = { onQuickAction(SettingsSubMenu.PLAYBACK) },
-                    label = { Text("Audio & Gapless") }
-                )
-                FilterChip(
-                    selected = false,
-                    onClick = { onQuickAction(SettingsSubMenu.LIQUID_GLASS_WIDGET) },
-                    label = { Text("Widget Liquid Glass") }
-                )
-                FilterChip(
-                    selected = false,
-                    onClick = { onQuickAction(SettingsSubMenu.LIBRARY) },
-                    label = { Text("Bibliothèque") }
+                Spacer(Modifier.height(Space.xxs))
+                Text(
+                    text = "Version ${BuildConfig.VERSION_NAME} • ${songCount.pluralSongs()} • $albumCount albums",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
@@ -410,7 +383,8 @@ fun SettingsScreen(
     onNavigateToBackup: () -> Unit,
     onNavigateToAbout: () -> Unit,
     onNavigateToAdvancedSearch: () -> Unit,
-    onNavigateToComingSoon: () -> Unit,
+    // Écran « Prochainement » supprimé : paramètre conservé le temps de retirer l'appel.
+    @Suppress("UNUSED_PARAMETER") onNavigateToComingSoon: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val settingsViewModel: SettingsViewModel = hiltViewModel()
@@ -459,7 +433,7 @@ fun SettingsScreen(
         // Contenu
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 32.dp)
+            contentPadding = PaddingValues(bottom = Space.xxl)
         ) {
             if (currentSubMenu == null) {
                 // ====================================================================
@@ -469,7 +443,6 @@ fun SettingsScreen(
                     SettingsHeroBanner(
                         songCount = library.songs.size,
                         albumCount = library.albums.size,
-                        onQuickAction = { currentSubMenu = it }
                     )
                 }
 
@@ -478,18 +451,11 @@ fun SettingsScreen(
                         title = subMenu.title,
                         subtitle = subMenu.getSummary(settings, library),
                         icon = subMenu.icon,
-                        onClick = {
-                            if (subMenu == SettingsSubMenu.COMING_SOON) {
-                                onNavigateToComingSoon()
-                            } else {
-                                currentSubMenu = subMenu
-                            }
-                        }
+                        onClick = { currentSubMenu = subMenu }
                     )
                 }
             } else {
                 when (currentSubMenu) {
-                    SettingsSubMenu.COMING_SOON -> {}
                     // ================================================================
                     // SOUS-MENU : APPARENCE
                     // ================================================================
@@ -696,26 +662,6 @@ fun SettingsScreen(
                         
                         item {
                             SwitchSetting(
-                                title = "Reprendre après un appel",
-                                subtitle = "La lecture reprend automatiquement après un appel téléphonique",
-                                icon = Icons.Rounded.PhonelinkSetup,
-                                checked = settings.resumeAfterCall,
-                                onCheckedChange = settingsViewModel::setResumeAfterCall
-                            )
-                        }
-
-                        item {
-                            SwitchSetting(
-                                title = "Pause lors de la perte du focus audio",
-                                subtitle = "Met en pause quand une autre application émet du son",
-                                icon = Icons.Rounded.SurroundSound,
-                                checked = settings.audioFocusPause,
-                                onCheckedChange = { /* Activé par conception */ }
-                            )
-                        }
-                        
-                        item {
-                            SwitchSetting(
                                 title = "Arrêter après inactivité",
                                 subtitle = "Arrête la lecture après une période d'inactivité",
                                 icon = Icons.Rounded.Timer,
@@ -755,90 +701,6 @@ fun SettingsScreen(
                     }
 
                     // ================================================================
-                    // SOUS-MENU : WIDGET LIQUID GLASS
-                    // ================================================================
-                    SettingsSubMenu.LIQUID_GLASS_WIDGET -> {
-                        item {
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 24.dp, vertical = 8.dp),
-                                shape = RoundedCornerShape(16.dp),
-                                colors = androidx.compose.material3.CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
-                                )
-                            ) {
-                                Column(modifier = Modifier.padding(16.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            Icons.Rounded.BlurOn,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(24.dp)
-                                        )
-                                        Spacer(Modifier.width(8.dp))
-                                        Text(
-                                            "Moteur Liquid Glass",
-                                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                                        )
-                                    }
-                                    Spacer(Modifier.height(6.dp))
-                                    Text(
-                                        "Le widget d'écran d'accueil Synxio dispose d'une finition optique de verre liquide : réfraction caustique supérieure, halo d'ambiance projeté par la pochette et vagues fluides harmoniques à double couche synchronisées avec le spectre audio.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-
-                        item {
-                            SwitchSetting(
-                                title = "Vagues fluides spectrales",
-                                subtitle = "Dessine le spectre harmonique fluide de la musique au bas du widget",
-                                icon = Icons.Rounded.GraphicEq,
-                                checked = settings.widgetShowWave,
-                                onCheckedChange = settingsViewModel::setWidgetShowWave
-                            )
-                        }
-
-                        item {
-                            val tintOptions = listOf("Accent Pochette", "Néon Cyan", "Améthyste", "Émeraude")
-                            val tintKeys = listOf("ACCENT", "NEON_CYAN", "AMETHYST", "EMERALD")
-                            val selectedIndex = tintKeys.indexOf(settings.widgetWaveTint).coerceAtLeast(0)
-                            ChipSetting(
-                                title = "Teinte néon des fluides",
-                                options = tintOptions,
-                                selectedIndex = selectedIndex,
-                                onSelect = { settingsViewModel.setWidgetWaveTint(tintKeys[it]) },
-                                icon = Icons.Rounded.ColorLens
-                            )
-                        }
-
-                        item {
-                            SliderSetting(
-                                title = "Opacité du voile de verre",
-                                subtitle = "Ajuste la profondeur et la translucidité de la surface vitrée",
-                                icon = Icons.Rounded.BlurOn,
-                                value = settings.widgetGlassOpacity,
-                                valueRange = 0.25f..1f,
-                                steps = 14,
-                                display = { "${(it * 100).toInt()} %" },
-                                onChange = settingsViewModel::setWidgetGlassOpacity
-                            )
-                        }
-
-                        item {
-                            Text(
-                                text = "Le widget est rafraîchi instantanément à chaque changement de morceau ou appui par le service de lecture Synxio.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
-                            )
-                        }
-                    }
-
-                    // ================================================================
                     // SOUS-MENU : VOLUME & NORMALISATION
                     // ================================================================
                     SettingsSubMenu.VOLUME -> {
@@ -857,19 +719,6 @@ fun SettingsScreen(
                             )
                         }
 
-                        item {
-                            SliderSetting(
-                                title = "Volume par défaut",
-                                subtitle = "Volume de démarrage de l'application",
-                                icon = Icons.AutoMirrored.Rounded.VolumeUp,
-                                value = settings.defaultVolume,
-                                valueRange = 0f..1f,
-                                steps = 10,
-                                display = { "${(it * 100).toInt()}%" },
-                                onChange = { settingsViewModel.setDefaultVolume(it) }
-                            )
-                        }
-                        
                         item {
                             SwitchSetting(
                                 title = "Limiter le volume",
@@ -923,45 +772,6 @@ fun SettingsScreen(
                         }
                         
                         item {
-                            ChipSetting(
-                                title = "Tri des playlists",
-                                options = PlaylistSort.entries.map { entry -> entry.label },
-                                selectedIndex = PlaylistSort.entries.indexOf(settings.defaultPlaylistSort.toPlaylistSort()),
-                                onSelect = { settingsViewModel.setDefaultPlaylistSort(PlaylistSort.entries[it]) }
-                            )
-                        }
-                        
-                        item {
-                            SwitchSetting(
-                                title = "Afficher les albums vides",
-                                subtitle = "Affiche les albums même s'ils ne contiennent aucun morceau",
-                                icon = Icons.Rounded.Folder,
-                                checked = settings.showEmptyAlbums,
-                                onCheckedChange = settingsViewModel::setShowEmptyAlbums
-                            )
-                        }
-                        
-                        item {
-                            SwitchSetting(
-                                title = "Grouper les albums par artiste",
-                                subtitle = "Regroupe les albums par artiste dans la bibliothèque",
-                                icon = Icons.Rounded.Person,
-                                checked = settings.groupAlbumsByArtist,
-                                onCheckedChange = settingsViewModel::setGroupAlbumsByArtist
-                            )
-                        }
-                        
-                        item {
-                            SwitchSetting(
-                                title = "Masquer les copies dans la bibliothèque",
-                                subtitle = "N'affiche qu'un exemplaire par morceau, sans rien supprimer",
-                                icon = Icons.Rounded.DataSaverOn,
-                                checked = settings.hideDuplicates,
-                                onCheckedChange = settingsViewModel::setHideDuplicates
-                            )
-                        }
-                        
-                        item {
                             ClickableSetting(
                                 title = "Relancer le scan",
                                 subtitle = "${library.songs.size.pluralSongs()} · ${library.totalDurationMs.asLongDuration()}",
@@ -995,28 +805,6 @@ fun SettingsScreen(
                                 icon = Icons.Rounded.SmartDisplay,
                                 onClick = onNavigateToAdvancedSearch
                             )
-                        }
-
-                        item {
-                            SwitchSetting(
-                                title = "Scan automatique",
-                                subtitle = "Démarre automatiquement le scan au démarrage de l'application",
-                                icon = Icons.Rounded.SystemSecurityUpdate,
-                                checked = settings.autoScan,
-                                onCheckedChange = settingsViewModel::setAutoScan
-                            )
-                        }
-                        
-                        if (settings.autoScan) {
-                            item {
-                                SwitchSetting(
-                                    title = "Scan en arrière-plan",
-                                    subtitle = "Permet de continuer le scan même quand l'application est en arrière-plan",
-                                    icon = Icons.Rounded.DataSaverOn,
-                                    checked = settings.scanInBackground,
-                                    onCheckedChange = settingsViewModel::setScanInBackground
-                                )
-                            }
                         }
                     }
 
@@ -1095,15 +883,6 @@ fun SettingsScreen(
                                 onClick = onNavigateToHistory
                             )
                         }
-                        
-                        item {
-                            ChipSetting(
-                                title = "Période par défaut pour les stats",
-                                options = StatsPeriod.entries.map { entry -> entry.label },
-                                selectedIndex = StatsPeriod.entries.indexOf(settings.defaultStatsPeriod.toStatsPeriod()),
-                                onSelect = { settingsViewModel.setDefaultStatsPeriod(StatsPeriod.entries[it]) }
-                            )
-                        }
                     }
 
                     // ================================================================
@@ -1136,16 +915,6 @@ fun SettingsScreen(
                                         viewModel.showMessage("Caches des pochettes et données temporaires nettoyés !")
                                     }
                                 }
-                            )
-                        }
-
-                        item {
-                            SwitchSetting(
-                                title = "Mode développeur",
-                                subtitle = "Active des options de débogage avancées",
-                                icon = Icons.Rounded.DeveloperMode,
-                                checked = settings.developerMode,
-                                onCheckedChange = settingsViewModel::setDeveloperMode
                             )
                         }
 
@@ -1188,6 +957,69 @@ fun SettingsScreen(
     }
 }
 
+// ============================================================================
+// BRIQUES PARTAGÉES
+// ============================================================================
+
+/** Hauteur minimale d'une ligne de réglage (liste Material à deux lignes). */
+private val RowMinHeight = 56.dp
+
+/** Pastille d'icône des lignes : taille et arrondi identiques sur tout l'écran. */
+private val IconTileSize = 36.dp
+private val IconTileShape = RoundedCornerShape(Radius.sm)
+
+/** Retrait des contrôles placés sous un titre précédé d'une icône. */
+private val IconIndent = IconTileSize + Space.md
+
+private val SubMenuShape = RoundedCornerShape(Radius.md)
+
+/** Marges d'une ligne de réglage. */
+private val RowPadding = PaddingValues(horizontal = Space.xl, vertical = Space.md)
+
+/**
+ * Pastille d'icône décorative en tête de ligne, suivie de son espacement.
+ */
+@Composable
+private fun SettingIconTile(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    container: Color = MaterialTheme.colorScheme.surfaceContainer,
+    tint: Color = MaterialTheme.colorScheme.primary,
+) {
+    Box(
+        modifier = Modifier
+            .size(IconTileSize)
+            .clip(IconTileShape)
+            .background(container),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            tint = tint
+        )
+    }
+    Spacer(Modifier.width(Space.md))
+}
+
+/** Titre et sous-titre d'une ligne de réglage. */
+@Composable
+private fun SettingTexts(title: String, subtitle: String?, modifier: Modifier = Modifier) {
+    Column(modifier = modifier) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyLarge
+        )
+        if (subtitle != null) {
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
 /**
  * En-tête de section des paramètres.
  */
@@ -1196,26 +1028,17 @@ private fun SettingsSectionHeader(title: String, icon: androidx.compose.ui.graph
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = Space.lg, vertical = Space.sm)
+            // Annoncé comme titre : TalkBack permet de sauter de section en section.
+            .semantics(mergeDescendants = true) { heading() },
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(MaterialTheme.colorScheme.primaryContainer),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                modifier = Modifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.onPrimaryContainer
-            )
-        }
-        
-        Spacer(Modifier.width(12.dp))
-        
+        SettingIconTile(
+            icon = icon,
+            container = MaterialTheme.colorScheme.primaryContainer,
+            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+        )
+
         Text(
             text = title,
             style = MaterialTheme.typography.titleMedium.copy(
@@ -1228,6 +1051,9 @@ private fun SettingsSectionHeader(title: String, icon: androidx.compose.ui.graph
 
 /**
  * Paramètre avec interrupteur.
+ *
+ * Toute la ligne porte l'état (`toggleable`, rôle Switch) et l'interrupteur n'a pas de
+ * gestionnaire propre : un seul arrêt de focus, annoncé « interrupteur, activé ».
  */
 @Composable
 private fun SwitchSetting(
@@ -1240,45 +1066,24 @@ private fun SwitchSetting(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onCheckedChange(!checked) }
-            .padding(horizontal = 24.dp, vertical = 12.dp),
+            .heightIn(min = RowMinHeight)
+            .toggleable(
+                value = checked,
+                role = Role.Switch,
+                onValueChange = onCheckedChange,
+            )
+            .padding(RowPadding),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (icon != null) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.surfaceContainer),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            }
-            Spacer(Modifier.width(12.dp))
-        }
-        
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyLarge
-            )
-            if (subtitle != null) {
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-        
+        if (icon != null) SettingIconTile(icon)
+
+        SettingTexts(title, subtitle, Modifier.weight(1f))
+
+        Spacer(Modifier.width(Space.md))
+
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange
+            onCheckedChange = null
         )
     }
 }
@@ -1296,45 +1101,19 @@ private fun ClickableSetting(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 24.dp, vertical = 12.dp),
+            .heightIn(min = RowMinHeight)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(RowPadding),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (icon != null) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.surfaceContainer),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            }
-            Spacer(Modifier.width(12.dp))
-        }
-        
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyLarge
-            )
-            if (subtitle != null) {
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-        
+        if (icon != null) SettingIconTile(icon)
+
+        SettingTexts(title, subtitle, Modifier.weight(1f))
+
+        // Décoratif : le titre de la ligne dit déjà ce que fait l'appui.
         Icon(
             Icons.Rounded.MoreVert,
-            contentDescription = "Accéder",
+            contentDescription = null,
             modifier = Modifier.size(20.dp),
             tint = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -1358,30 +1137,14 @@ private fun SliderSetting(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 8.dp)
+            .padding(horizontal = Space.xl, vertical = Space.sm)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (icon != null) {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainer),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        icon,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-                Spacer(Modifier.width(12.dp))
-            }
-            
+            if (icon != null) SettingIconTile(icon)
+
             Column(modifier = Modifier.weight(1f)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1396,7 +1159,7 @@ private fun SliderSetting(
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Spacer(Modifier.width(12.dp))
+                    Spacer(Modifier.width(Space.md))
                     Text(
                         text = display(value),
                         style = MaterialTheme.typography.labelLarge,
@@ -1414,13 +1177,16 @@ private fun SliderSetting(
                 }
             }
         }
-        
+
         Slider(
             value = value,
             onValueChange = onChange,
             valueRange = valueRange,
             steps = steps,
-            modifier = Modifier.padding(start = if (icon != null) 48.dp else 0.dp)
+            modifier = Modifier
+                .padding(start = if (icon != null) IconIndent else 0.dp)
+                // TalkBack lit la valeur formatée (« 30 min ») plutôt qu'un pourcentage brut.
+                .semantics { stateDescription = display(value) }
         )
     }
 }
@@ -1439,43 +1205,28 @@ private fun ChipSetting(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 8.dp)
+            .padding(horizontal = Space.xl, vertical = Space.sm)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (icon != null) {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainer),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        icon,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-                Spacer(Modifier.width(12.dp))
-            }
-            
+            if (icon != null) SettingIconTile(icon)
+
             Text(
                 text = title,
                 style = MaterialTheme.typography.bodyLarge
             )
         }
-        
-        Spacer(Modifier.height(8.dp))
-        
+
+        Spacer(Modifier.height(Space.sm))
+
         androidx.compose.foundation.layout.FlowRow(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = if (icon != null) 48.dp else 0.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(start = if (icon != null) IconIndent else 0.dp)
+                .selectableGroup(),
+            horizontalArrangement = Arrangement.spacedBy(Space.sm)
         ) {
             options.forEachIndexed { index, label ->
                 FilterChip(
@@ -1487,8 +1238,6 @@ private fun ChipSetting(
         }
     }
 }
-
-
 
 /**
  * Sheet de paramètres de couleurs.
@@ -1517,7 +1266,8 @@ private fun ColorSettingsSheet(
                 style = MaterialTheme.typography.headlineSmall.copy(
                     fontWeight = FontWeight.Bold
                 ),
-                color = MaterialTheme.colorScheme.onBackground
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.semantics { heading() },
             )
             
             Spacer(Modifier.height(20.dp))
@@ -1525,24 +1275,32 @@ private fun ColorSettingsSheet(
             Text(
                 text = "Source de la couleur d'accent",
                 style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onBackground
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.semantics { heading() },
             )
             
             Spacer(Modifier.height(8.dp))
             
+            Column(Modifier.selectableGroup()) {
             AccentSource.entries.forEach { source ->
+                // Ligne entière sélectionnable : un seul arrêt de focus, annoncé « bouton radio ».
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onAccentChange(source) }
-                        .padding(vertical = 8.dp),
+                        .heightIn(min = RowMinHeight)
+                        .selectable(
+                            selected = source == currentAccentSource,
+                            role = Role.RadioButton,
+                            onClick = { onAccentChange(source) },
+                        )
+                        .padding(vertical = Space.sm),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     RadioButton(
                         selected = source == currentAccentSource,
-                        onClick = { onAccentChange(source) }
+                        onClick = null
                     )
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(Space.md))
                     Column {
                         Text(
                             text = source.label,
@@ -1559,6 +1317,7 @@ private fun ColorSettingsSheet(
                     }
                 }
             }
+            }
 
             if (currentAccentSource == AccentSource.CUSTOM) {
                 Spacer(Modifier.height(24.dp))
@@ -1566,7 +1325,8 @@ private fun ColorSettingsSheet(
                 Text(
                     text = "Couleur principale",
                     style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onBackground
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.semantics { heading() },
                 )
                 
                 Spacer(Modifier.height(12.dp))
@@ -1595,7 +1355,8 @@ private fun ColorSettingsSheet(
                 Text(
                     text = "Couleur secondaire",
                     style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onBackground
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.semantics { heading() },
                 )
                 
                 Spacer(Modifier.height(12.dp))
@@ -1643,9 +1404,10 @@ private fun ColorOption(
 ) {
     Box(
         modifier = Modifier
-            .size(48.dp)
+            .size(Space.touchTarget)
             .clip(CircleShape)
-            .clickable(onClick = onSelect)
+            .selectable(selected = isSelected, role = Role.RadioButton, onClick = onSelect)
+            .semantics { contentDescription = color.label }
             .background(color.toColor()),
         contentAlignment = Alignment.Center
     ) {
@@ -1690,7 +1452,8 @@ private fun TextSizeSettingsSheet(
                 style = MaterialTheme.typography.headlineSmall.copy(
                     fontWeight = FontWeight.Bold
                 ),
-                color = MaterialTheme.colorScheme.onBackground
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.semantics { heading() },
             )
             
             Spacer(Modifier.height(20.dp))
@@ -1703,19 +1466,25 @@ private fun TextSizeSettingsSheet(
             
             Spacer(Modifier.height(16.dp))
             
+            Column(Modifier.selectableGroup()) {
             TextSize.entries.forEach { size ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onSizeChange(size) }
-                        .padding(vertical = 8.dp),
+                        .heightIn(min = RowMinHeight)
+                        .selectable(
+                            selected = size == currentSize,
+                            role = Role.RadioButton,
+                            onClick = { onSizeChange(size) },
+                        )
+                        .padding(vertical = Space.sm),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     RadioButton(
                         selected = size == currentSize,
-                        onClick = { onSizeChange(size) }
+                        onClick = null
                     )
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(Space.md))
                     Text(
                         text = size.label,
                         style = MaterialTheme.typography.bodyLarge,
@@ -1738,6 +1507,7 @@ private fun TextSizeSettingsSheet(
                         )
                     }
                 }
+            }
             }
             
             Spacer(Modifier.height(24.dp))
@@ -1974,7 +1744,11 @@ private fun DiscordSection(onMessage: (String) -> Unit) {
     if (editing) {
         var draft by remember { mutableStateOf(state.webhookUrl) }
         SynxioDialog(onDismiss = { editing = false }) {
-            Text("Webhook Discord", style = MaterialTheme.typography.titleLarge)
+            Text(
+                "Webhook Discord",
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.semantics { heading() },
+            )
             Spacer(Modifier.height(12.dp))
             Text(
                 text = "Dans Discord : clic droit sur le salon → Modifier le salon → " +
@@ -1983,11 +1757,18 @@ private fun DiscordSection(onMessage: (String) -> Unit) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(16.dp))
+            // Champ vide = suppression du webhook, donc accepté ; sinon l'URL doit être un
+            // vrai webhook Discord, sans quoi on n'enregistre rien.
+            val invalid = draft.isNotBlank() && !DiscordWebhookUrl.isValid(draft)
             OutlinedTextField(
                 value = draft,
                 onValueChange = { draft = it },
                 label = { Text("URL du webhook") },
                 singleLine = true,
+                isError = invalid,
+                supportingText = if (invalid) {
+                    { Text("Adresse attendue : https://discord.com/api/webhooks/…") }
+                } else null,
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(Modifier.height(8.dp))
@@ -1999,10 +1780,13 @@ private fun DiscordSection(onMessage: (String) -> Unit) {
             Spacer(Modifier.height(16.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = { editing = false }) { Text("Annuler") }
-                Button(onClick = {
-                    viewModel.setUrl(draft.trim())
-                    editing = false
-                }) { Text("Enregistrer") }
+                Button(
+                    enabled = !invalid,
+                    onClick = {
+                        viewModel.setUrl(draft.trim())
+                        editing = false
+                    },
+                ) { Text("Enregistrer") }
             }
         }
     }

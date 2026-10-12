@@ -10,7 +10,6 @@ import fr.synxio.player.data.lastfm.LastFmScrobbler
 import fr.synxio.player.data.model.AccentSource
 import fr.synxio.player.data.model.LibraryTab
 import fr.synxio.player.data.model.NowPlayingSkin
-import fr.synxio.player.data.model.PlaylistSort
 import fr.synxio.player.data.model.ThemeColor
 import fr.synxio.player.data.model.ThemeMode
 import fr.synxio.player.data.model.TextSize
@@ -141,14 +140,8 @@ class SettingsViewModel @Inject constructor(
     fun setResumeOnHeadsetConnect(value: Boolean) =
         update { settings.setResumeOnHeadsetConnect(value) }
 
-    /** Reprendre après un appel */
-    fun setResumeAfterCall(value: Boolean) = update { settings.setResumeAfterCall(value) }
-
     /** Arrêter après inactivité (en minutes, 0 = désactivé) */
     fun setStopAfterInactivity(value: Int) = update { settings.setStopAfterInactivity(value) }
-
-    /** Volume par défaut */
-    fun setDefaultVolume(value: Float) = update { settings.setDefaultVolume(value) }
 
     /** Limiter le volume maximum */
     fun setMaxVolumeLimit(value: Boolean) = update { settings.setMaxVolumeLimit(value) }
@@ -161,41 +154,15 @@ class SettingsViewModel @Inject constructor(
     fun setMinDuration(seconds: Int) = update { settings.setMinDurationSec(seconds) }
     fun setDefaultTab(tab: LibraryTab) = update { settings.setDefaultTab(tab) }
 
-    /** Afficher les albums vides */
-    fun setShowEmptyAlbums(value: Boolean) = update { settings.setShowEmptyAlbums(value) }
-
-    /** Regrouper les albums par artiste */
-    fun setGroupAlbumsByArtist(value: Boolean) = update { settings.setGroupAlbumsByArtist(value) }
-
-    /** Scan automatique */
-    fun setAutoScan(value: Boolean) = update { settings.setAutoScan(value) }
-
-    /** Scan en arrière-plan */
-    fun setScanInBackground(value: Boolean) = update { settings.setScanInBackground(value) }
-
-    /** Masquer les doublons */
-    fun setHideDuplicates(value: Boolean) = update { settings.setHideDuplicates(value) }
-
     // ========================================================================
     // PLAYLISTS
     // ========================================================================
-
-    /** Tri par défaut des playlists */
-    fun setDefaultPlaylistSort(value: PlaylistSort) = update { settings.setDefaultPlaylistSort(value.name) }
 
     /** Afficher la durée totale des playlists */
     fun setShowPlaylistDuration(value: Boolean) = update { settings.setShowPlaylistDuration(value) }
 
     /** Autoriser les doublons dans les playlists */
     fun setAllowDuplicateSongs(value: Boolean) = update { settings.setAllowDuplicateSongs(value) }
-
-    // ========================================================================
-    // STATISTIQUES
-    // ========================================================================
-
-    /** Période par défaut pour les statistiques */
-    fun setDefaultStatsPeriod(value: fr.synxio.player.data.model.StatsPeriod) = 
-        update { settings.setDefaultStatsPeriod(value.name) }
 
     // ========================================================================
     // PAROLES ET SCROBBLING
@@ -224,21 +191,6 @@ class SettingsViewModel @Inject constructor(
 
     /** Réduire les animations */
     fun setReduceAnimations(value: Boolean) = update { settings.setReduceAnimations(value) }
-
-    // ========================================================================
-    // EXPÉRIMENTAL
-    // ========================================================================
-
-    /** Mode développeur */
-    fun setDeveloperMode(value: Boolean) = update { settings.setDeveloperMode(value) }
-
-    // ========================================================================
-    // WIDGET LIQUID GLASS
-    // ========================================================================
-
-    fun setWidgetShowWave(value: Boolean) = update { settings.setWidgetShowWave(value) }
-    fun setWidgetGlassOpacity(value: Float) = update { settings.setWidgetGlassOpacity(value) }
-    fun setWidgetWaveTint(value: String) = update { settings.setWidgetWaveTint(value) }
 
     // ========================================================================
     // LECTURE & AFFICHAGE AVANCÉS

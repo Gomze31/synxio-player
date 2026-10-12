@@ -18,6 +18,11 @@ class DownloadRepository @Inject constructor(
 ) {
 
     suspend fun downloadAudio(url: String, onProgress: (Float) -> Unit): Result<String> = withContext(Dispatchers.IO) {
+        // Seul un lien de vidéo YouTube validé et reconstruit en https:// atteint yt-dlp :
+        // un texte commençant par « - » serait interprété comme une option de ligne de commande.
+        val safeUrl = YoutubeUrls.normalizeVideo(url)
+            ?: return@withContext Result.failure(IllegalArgumentException("Lien YouTube invalide"))
+
         try {
             // S'assurer de l'initialisation sur le thread IO pour éviter de bloquer le MainThread
             try {
@@ -35,7 +40,12 @@ class DownloadRepository @Inject constructor(
                 downloadDir.mkdirs()
             }
 
-            val request = YoutubeDLRequest(url)
+            val request = YoutubeDLRequest(safeUrl)
+            // Aucun fichier de configuration externe (ex. /sdcard/yt-dlp.conf) n'est chargé,
+            // et aucune commande --exec ne peut être héritée : on n'en passe jamais.
+            request.addOption("--ignore-config")
+            request.addOption("--no-exec")
+            request.addOption("--no-playlist")
             request.addOption("-o", "${downloadDir.absolutePath}/%(title)s.%(ext)s")
             request.addOption("--extract-audio")
             request.addOption("--audio-format", "mp3")

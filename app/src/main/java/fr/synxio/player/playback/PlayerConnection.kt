@@ -6,6 +6,7 @@ import android.os.Bundle
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
+import androidx.media3.common.util.Util
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionToken
@@ -29,6 +30,13 @@ import javax.inject.Singleton
 data class PlayerUiState(
     val connected: Boolean = false,
     val currentSong: Song? = null,
+    /**
+     * Lecture demandée : vrai aussi pendant la mise en mémoire tampon.
+     *
+     * C'est ce qui pilote l'icône lecture/pause. Basé sur `Player.isPlaying`, le bouton
+     * clignotait sur « lecture » à chaque chargement et ne permettait pas de mettre en
+     * pause une radio qui se connecte.
+     */
     val isPlaying: Boolean = false,
     val isBuffering: Boolean = false,
     val positionMs: Long = 0,
@@ -45,7 +53,6 @@ data class PlayerUiState(
     val loopStartMs: Long? = null,
     /** Fin de la boucle A-B, null tant que le second point n'est pas posé. */
     val loopEndMs: Long? = null,
-    val audioSessionId: Int = 0,
 ) {
     val progress: Float
         get() = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
@@ -86,28 +93,52 @@ class PlayerConnection @Inject constructor(
      * démarrage à froid, alors que la connexion au service prend encore quelques
      * centaines de millisecondes. Sans mise en attente, la commande était perdue.
      */
-    private var pendingCommand: (() -> Unit)? = null
+    private val pendingCommands = ArrayList<() -> Unit>()
 
     private inline fun whenConnected(crossinline block: () -> Unit) {
-        if (controller != null) block() else pendingCommand = { block() }
+        if (controller != null) block() else pendingCommands += { block() }
     }
 
     init {
         scope.launch { connect() }
         scope.launch { tickPosition() }
+        // La file affichée est reconstruite quand la bibliothèque change (tags édités,
+        // rescan) : sinon elle gardait anciens titres et pochettes, ou les fiches
+        // provisoires créées avant la fin du scan, jusqu'au prochain changement de file.
+        scope.launch {
+            musicRepository.library.collect {
+                withContext(Dispatchers.Main) { syncState(rebuildQueue = true) }
+            }
+        }
     }
 
-    private suspend fun connect() = withContext(Dispatchers.Main) {
+    private suspend fun connect(): Unit = withContext(Dispatchers.Main) {
         val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
-        val future = MediaController.Builder(context, token).buildAsync()
+        val future = MediaController.Builder(context, token)
+            .setListener(object : MediaController.Listener {
+                // Service tué (mémoire, mise à jour) : sans reconnexion, toutes les
+                // commandes devenaient silencieusement sans effet jusqu'au redémarrage.
+                override fun onDisconnected(controller: MediaController) {
+                    this@PlayerConnection.controller = null
+                    _state.value = _state.value.copy(connected = false, isPlaying = false)
+                    scope.launch {
+                        delay(RECONNECT_DELAY_MS)
+                        connect()
+                    }
+                }
+            })
+            .buildAsync()
         future.addListener(
             {
                 runCatching { future.get() }.onSuccess { mediaController ->
                     controller = mediaController
                     mediaController.addListener(ControllerListener())
-                    syncState()
-                    pendingCommand?.invoke()
-                    pendingCommand = null
+                    syncState(rebuildQueue = true)
+                    // Toutes les commandes en attente, dans l'ordre : n'en garder qu'une
+                    // perdait par exemple « lire » suivi de « ajouter à la file ».
+                    val commands = pendingCommands.toList()
+                    pendingCommands.clear()
+                    commands.forEach { it() }
                 }
             },
             androidx.core.content.ContextCompat.getMainExecutor(context),
@@ -182,12 +213,23 @@ class PlayerConnection @Inject constructor(
         }
     }
 
-    private fun syncState() {
+    /**
+     * Reconstruit l'état depuis le contrôleur.
+     *
+     * La file n'est relue que si la timeline a changé : la reconstruire à chaque pause ou
+     * avancée coûtait une recherche par morceau sur le thread principal, soit des milliers
+     * d'opérations pour une grande file.
+     */
+    private fun syncState(rebuildQueue: Boolean) {
         val c = controller ?: return
         val previous = _state.value
-        val queue = (0 until c.mediaItemCount).mapNotNull {
-            val item = c.getMediaItemAt(it)
-            musicRepository.songById(item.songId) ?: item.toSynthesizedSong()
+        val queue = if (rebuildQueue || previous.queue.size != c.mediaItemCount) {
+            (0 until c.mediaItemCount).mapNotNull {
+                val item = c.getMediaItemAt(it)
+                musicRepository.songById(item.songId) ?: item.toSynthesizedSong()
+            }
+        } else {
+            previous.queue
         }
         val current = c.currentMediaItem?.let { item ->
             musicRepository.songById(item.songId) ?: item.toSynthesizedSong()
@@ -202,7 +244,7 @@ class PlayerConnection @Inject constructor(
         _state.value = PlayerUiState(
             connected = true,
             currentSong = current,
-            isPlaying = c.isPlaying,
+            isPlaying = !Util.shouldShowPlayButton(c),
             isBuffering = c.playbackState == Player.STATE_BUFFERING,
             positionMs = c.currentPosition.coerceAtLeast(0),
             durationMs = c.duration.takeIf { it > 0 } ?: 0,
@@ -220,12 +262,12 @@ class PlayerConnection @Inject constructor(
             hasPrevious = c.hasPreviousMediaItem(),
             loopStartMs = previous.loopStartMs.takeIf { sameTrack },
             loopEndMs = previous.loopEndMs.takeIf { sameTrack },
-            audioSessionId = runCatching { (c as? androidx.media3.exoplayer.ExoPlayer)?.audioSessionId ?: 0 }.getOrDefault(0),
         )
     }
 
     private inner class ControllerListener : Player.Listener {
-        override fun onEvents(player: Player, events: Player.Events) = syncState()
+        override fun onEvents(player: Player, events: Player.Events) =
+            syncState(rebuildQueue = events.contains(Player.EVENT_TIMELINE_CHANGED))
     }
 
     // --- Commandes ----------------------------------------------------------------------
@@ -272,14 +314,48 @@ class PlayerConnection @Inject constructor(
         }
     }
 
+    /**
+     * Lit un fichier ouvert depuis une autre app (« Ouvrir avec Synxio »).
+     *
+     * Si le fichier fait partie de la bibliothèque, on le joue comme tel (stats, pochette,
+     * favoris). Sinon on le lit tel quel, avec son nom de fichier pour titre.
+     */
+    fun playExternalUri(uri: android.net.Uri, displayName: String?) {
+        val known = uri.lastPathSegment?.toLongOrNull()
+            ?.takeIf { uri.authority == android.provider.MediaStore.AUTHORITY }
+            ?.let(musicRepository::songById)
+        if (known != null) return play(listOf(known))
+
+        whenConnected {
+            val c = controller ?: return@whenConnected
+            val title = displayName?.substringBeforeLast('.')?.takeIf { it.isNotBlank() } ?: "Fichier audio"
+            val item = MediaItem.Builder()
+                .setMediaId((-(uri.toString().hashCode().toLong() and 0x7FFFFFFF) - 1).toString())
+                .setUri(uri)
+                .setMediaMetadata(
+                    androidx.media3.common.MediaMetadata.Builder()
+                        .setTitle(title)
+                        .setIsPlayable(true)
+                        .build()
+                )
+                .build()
+            c.setMediaItem(item)
+            c.prepare()
+            c.play()
+        }
+    }
+
     /** Lance la sélection en aléatoire, en démarrant sur un titre au hasard. */
     fun shufflePlay(songs: List<Song>) {
         if (songs.isEmpty()) return
         whenConnected {
-            controller?.shuffleModeEnabled = true
             val c = controller ?: return@whenConnected
-            val index = songs.indices.random()
-            c.setMediaItems(songs.toMediaItems(), index, 0L)
+            // Aléatoire coupé puis rétabli après la nouvelle file : le service fige alors
+            // le titre de départ en tête de l'ordre aléatoire. Activé avant, l'ordre
+            // tiré au hasard sautait tous les titres placés avant le point de départ.
+            c.shuffleModeEnabled = false
+            c.setMediaItems(songs.toMediaItems(), songs.indices.random(), 0L)
+            c.shuffleModeEnabled = true
             c.prepare()
             c.play()
         }
@@ -299,22 +375,32 @@ class PlayerConnection @Inject constructor(
         c.addMediaItems(songs.toMediaItems())
     }
 
+    /**
+     * Gère aussi les cas où `play()` seul ne fait rien : après une erreur (IDLE) il faut
+     * préparer, et en fin de file (ENDED) revenir au début.
+     */
     fun togglePlayPause() = whenConnected {
         val c = controller ?: return@whenConnected
-        if (c.isPlaying) c.pause() else {
-            if (c.playbackState == Player.STATE_IDLE) c.prepare()
-            c.play()
-        }
+        Util.handlePlayPauseButtonAction(c)
     }
 
     fun pause() { controller?.pause() }
 
-    fun next() { controller?.seekToNextMediaItem() }
+    fun next() {
+        val c = controller ?: return
+        c.seekToNextMediaItem()
+        // Après une erreur le lecteur reste IDLE : changer de piste ne relançait rien.
+        if (c.playbackState == Player.STATE_IDLE) c.prepare()
+    }
 
-    /** Retour arrière : redémarre le morceau si on est au-delà de 3 secondes. */
+    /**
+     * Retour arrière : redémarre le morceau au-delà de 3 secondes, sinon piste précédente.
+     * `seekToPrevious` redémarre aussi le premier morceau, où l'ancien code ne faisait rien.
+     */
     fun previous() {
         val c = controller ?: return
-        if (c.currentPosition > 3_000) c.seekTo(0) else c.seekToPreviousMediaItem()
+        c.seekToPrevious()
+        if (c.playbackState == Player.STATE_IDLE) c.prepare()
     }
 
     fun seekTo(positionMs: Long) {
@@ -399,5 +485,6 @@ class PlayerConnection @Inject constructor(
         const val LOOP_TICK_MS = 60L
         /** En dessous, la boucle ne produirait qu'un hoquet au lieu d'une phrase. */
         const val MIN_LOOP_MS = 1_000L
+        const val RECONNECT_DELAY_MS = 1_000L
     }
 }

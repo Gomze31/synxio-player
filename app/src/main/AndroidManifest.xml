@@ -33,6 +33,15 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!--
+        « Définir comme sonnerie » : RingtoneManager.setActualDefaultRingtoneUri exige
+        WRITE_SETTINGS, accordée par l'utilisateur via ACTION_MANAGE_WRITE_SETTINGS.
+        Sans cette déclaration, l'écran système ne propose même pas l'autorisation.
+    -->
+    <uses-permission
+        android:name="android.permission.WRITE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+
     <uses-feature
         android:name="android.hardware.touchscreen"
         android:required="false" />
@@ -61,7 +70,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:enableOnBackInvokedCallback="true"
-        android:usesCleartextTraffic="true"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:theme="@style/Theme.Synxio.Splash"
         tools:targetApi="34">
 
