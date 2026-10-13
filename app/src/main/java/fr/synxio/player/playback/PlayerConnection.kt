@@ -18,7 +18,9 @@ import fr.synxio.player.di.ApplicationScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
@@ -83,6 +85,15 @@ class PlayerConnection @Inject constructor(
 
     private val _state = MutableStateFlow(PlayerUiState())
     val state: StateFlow<PlayerUiState> = _state.asStateFlow()
+
+    /**
+     * Erreurs de lecture, à montrer à l'utilisateur.
+     *
+     * Sans message, un titre illisible passait au suivant (ou la lecture s'arrêtait) sans
+     * que personne ne sache pourquoi. Le code d'erreur aide aussi au diagnostic.
+     */
+    private val _errors = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    val errors: SharedFlow<String> = _errors
 
     private var controller: MediaController? = null
 
@@ -266,6 +277,11 @@ class PlayerConnection @Inject constructor(
     }
 
     private inner class ControllerListener : Player.Listener {
+        override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            val title = controller?.currentMediaItem?.mediaMetadata?.title ?: "ce titre"
+            _errors.tryEmit("Impossible de lire « $title » (${error.errorCodeName})")
+        }
+
         override fun onEvents(player: Player, events: Player.Events) =
             syncState(rebuildQueue = events.contains(Player.EVENT_TIMELINE_CHANGED))
     }
@@ -293,7 +309,7 @@ class PlayerConnection @Inject constructor(
         whenConnected {
             val c = controller ?: return@whenConnected
             val id = -(station.stationUuid.hashCode().toLong() and 0x7FFFFFFF)
-            
+
             val metadata = androidx.media3.common.MediaMetadata.Builder()
                 .setTitle(station.name)
                 .setArtist(station.tags.ifBlank { station.country })

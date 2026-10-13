@@ -5,6 +5,10 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
+import android.widget.Toast
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.IntentSenderRequest
@@ -87,6 +91,15 @@ class MainActivity : AppCompatActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         if (savedInstanceState == null) pendingIntent.value = intent
+
+        // Erreurs de lecture visibles où que l'on soit dans l'app.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                playerConnection.errors.collect { message ->
+                    Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
+                }
+            }
+        }
 
         setContent {
             val viewModel: AppViewModel = hiltViewModel()

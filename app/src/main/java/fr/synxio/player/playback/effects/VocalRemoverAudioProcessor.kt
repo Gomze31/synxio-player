@@ -17,10 +17,10 @@ class VocalRemoverAudioProcessor : AudioProcessor {
     private var active = false
     private var inputAudioFormat = AudioFormat.NOT_SET
     private var outputAudioFormat = AudioFormat.NOT_SET
-    
+
     private var buffer: ByteBuffer = AudioProcessor.EMPTY_BUFFER
     private var outputBuffer: ByteBuffer = AudioProcessor.EMPTY_BUFFER
-    
+
     private var inputEnded = false
 
     fun setEnabled(enabled: Boolean) {
@@ -42,13 +42,14 @@ class VocalRemoverAudioProcessor : AudioProcessor {
     }
 
     /**
-     * Toujours actif sur un flux compatible, que le karaoké soit allumé ou non.
+     * Actif seulement quand le karaoké est allumé, comme en 4.3.0.
      *
-     * ExoPlayer ne relit `isActive()` qu'à la reconfiguration du pipeline audio : renvoyer
-     * `active` ici faisait qu'activer le karaoké en cours de morceau n'avait aucun effet
-     * avant la piste suivante. Éteint, le processeur recopie simplement le signal.
+     * La 4.4.0 le gardait toujours dans le pipeline audio pour appliquer le karaoké en
+     * cours de morceau ; ce changement est retiré par précaution, le pipeline éprouvé
+     * compte plus que l'effet immédiat. ExoPlayer ne relisant `isActive()` qu'à la
+     * reconfiguration, le karaoké s'applique au morceau suivant (ou après une recherche).
      */
-    override fun isActive(): Boolean = inputAudioFormat != AudioFormat.NOT_SET
+    override fun isActive(): Boolean = active && inputAudioFormat != AudioFormat.NOT_SET
 
     override fun queueInput(inputBuffer: ByteBuffer) {
         val size = inputBuffer.remaining()
@@ -73,16 +74,16 @@ class VocalRemoverAudioProcessor : AudioProcessor {
         while (shortBuffer.remaining() >= 2) {
             val left = shortBuffer.get()
             val right = shortBuffer.get()
-            
+
             // Annulation de phase (L - R)
             // On divise par 2 pour éviter le clipping
             val difference = ((left - right) / 2).toShort()
-            
+
             // On redistribue le résultat sur les deux canaux (fausse stéréo mono)
             outShortBuffer.put(difference)
             outShortBuffer.put(difference)
         }
-        
+
         inputBuffer.position(inputBuffer.position() + size)
         buffer.limit(size)
         outputBuffer = buffer

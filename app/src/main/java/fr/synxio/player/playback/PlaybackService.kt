@@ -119,7 +119,7 @@ class PlaybackService : MediaLibraryService() {
     private var castPlayer: androidx.media3.cast.CastPlayer? = null
     private val activePlayer: Player get() = session.player
     private lateinit var fade: FadeController
-    
+
     val vocalRemover = fr.synxio.player.playback.effects.VocalRemoverAudioProcessor()
     private var partyServer: PartyServer? = null
     private var castServer: CastMediaServer? = null
@@ -149,8 +149,8 @@ class PlaybackService : MediaLibraryService() {
      */
     private var queueLoaded = false
 
-    /** Erreurs de lecture consécutives : au-delà d'un seuil on arrête d'enchaîner. */
-    private var consecutiveErrors = 0
+    /** Décide entre passer au titre suivant et s'arrêter quand un titre est illisible. */
+    private val errorPolicy = PlaybackErrorPolicy()
 
     /** Dernier morceau annoncé à Last.fm / Discord : une annonce par morceau, en lecture seulement. */
     private var announcedSongId: Long = -1L
@@ -179,7 +179,7 @@ class PlaybackService : MediaLibraryService() {
         val httpDataSourceFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
             .setUserAgent("SynxioMediaPlayer/${fr.synxio.player.BuildConfig.VERSION_NAME}")
-            
+
         val dataSourceFactory = androidx.media3.datasource.DefaultDataSource.Factory(this, httpDataSourceFactory)
         val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(this)
             .setDataSourceFactory(dataSourceFactory)
@@ -233,7 +233,7 @@ class PlaybackService : MediaLibraryService() {
         observeSettings()
         observeLibraryForQueueRestore()
         observeFavoriteForCustomLayout()
-        
+
         serviceScope.launch {
             sleepTimer.state.collect { state ->
                 fade.sleepGain = state.fadeMultiplier
@@ -246,7 +246,7 @@ class PlaybackService : MediaLibraryService() {
                 activePlayer.seekToNextMediaItem()
             }
         }
-        
+
         initCastPlayer()
     }
 
@@ -586,6 +586,8 @@ class PlaybackService : MediaLibraryService() {
             while (isActive) {
                 delay(POSITION_SAVE_INTERVAL_MS)
                 if (!activePlayer.isPlaying) break
+                // Dix secondes de lecture continue : la lecture fonctionne vraiment.
+                errorPolicy.onListened(POSITION_SAVE_INTERVAL_MS)
                 persistQueue()
             }
         }
@@ -662,7 +664,7 @@ class PlaybackService : MediaLibraryService() {
     private fun finalizeCurrentTrack(skipped: Boolean, finished: Boolean = !skipped) {
         accumulate()
         persistPodcastProgress(finished = finished)
-        
+
         val song: Song = musicRepository.songById(trackedSongId) ?: return
         val listened = listenedMs
         val startedAt = trackStartedAtSec
@@ -677,11 +679,11 @@ class PlaybackService : MediaLibraryService() {
         }
         listenedMs = 0L
     }
-    
+
     private fun persistPodcastProgress(finished: Boolean = false) {
         val song = musicRepository.songById(trackedSongId) ?: return
         if (!song.isPodcast) return
-        
+
         val position = if (finished) 0L else activePlayer.currentPosition.coerceAtLeast(0)
         writeScope.launch {
             podcastProgressDao.saveProgress(
@@ -771,7 +773,7 @@ class PlaybackService : MediaLibraryService() {
             }
 
             startTracking(mediaItem)
-            
+
             // Restore podcast progress
             val current = currentSong()
             if (current != null && current.isPodcast && reason != Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) {
@@ -787,7 +789,7 @@ class PlaybackService : MediaLibraryService() {
                     }
                 }
             }
-            
+
             // Auto-DJ : prolonge la file avec des titres proches, seulement si l'utilisateur
             // l'a demandé — sinon un album ou une playlist ne s'arrêterait jamais.
             if (latestSettings?.autoDjEnabled == true &&
@@ -847,21 +849,30 @@ class PlaybackService : MediaLibraryService() {
          * illisible.
          */
         override fun onPlayerError(error: PlaybackException) {
-            android.util.Log.w(TAG, "Lecture impossible : ${error.errorCodeName}")
+            android.util.Log.w(TAG, "Lecture impossible : ${error.errorCodeName}", error)
             val p = activePlayer
             if (p.mediaItemCount == 0) return
-            consecutiveErrors++
-            if (consecutiveErrors > minOf(p.mediaItemCount, MAX_CONSECUTIVE_ERRORS) || !p.hasNextMediaItem()) {
-                consecutiveErrors = 0
-                return
+            when (errorPolicy.onError(p.mediaItemCount, p.hasNextMediaItem())) {
+                PlaybackErrorPolicy.Action.SKIP -> {
+                    p.seekToNextMediaItem()
+                    p.prepare()
+                }
+                // Trop d'échecs d'affilée : on s'arrête net au lieu de faire défiler toute
+                // la file. Le bouton lecture réessaiera à la demande de l'utilisateur.
+                PlaybackErrorPolicy.Action.STOP -> p.playWhenReady = false
             }
-            p.seekToNextMediaItem()
-            p.prepare()
+        }
+
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            if (playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST) {
+                errorPolicy.onUserAction()
+            }
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             if (isPlaying) {
-                consecutiveErrors = 0
+                // Pas de remise à zéro du compteur d'erreurs ici : un titre qui démarre puis
+                // échoue aussitôt relançait sinon le saut automatique à l'infini.
                 inactivityJob?.cancel()
                 applyAutoRewind()
                 lastResumeUptime = SystemClock.elapsedRealtime()
@@ -1212,7 +1223,7 @@ class PlaybackService : MediaLibraryService() {
                     )
                 }
             }
-            
+
             if (mediaItems.size == 1 && controller.packageName != packageName) {
                 val songId = mediaItems.first().mediaId.toLongOrNull()
                 if (songId != null) {
@@ -1290,7 +1301,6 @@ class PlaybackService : MediaLibraryService() {
         private const val POSITION_SAVE_INTERVAL_MS = 10_000L
         private const val PERSIST_DEBOUNCE_MS = 500L
         private const val FINAL_WRITE_TIMEOUT_MS = 1_500L
-        private const val MAX_CONSECUTIVE_ERRORS = 5
         private const val AUTO_REWIND_MIN_PAUSE_MS = 5_000L
 
         /** Sorties considérées comme « un casque » pour la reprise automatique. */
