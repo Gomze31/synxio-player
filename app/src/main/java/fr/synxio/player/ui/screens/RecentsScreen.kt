@@ -1,6 +1,6 @@
 package fr.synxio.player.ui.screens
 
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -11,22 +11,32 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.NewReleases
 import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.synxio.player.data.model.Song
 import fr.synxio.player.ui.components.EmptyState
 import fr.synxio.player.ui.components.SectionHeader
+import fr.synxio.player.ui.components.SongMenuHost
 import fr.synxio.player.ui.components.SongRow
+import fr.synxio.player.ui.theme.Space
 import fr.synxio.player.ui.viewmodel.AppViewModel
 
 /**
@@ -36,6 +46,7 @@ import fr.synxio.player.ui.viewmodel.AppViewModel
  * l'appareil, pas la date de sortie du morceau. Les libellés parlent donc d'« ajout »
  * et jamais de « nouveauté », qui laisserait croire à une information éditoriale.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RecentsScreen(
     viewModel: AppViewModel,
@@ -44,71 +55,94 @@ fun RecentsScreen(
     modifier: Modifier = Modifier,
 ) {
     val library by viewModel.library.collectAsStateWithLifecycle()
-    val playerState by viewModel.playerState.collectAsStateWithLifecycle()
+    // Identifiant + lecture/pause seulement : playerState bouge 4×/s avec la position.
+    val currentSongId by viewModel.currentSongId.collectAsStateWithLifecycle()
+    val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
     val favorites by viewModel.favoriteIds.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    var menuSong by remember { mutableStateOf<Song?>(null) }
 
     val buckets = remember(library.songs) { bucketize(library.songs) }
     val ordered = remember(buckets) { buckets.flatMap { it.second } }
 
     Scaffold(
-        modifier = modifier,
+        modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            TopAppBar(
-                title = { Text("Ajouts récents") },
+            LargeTopAppBar(
+                title = { Text("Ajouts récents", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Retour")
                     }
                 },
                 actions = {
-                    IconButton(
-                        onClick = { viewModel.shufflePlay(ordered) },
-                        enabled = ordered.isNotEmpty(),
-                    ) {
-                        Icon(Icons.Rounded.Shuffle, contentDescription = "Lecture aléatoire")
+                    // Masquée plutôt que grisée quand il n'y a rien à mélanger : un bouton
+                    // inerte dans la barre n'apprend rien à personne.
+                    if (ordered.isNotEmpty()) {
+                        IconButton(onClick = { viewModel.shufflePlay(ordered) }) {
+                            Icon(Icons.Rounded.Shuffle, contentDescription = "Lecture aléatoire des ajouts récents")
+                        }
                     }
                 },
+                scrollBehavior = scrollBehavior,
             )
         },
     ) { padding ->
-        if (ordered.isEmpty()) {
-            EmptyState(
+        when {
+            library.isLoading && library.songs.isEmpty() -> Box(
+                Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                contentAlignment = Alignment.Center,
+            ) { CircularProgressIndicator() }
+
+            ordered.isEmpty() -> EmptyState(
                 title = "Rien de récent",
                 subtitle = "Aucun morceau n'a été ajouté à ton appareil ces six derniers mois.",
                 icon = Icons.Rounded.NewReleases,
                 modifier = Modifier.padding(padding),
             )
-            return@Scaffold
-        }
 
-        LazyColumn(
-            state = listState,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            contentPadding = PaddingValues(bottom = 24.dp),
-        ) {
-            buckets.forEach { (label, songs) ->
-                item(key = "header-$label") {
-                    Column {
+            else -> LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                contentPadding = PaddingValues(bottom = Space.xl),
+            ) {
+                buckets.forEach { (label, songs) ->
+                    item(key = "header-$label", contentType = "header") {
                         SectionHeader("$label · ${songs.size}")
                     }
-                }
-                items(songs, key = { it.id }) { song ->
-                    val isCurrent = playerState.currentSong?.id == song.id
-                    SongRow(
-                        song = song,
-                        isCurrent = isCurrent,
-                        isPlaying = isCurrent && playerState.isPlaying,
-                        isFavorite = song.id in favorites,
-                        onClick = { viewModel.playSong(song, ordered) },
-                        onMenuClick = { onEditTags(song.id) },
-                    )
+                    items(songs, key = { it.id }, contentType = { "song" }) { song ->
+                        val isCurrent = currentSongId == song.id
+                        SongRow(
+                            song = song,
+                            isCurrent = isCurrent,
+                            isPlaying = isCurrent && isPlaying,
+                            isFavorite = song.id in favorites,
+                            onClick = { viewModel.playSong(song, ordered) },
+                            onLongClick = { menuSong = song },
+                            onMenuClick = { menuSong = song },
+                            modifier = Modifier
+                                .padding(horizontal = Space.sm)
+                                .semantics {
+                                    if (isCurrent) stateDescription = "En cours de lecture"
+                                },
+                        )
+                    }
                 }
             }
         }
     }
+
+    SongMenuHost(
+        viewModel = viewModel,
+        song = menuSong,
+        onDismiss = { menuSong = null },
+        onEditTags = onEditTags,
+    )
 }
 
 /**

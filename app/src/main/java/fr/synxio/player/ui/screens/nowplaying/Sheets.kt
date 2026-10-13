@@ -1,16 +1,18 @@
 package fr.synxio.player.ui.screens.nowplaying
 
+import android.os.Build
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -21,30 +23,37 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Album
-import androidx.compose.material.icons.rounded.DirectionsCar
-import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
-import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.rounded.Share
-import androidx.compose.material.icons.rounded.Translate
+import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.ArrowDownward
+import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.Bedtime
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCut
 import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.Lyrics
-import androidx.compose.material.icons.rounded.Bedtime
-import androidx.compose.material.icons.rounded.Mic
-import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.DirectionsCar
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Equalizer
+import androidx.compose.material.icons.rounded.Lyrics
+import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Repeat
+import androidx.compose.material.icons.rounded.RingVolume
+import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.Translate
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -62,13 +71,20 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import fr.synxio.player.core.util.RingtoneHelper
 import fr.synxio.player.core.util.asDuration
 import fr.synxio.player.data.model.LyricLine
 import fr.synxio.player.data.model.Lyrics
@@ -76,8 +92,29 @@ import fr.synxio.player.data.model.Song
 import fr.synxio.player.playback.SleepTimerState
 import fr.synxio.player.ui.components.Artwork
 import fr.synxio.player.ui.components.SongRow
+import fr.synxio.player.ui.theme.LocalReduceMotion
 import fr.synxio.player.ui.theme.LyricsTextStyle
+import fr.synxio.player.ui.theme.Motion
+import fr.synxio.player.ui.theme.Radius
+import fr.synxio.player.ui.theme.Space
+import fr.synxio.player.ui.theme.SynxioShape
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+
+/** Style commun des chiffres qui bougent (durées, vitesses) : chasse fixe, pas de tremblement. */
+private const val TabularNums = "tnum"
+
+/** Titre de feuille : `titleLarge`, annoncé comme en-tête par TalkBack. */
+@Composable
+private fun SheetTitle(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleLarge,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = modifier.semantics { heading() },
+    )
+}
 
 /**
  * Paroles synchronisées. La ligne active grossit et s'éclaire ; toucher une ligne
@@ -112,22 +149,25 @@ fun LyricsPane(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.padding(horizontal = 32.dp),
+                modifier = Modifier.padding(horizontal = Space.xxl),
             )
         }
         return
     }
 
+    val reduceMotion = LocalReduceMotion.current
     val listState = rememberLazyListState()
     // Le décalage déplace la *lecture des paroles*, pas la lecture audio : on interroge
     // la timeline des paroles à une position décalée plutôt que de réécrire les temps.
     val adjustedPosition = positionMs + offsetMs
     val activeIndex = remember(adjustedPosition, lyrics) { lyrics.indexAt(adjustedPosition) }
 
-    LaunchedEffect(activeIndex) {
+    LaunchedEffect(activeIndex, reduceMotion) {
         if (activeIndex >= 0) {
             // On garde la ligne active à un tiers de l'écran : on lit ce qui arrive.
-            listState.animateScrollToItem(activeIndex.coerceAtLeast(0), scrollOffset = -220)
+            // Animations réduites : on saute directement à la ligne, sans glisser.
+            if (reduceMotion) listState.scrollToItem(activeIndex, scrollOffset = -220)
+            else listState.animateScrollToItem(activeIndex, scrollOffset = -220)
         }
     }
 
@@ -136,7 +176,7 @@ fun LyricsPane(
             state = listState,
             modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(vertical = 120.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(Space.md),
         ) {
             itemsIndexed(lyrics.lines) { index, line ->
                 LyricRow(
@@ -159,28 +199,31 @@ fun LyricsPane(
                 onReset = onResetOffset,
             )
         }
-        
-        // Bouton de traduction
+
+        // Traduction : un seul bouton, dont le rôle dépend de l'état.
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = Space.touchTarget)
+                .padding(horizontal = Space.sm, vertical = Space.xs),
             horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             if (isTranslating) {
                 CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                Spacer(Modifier.width(8.dp))
-                Text("Traduction en cours...", style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.width(Space.sm))
+                Text("Traduction en cours…", style = MaterialTheme.typography.labelLarge)
             } else if (targetLanguage != null) {
                 TextButton(onClick = onRevertTranslation) {
-                    Icon(Icons.Rounded.Refresh, contentDescription = "Version originale", modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
+                    Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(Space.sm))
                     Text("Version originale")
                 }
             } else {
                 TextButton(onClick = { onTranslate(com.google.mlkit.nl.translate.TranslateLanguage.FRENCH) }) {
-                    Icon(Icons.Rounded.Translate, contentDescription = "Traduire en français", modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Traduire (FR)")
+                    Icon(Icons.Rounded.Translate, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(Space.sm))
+                    Text("Traduire en français")
                 }
             }
         }
@@ -204,7 +247,7 @@ private fun LyricsOffsetBar(
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 8.dp),
+            .padding(horizontal = Space.sm, vertical = Space.xs),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
     ) {
@@ -214,7 +257,7 @@ private fun LyricsOffsetBar(
         // boutons, et le toucher suivant tombe à côté de celui qu'on visait.
         Text(
             text = label,
-            style = MaterialTheme.typography.labelLarge,
+            style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = TabularNums),
             color = if (aligned) MaterialTheme.colorScheme.onSurfaceVariant
             else MaterialTheme.colorScheme.primary,
             textAlign = TextAlign.Center,
@@ -237,15 +280,22 @@ private fun LyricsOffsetBar(
 @Composable
 private fun LyricRow(line: LyricLine, active: Boolean, synced: Boolean, onClick: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
+    val reduceMotion = LocalReduceMotion.current
     val color by animateColorAsState(
         targetValue = when {
             !synced -> scheme.onSurface
             active -> scheme.primary
             else -> scheme.onSurfaceVariant.copy(alpha = 0.55f)
         },
+        animationSpec = Motion.standardOrSnap(reduceMotion),
         label = "lyricColor",
     )
-    val scale by animateFloatAsState(if (active) 1f else 0.92f, label = "lyricScale")
+    // Animations réduites : la ligne active ne grossit plus, seule la couleur la distingue.
+    val scale by animateFloatAsState(
+        targetValue = if (active || reduceMotion) 1f else 0.92f,
+        animationSpec = if (reduceMotion) snap() else Motion.standard(),
+        label = "lyricScale",
+    )
 
     Text(
         text = line.text.ifBlank { "♪" },
@@ -253,11 +303,20 @@ private fun LyricRow(line: LyricLine, active: Boolean, synced: Boolean, onClick:
         color = color,
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = synced, onClick = onClick)
-            .padding(horizontal = 8.dp),
+            .clickable(
+                enabled = synced,
+                onClickLabel = "Lire à partir de cette ligne",
+                onClick = onClick,
+            )
+            .padding(horizontal = Space.sm),
     )
 }
 
+/**
+ * File d'attente. Chaque ligne porte un bouton « Plus » (48 dp) qui ouvre Monter,
+ * Descendre et Retirer : des cibles franches et accessibles au lecteur d'écran, là
+ * où deux flèches de 28 dp empilées se touchaient mutuellement.
+ */
 @Composable
 fun QueueSheet(
     queue: List<Song>,
@@ -269,6 +328,19 @@ fun QueueSheet(
     onClear: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val reduceMotion = LocalReduceMotion.current
+    // Clés stables malgré les doublons (un même titre peut être deux fois dans la file) :
+    // « id#rang d'apparition ». Une clé indexée changerait à chaque déplacement et
+    // empêcherait `animateItem` de suivre la ligne.
+    val keys = remember(queue) {
+        val seen = HashMap<Long, Int>()
+        queue.map { song ->
+            val n = seen.getOrDefault(song.id, 0)
+            seen[song.id] = n + 1
+            "${song.id}#$n"
+        }
+    }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -277,53 +349,78 @@ fun QueueSheet(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                    .padding(start = Space.xl, end = Space.md, top = Space.xs, bottom = Space.xs),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = "File d'attente",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = onClear) { Text("Vider") }
+                Column(Modifier.weight(1f)) {
+                    SheetTitle("File d'attente")
+                    Text(
+                        text = "${queue.size} titre" + if (queue.size > 1) "s" else "",
+                        style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = TabularNums),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (queue.isNotEmpty()) {
+                    TextButton(onClick = onClear) { Text("Vider") }
+                }
             }
-            HorizontalDivider()
+
+            if (queue.isEmpty()) {
+                Text(
+                    text = "La file est vide. Ajoute des titres depuis leur menu « Plus ».",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = Space.xl, vertical = Space.xl),
+                )
+            }
 
             LazyColumn(
                 modifier = Modifier.heightIn(max = 520.dp),
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                contentPadding = PaddingValues(horizontal = Space.sm, vertical = Space.sm),
             ) {
-                itemsIndexed(queue, key = { index, song -> "$index-${song.id}" }) { index, song ->
+                itemsIndexed(queue, key = { index, _ -> keys[index] }) { index, song ->
+                    var menuOpen by remember { mutableStateOf(false) }
                     SongRow(
                         song = song,
                         onClick = { onSelect(index) },
                         isCurrent = index == currentIndex,
                         isPlaying = isPlaying,
+                        modifier = if (reduceMotion) {
+                            Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null)
+                        } else {
+                            Modifier.animateItem()
+                        },
                         trailing = {
-                            // Réordonnancement au clavier : simple, accessible, sans drag fragile.
-                            Column {
+                            Box {
                                 IconButton(
-                                    onClick = { if (index > 0) onMove(index, index - 1) },
-                                    modifier = Modifier.size(28.dp),
+                                    onClick = { menuOpen = true },
+                                    modifier = Modifier.size(Space.touchTarget),
                                 ) {
-                                    Icon(
-                                        Icons.Rounded.KeyboardArrowUp,
-                                        contentDescription = "Monter dans la file",
-                                    )
+                                    Icon(Icons.Rounded.MoreVert, contentDescription = "Options de ${song.title}")
                                 }
-                                IconButton(
-                                    onClick = { if (index < queue.lastIndex) onMove(index, index + 1) },
-                                    modifier = Modifier.size(28.dp),
-                                ) {
-                                    Icon(
-                                        Icons.Rounded.KeyboardArrowDown,
-                                        contentDescription = "Descendre dans la file",
+                                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                    if (index > 0) {
+                                        DropdownMenuItem(
+                                            text = { Text("Monter") },
+                                            leadingIcon = { Icon(Icons.Rounded.ArrowUpward, contentDescription = null) },
+                                            onClick = { menuOpen = false; onMove(index, index - 1) },
+                                        )
+                                    }
+                                    if (index < queue.lastIndex) {
+                                        DropdownMenuItem(
+                                            text = { Text("Descendre") },
+                                            leadingIcon = { Icon(Icons.Rounded.ArrowDownward, contentDescription = null) },
+                                            onClick = { menuOpen = false; onMove(index, index + 1) },
+                                        )
+                                    }
+                                    DropdownMenuItem(
+                                        text = { Text("Retirer de la file") },
+                                        leadingIcon = { Icon(Icons.Rounded.Close, contentDescription = null) },
+                                        onClick = { menuOpen = false; onRemove(index) },
                                     )
                                 }
                             }
                         },
-                        onMenuClick = { onRemove(index) },
                     )
                 }
             }
@@ -347,39 +444,38 @@ fun SleepTimerSheet(
     ) {
         Column(
             Modifier
+                .verticalScroll(rememberScrollState())
                 .navigationBarsPadding()
-                .padding(horizontal = 24.dp, vertical = 8.dp)
+                .padding(horizontal = Space.xl, vertical = Space.sm)
         ) {
+            SheetTitle("Minuterie de veille")
+            Spacer(Modifier.height(Space.xs))
             Text(
-                "Minuterie de veille",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-            )
-            Text(
-                "Le volume diminuera progressivement 60 secondes avant l'arrêt.",
-                style = MaterialTheme.typography.bodySmall,
+                "Le volume diminue progressivement 60 secondes avant l'arrêt.",
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(Space.lg))
 
             if (state.active) {
                 Text(
                     text = "Arrêt dans ${state.remainingMs.asDuration()}" +
                         if (state.finishCurrentTrack) " (à la fin du morceau)" else "",
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = MaterialTheme.typography.bodyLarge.copy(fontFeatureSettings = TabularNums),
                     color = MaterialTheme.colorScheme.primary,
                 )
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(Space.md))
                 OutlinedButton(
                     onClick = { onCancel(); onDismiss() },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("Annuler la minuterie") }
-                Spacer(Modifier.height(24.dp))
-                HorizontalDivider()
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(Space.xl))
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(Space.sm),
+            ) {
                 listOf(15, 30, 45, 60).forEach { preset ->
                     FilterChip(
                         selected = minutes == preset,
@@ -389,8 +485,11 @@ fun SleepTimerSheet(
                 }
             }
 
-            Spacer(Modifier.height(12.dp))
-            Text("$minutes minutes", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(Space.md))
+            Text(
+                "$minutes minutes",
+                style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = TabularNums),
+            )
             Slider(
                 value = minutes.toFloat(),
                 onValueChange = { minutes = it.toInt() },
@@ -399,19 +498,26 @@ fun SleepTimerSheet(
             )
 
             Row(
-                Modifier.fillMaxWidth(),
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = Space.touchTarget)
+                    .clickable(role = Role.Switch) { finishTrack = !finishTrack },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("Finir le morceau en cours", Modifier.weight(1f))
-                Switch(checked = finishTrack, onCheckedChange = { finishTrack = it })
+                Text(
+                    "Finir le morceau en cours",
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.weight(1f),
+                )
+                Switch(checked = finishTrack, onCheckedChange = null)
             }
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(Space.lg))
             Button(
                 onClick = { onStart(minutes, finishTrack); onDismiss() },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Démarrer") }
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(Space.xl))
         }
     }
 }
@@ -433,17 +539,17 @@ fun SpeedSheet(
     ) {
         Column(
             Modifier
+                .verticalScroll(rememberScrollState())
                 .navigationBarsPadding()
-                .padding(horizontal = 24.dp, vertical = 8.dp)
+                .padding(horizontal = Space.xl, vertical = Space.sm)
         ) {
-            Text(
-                "Vitesse et tonalité",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-            )
-            Spacer(Modifier.height(16.dp))
+            SheetTitle("Vitesse et tonalité")
+            Spacer(Modifier.height(Space.lg))
 
-            Text("Vitesse : ${"%.2f".format(currentSpeed)}×")
+            Text(
+                "Vitesse : ${"%.2f".format(currentSpeed)}×",
+                style = MaterialTheme.typography.bodyLarge.copy(fontFeatureSettings = TabularNums),
+            )
             Slider(
                 value = currentSpeed,
                 onValueChange = {
@@ -453,19 +559,29 @@ fun SpeedSheet(
                 valueRange = 0.5f..2.5f,
             )
 
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("Lier la tonalité à la vitesse", Modifier.weight(1f))
-                Switch(
-                    checked = linkPitch,
-                    onCheckedChange = {
-                        linkPitch = it
-                        if (it) currentPitch = currentSpeed
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = Space.touchTarget)
+                    .clickable(role = Role.Switch) {
+                        linkPitch = !linkPitch
+                        if (linkPitch) currentPitch = currentSpeed
                     },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Lier la tonalité à la vitesse",
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.weight(1f),
                 )
+                Switch(checked = linkPitch, onCheckedChange = null)
             }
 
             if (!linkPitch) {
-                Text("Tonalité : ${"%.2f".format(currentPitch)}×")
+                Text(
+                    "Tonalité : ${"%.2f".format(currentPitch)}×",
+                    style = MaterialTheme.typography.bodyLarge.copy(fontFeatureSettings = TabularNums),
+                )
                 Slider(
                     value = currentPitch,
                     onValueChange = { currentPitch = it },
@@ -473,8 +589,11 @@ fun SpeedSheet(
                 )
             }
 
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Spacer(Modifier.height(Space.sm))
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(Space.sm),
+            ) {
                 listOf(0.75f, 1f, 1.25f, 1.5f, 2f).forEach { preset ->
                     FilterChip(
                         selected = currentSpeed == preset,
@@ -487,8 +606,8 @@ fun SpeedSheet(
                 }
             }
 
-            Spacer(Modifier.height(16.dp))
-            Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp)) {
+            Spacer(Modifier.height(Space.lg))
+            Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(Space.sm)) {
                 OutlinedButton(
                     onClick = { onApply(1f, 1f); onDismiss() },
                     modifier = Modifier.weight(1f),
@@ -498,10 +617,13 @@ fun SpeedSheet(
                     modifier = Modifier.weight(1f),
                 ) { Text("Appliquer") }
             }
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(Space.xl))
         }
     }
 }
+
+/** Raccourci de la grille du menu du lecteur. */
+private class QuickAction(val icon: ImageVector, val label: String, val onClick: () -> Unit)
 
 @Composable
 fun NowPlayingMenuSheet(
@@ -529,117 +651,189 @@ fun NowPlayingMenuSheet(
     // qui intercepte alors les touchers. Le menu paraissait fonctionner — la feuille se
     // fermait au toucher du scrim — sans jamais déclencher l'action choisie.
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val scheme = MaterialTheme.colorScheme
+
+    // Sonnerie sans l'autorisation « Modifier les paramètres système » : plutôt qu'un
+    // Toast éphémère lancé pendant qu'on part vers les réglages, on explique dans la
+    // feuille et on laisse l'utilisateur choisir d'y aller.
+    var ringtoneNeedsPermission by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         // Complété par le décalage de la barre de navigation, que la feuille ne gère pas.
         Column(
             Modifier
+                .verticalScroll(rememberScrollState())
                 .navigationBarsPadding()
-                .padding(bottom = 12.dp)
+                .padding(bottom = Space.md)
         ) {
             Row(
-                Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                Modifier.padding(horizontal = Space.xl, vertical = Space.sm),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Artwork(song.artworkUri, Modifier.size(52.dp), RoundedCornerShape(12.dp))
-                Spacer(Modifier.size(14.dp))
-                Column {
-                    Text(song.title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                Artwork(song.artworkUri, Modifier.size(52.dp), SynxioShape.artworkSm)
+                Spacer(Modifier.width(Space.lg))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = song.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.semantics { heading() },
+                    )
                     Text(
                         text = "${song.extension} · ~${song.approxBitrateKbps} kb/s",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = TabularNums),
+                        color = scheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
-            HorizontalDivider(Modifier.padding(vertical = 8.dp))
-            
-            // Grille d'actions rapides (Design moderne)
+
+            Spacer(Modifier.height(Space.sm))
+
+            // Grille de raccourcis : les réglages d'écoute qu'on touche le plus.
             val actions = listOf(
-                Triple(Icons.AutoMirrored.Rounded.QueueMusic, "File") { onShowQueue(); onDismiss() },
-                Triple(Icons.Rounded.Lyrics, "Paroles") { onShowLyrics(); onDismiss() },
-                Triple(Icons.Rounded.Bedtime, "Minuteur") { onShowSleepTimer(); onDismiss() },
-                Triple(Icons.Rounded.Speed, "Vitesse") { onShowSpeed(); onDismiss() },
-                Triple(Icons.Rounded.Equalizer, "Égaliseur") { onOpenEqualizer(); onDismiss() },
-                Triple(Icons.Rounded.Mic, "Karaoké") { onToggleKaraoke(); onDismiss() },
-                Triple(Icons.Rounded.Repeat, "Boucle A-B") { onToggleAbLoop(); onDismiss() },
-                Triple(Icons.Rounded.DirectionsCar, "Voiture") { onOpenDriveMode(); onDismiss() }
+                QuickAction(Icons.AutoMirrored.Rounded.QueueMusic, "File") { onShowQueue(); onDismiss() },
+                QuickAction(Icons.Rounded.Lyrics, "Paroles") { onShowLyrics(); onDismiss() },
+                QuickAction(Icons.Rounded.Bedtime, "Minuteur") { onShowSleepTimer(); onDismiss() },
+                QuickAction(Icons.Rounded.Speed, "Vitesse") { onShowSpeed(); onDismiss() },
+                QuickAction(Icons.Rounded.Equalizer, "Égaliseur") { onOpenEqualizer(); onDismiss() },
+                QuickAction(Icons.Rounded.Mic, "Karaoké") { onToggleKaraoke(); onDismiss() },
+                QuickAction(Icons.Rounded.Repeat, "Boucle A-B") { onToggleAbLoop(); onDismiss() },
+                QuickAction(Icons.Rounded.DirectionsCar, "Voiture") { onOpenDriveMode(); onDismiss() },
             )
-            
-            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
-                for (row in 0 until 2) {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                        for (col in 0 until 4) {
-                            val action = actions[row * 4 + col]
+
+            Column(Modifier.fillMaxWidth().padding(horizontal = Space.md)) {
+                actions.chunked(4).forEach { row ->
+                    Row(Modifier.fillMaxWidth()) {
+                        row.forEach { action ->
                             Column(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .clickable(onClick = action.third)
-                                    .padding(8.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
+                                    .clip(RoundedCornerShape(Radius.md))
+                                    .clickable(role = Role.Button, onClick = action.onClick)
+                                    .padding(vertical = Space.sm, horizontal = Space.xs),
+                                horizontalAlignment = Alignment.CenterHorizontally,
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(48.dp)
-                                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp)),
-                                    contentAlignment = Alignment.Center
+                                        .size(Space.touchTarget)
+                                        .background(scheme.surfaceContainerHigh, RoundedCornerShape(Radius.sm)),
+                                    contentAlignment = Alignment.Center,
                                 ) {
-                                    Icon(action.first, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                    Icon(action.icon, contentDescription = null, tint = scheme.primary)
                                 }
-                                Spacer(Modifier.height(4.dp))
-                                Text(action.second, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center, maxLines = 1)
+                                Spacer(Modifier.height(Space.xs))
+                                Text(
+                                    text = action.label,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
                             }
                         }
                     }
                 }
             }
-            
-            HorizontalDivider(Modifier.padding(vertical = 8.dp))
-            
-            LazyColumn(Modifier.heightIn(max = 300.dp)) {
-                item { MenuRow(Icons.Rounded.Album, "Aller à l'album") { onOpenAlbum(); onDismiss() } }
-                item { MenuRow(Icons.Rounded.Person, "Aller à l'artiste") { onOpenArtist(); onDismiss() } }
-                item { MenuRow(Icons.Rounded.Edit, "Modifier les tags") { onEditTags(); onDismiss() } }
-                item { MenuRow(Icons.Rounded.Share, "Partager une carte") { onShare(); onDismiss() } }
-                item {
-                    val context = androidx.compose.ui.platform.LocalContext.current
-                    val scope = androidx.compose.runtime.rememberCoroutineScope()
-                    MenuRow(Icons.Rounded.Refresh, "Définir comme sonnerie") {
-                        if (fr.synxio.player.core.util.RingtoneHelper.hasWriteSettingsPermission(context)) {
-                            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                                fr.synxio.player.core.util.RingtoneHelper.setAsRingtone(context, song)
-                            }
-                        } else {
-                            context.startActivity(fr.synxio.player.core.util.RingtoneHelper.getWriteSettingsIntent(context))
-                            android.widget.Toast.makeText(context, "Veuillez autoriser l'application à modifier les paramètres", android.widget.Toast.LENGTH_LONG).show()
-                        }
-                        onDismiss()
+
+            Spacer(Modifier.height(Space.sm))
+
+            MenuRow(Icons.Rounded.Album, "Aller à l'album") { onOpenAlbum(); onDismiss() }
+            MenuRow(Icons.Rounded.Person, "Aller à l'artiste") { onOpenArtist(); onDismiss() }
+            MenuRow(Icons.Rounded.Edit, "Modifier les tags") { onEditTags(); onDismiss() }
+            MenuRow(Icons.Rounded.Share, "Partager une carte") { onShare(); onDismiss() }
+            MenuRow(Icons.Rounded.RingVolume, "Définir comme sonnerie") {
+                if (RingtoneHelper.hasWriteSettingsPermission(context)) {
+                    scope.launch(Dispatchers.IO) { RingtoneHelper.setAsRingtone(context, song) }
+                    onDismiss()
+                } else {
+                    ringtoneNeedsPermission = true
+                }
+            }
+            if (ringtoneNeedsPermission) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = Space.lg, vertical = Space.xs)
+                        .clip(SynxioShape.card)
+                        .background(scheme.surfaceContainerHigh)
+                        .padding(start = Space.lg, end = Space.sm, top = Space.md, bottom = Space.xs),
+                ) {
+                    Text(
+                        text = "Pour définir une sonnerie, autorise Synxio à modifier les paramètres système.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = scheme.onSurfaceVariant,
+                    )
+                    Row(Modifier.align(Alignment.End)) {
+                        TextButton(onClick = { ringtoneNeedsPermission = false }) { Text("Plus tard") }
+                        TextButton(onClick = {
+                            context.startActivity(RingtoneHelper.getWriteSettingsIntent(context))
+                            onDismiss()
+                        }) { Text("Ouvrir les réglages") }
                     }
                 }
-                item { HorizontalDivider(Modifier.padding(vertical = 8.dp)) }
-                item { MenuRow(Icons.Rounded.ContentCut, "Découper la piste (Trim)") { onTrim(); onDismiss() } }
-                item { MenuRow(Icons.Rounded.Delete, "Supprimer le fichier", tint = MaterialTheme.colorScheme.error) { onDelete(); onDismiss() } }
+            }
+
+            Spacer(Modifier.height(Space.sm))
+
+            MenuRow(Icons.Rounded.ContentCut, "Découper la piste") { onTrim(); onDismiss() }
+            MenuRow(Icons.Rounded.Delete, "Supprimer le fichier", destructive = true) {
+                // Android 11+ affiche sa propre confirmation (corbeille système). Avant,
+                // la suppression est directe et définitive : on confirme nous-mêmes.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    onDelete(); onDismiss()
+                } else {
+                    confirmDelete = true
+                }
             }
         }
     }
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Supprimer ce titre ?") },
+            text = { Text("« ${song.title} » sera définitivement supprimé de l'appareil.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDelete = false
+                    onDelete()
+                    onDismiss()
+                }) { Text("Supprimer", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Annuler") } },
+        )
+    }
 }
 
+/** Ligne d'action de feuille : 56 dp, icône + libellé, `error` si destructrice. */
 @Composable
 private fun MenuRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     label: String,
-    tint: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    destructive: Boolean = false,
     onClick: () -> Unit,
 ) {
+    val scheme = MaterialTheme.colorScheme
     Row(
         Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 24.dp, vertical = 12.dp),
+            .heightIn(min = 56.dp)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = Space.xl, vertical = Space.sm),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(20.dp),
+        horizontalArrangement = Arrangement.spacedBy(Space.lg),
     ) {
-        Icon(icon, contentDescription = null, tint = tint)
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = if (tint == MaterialTheme.colorScheme.error) tint else androidx.compose.ui.graphics.Color.Unspecified)
+        Icon(icon, contentDescription = null, tint = if (destructive) scheme.error else scheme.onSurfaceVariant)
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (destructive) scheme.error else scheme.onSurface,
+        )
     }
 }

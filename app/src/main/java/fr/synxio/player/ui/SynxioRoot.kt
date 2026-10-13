@@ -538,6 +538,7 @@ private fun AppNavHost(
             AudiobooksScreen(
                 viewModel = viewModel,
                 onOpenFolder = { navController.navigate(Routes.folder(it)) },
+                onBack = { navController.popBackStack() },
             )
         }
 
@@ -776,7 +777,11 @@ private fun AppNavHost(
 
         composable(Routes.TAGS) { entry ->
             val songId = entry.arguments?.getString("songId")?.toLongOrNull() ?: -1L
-            TagEditorScreen(songId = songId, onBack = { navController.popBackStack() })
+            TagEditorScreen(
+                songId = songId,
+                onBack = { navController.popBackStack() },
+                onMessage = viewModel::showMessage,
+            )
         }
 
         // ========================================================================

@@ -117,6 +117,29 @@ class AppViewModel @Inject constructor(
 
     val library: StateFlow<Library> = musicRepository.library
     val playerState: StateFlow<PlayerUiState> = player.state
+
+    /**
+     * Identifiant du titre en cours, seul.
+     *
+     * Les listes n'ont besoin que de lui pour surligner la ligne active : en lisant tout
+     * [playerState], chaque ligne visible se recomposait à chaque tic de position (4×/s).
+     */
+    val currentSongId: StateFlow<Long?> = player.state
+        .map { it.currentSong?.id }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** Lecture demandée (vrai aussi pendant le chargement), sans la position. */
+    val isPlaying: StateFlow<Boolean> = player.state
+        .map { it.isPlaying }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /** Titre du morceau en cours, sans la position (utilisé notamment pour identifier la radio active). */
+    val currentSongTitle: StateFlow<String?> = player.state
+        .map { it.currentSong?.title }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
     val playlists: StateFlow<List<Playlist>> = playlistRepository.playlists
     val favoriteIds: StateFlow<Set<Long>> = musicRepository.favoriteIds
     val favoriteSongs: StateFlow<List<Song>> = musicRepository.favoriteSongs

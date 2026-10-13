@@ -1,8 +1,6 @@
 package fr.synxio.player.ui.screens
 
 import android.os.Build
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material3.AlertDialog
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -14,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -25,30 +24,45 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FitnessCenter
+import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.LibraryMusic
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Podcasts
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.PlaylistAdd
-import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.Psychology
+import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.Category
+import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.SortByAlpha
+import androidx.compose.material.icons.rounded.Spa
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Surface
-import fr.synxio.player.ui.components.AddToPlaylistSheet
-import androidx.compose.material.icons.rounded.Shuffle
-import androidx.compose.material.icons.rounded.SortByAlpha
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryScrollableTabRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -60,18 +74,23 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.material.icons.automirrored.rounded.MenuBook
-import fr.synxio.player.ui.theme.Space
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.synxio.player.data.model.AlbumSort
 import fr.synxio.player.data.model.ArtistSort
 import fr.synxio.player.data.model.LibraryTab
-import fr.synxio.player.data.repo.SmartPlaylistId
 import fr.synxio.player.data.model.Song
 import fr.synxio.player.data.model.SongSort
+import fr.synxio.player.data.repo.Mood
+import fr.synxio.player.data.repo.SmartPlaylistId
+import fr.synxio.player.ui.components.AddToPlaylistSheet
 import fr.synxio.player.ui.components.AlbumCard
 import fr.synxio.player.ui.components.ArtistCard
 import fr.synxio.player.ui.components.EmptyState
@@ -79,8 +98,17 @@ import fr.synxio.player.ui.components.FolderRow
 import fr.synxio.player.ui.components.GenreRow
 import fr.synxio.player.ui.components.SongMenuHost
 import fr.synxio.player.ui.components.SongRow
+import fr.synxio.player.ui.theme.Space
+import fr.synxio.player.ui.theme.SynxioShape
 import fr.synxio.player.ui.viewmodel.AppViewModel
 import kotlinx.coroutines.launch
+
+/** Taille de l'icône dans la pastille ronde des états vides/explicatifs. */
+private val StateIconSize = 48.dp
+
+/** Diamètre de la pastille ronde qui porte l'icône d'un état ou d'une ambiance. */
+private val StateBadgeSize = 88.dp
+private val MoodBadgeSize = 48.dp
 
 @Composable
 fun LibraryScreen(
@@ -163,92 +191,273 @@ fun LibraryScreen(
     }
 }
 
+/**
+ * Affiche un indicateur tant que le premier scan n'est pas terminé, sinon l'état vide.
+ *
+ * Sans cette distinction, chaque onglet annonçait « bibliothèque vide » pendant les
+ * premières secondes après le lancement, ce qui faisait croire à un problème.
+ */
+@Composable
+private fun EmptyOrLoading(
+    viewModel: AppViewModel,
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+) {
+    val library by viewModel.library.collectAsStateWithLifecycle()
+    if (!library.hasScanned) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(
+                Modifier.semantics { contentDescription = "Chargement de la bibliothèque" },
+            )
+        }
+    } else {
+        EmptyState(title = title, subtitle = subtitle, icon = icon)
+    }
+}
+
+/** Annonce le titre en cours aux lecteurs d'écran : la couleur seule ne suffit pas. */
+private fun Modifier.nowPlayingSemantics(isCurrent: Boolean, isPlaying: Boolean): Modifier =
+    if (!isCurrent) this
+    else semantics { stateDescription = if (isPlaying) "En cours de lecture" else "En pause" }
+
+// --- Ambiances ------------------------------------------------------------------------
+
+private val Mood.icon: ImageVector
+    get() = when (this) {
+        Mood.SPORT -> Icons.Rounded.FitnessCenter
+        Mood.RELAXATION -> Icons.Rounded.Spa
+        Mood.FOCUS -> Icons.Rounded.Psychology
+    }
+
+private val Mood.description: String
+    get() = when (this) {
+        Mood.SPORT -> "Énergique, percussif et brillant"
+        Mood.RELAXATION -> "Doux, peu de percussions"
+        Mood.FOCUS -> "Régulier, sans à-coups"
+    }
+
+/** Part minimale de la bibliothèque à analyser avant de proposer les ambiances. */
+private const val MOOD_ANALYSIS_THRESHOLD = 0.9f
+
 @Composable
 private fun RadiosTab(viewModel: AppViewModel) {
     val progress by viewModel.similarityProgress.collectAsStateWithLifecycle()
     val analysedCount by viewModel.similarityAnalysedCount.collectAsStateWithLifecycle()
     val library by viewModel.library.collectAsStateWithLifecycle()
+    val totalSongs = library.songs.size
 
+    when {
+        totalSongs == 0 -> EmptyOrLoading(
+            viewModel = viewModel,
+            title = "Aucun titre",
+            subtitle = "Ajoute de la musique sur l'appareil pour générer des ambiances.",
+            icon = Icons.Rounded.AutoAwesome,
+        )
+
+        progress.running || analysedCount < totalSongs * MOOD_ANALYSIS_THRESHOLD -> AnalysisRequired(
+            running = progress.running,
+            fraction = progress.fraction,
+            done = progress.done,
+            total = progress.total,
+            analysedCount = analysedCount,
+            totalSongs = totalSongs,
+            onAnalyse = { viewModel.analyseLibrary() },
+        )
+
+        else -> MoodGrid(
+            analysedCount = analysedCount,
+            totalSongs = totalSongs,
+            onMood = { viewModel.playMoodRadio(it) },
+            onAnalyse = { viewModel.analyseLibrary() },
+        )
+    }
+}
+
+/**
+ * Explique pourquoi les ambiances ne sont pas encore disponibles.
+ *
+ * Défilant : avec une grande taille de police, le texte et le bouton débordaient de
+ * l'écran sans moyen de les atteindre.
+ */
+@Composable
+private fun AnalysisRequired(
+    running: Boolean,
+    fraction: Float,
+    done: Int,
+    total: Int,
+    analysedCount: Int,
+    totalSongs: Int,
+    onAnalyse: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    val numbers = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum")
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = Space.gutter, vertical = Space.xxl),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        verticalArrangement = Arrangement.Center,
     ) {
-        val totalSongs = library.songs.size
-        
-        if (analysedCount < totalSongs * 0.9f || progress.running) {
-            // Pas assez de musiques analysées
+        Box(
+            modifier = Modifier
+                .size(StateBadgeSize)
+                .background(scheme.primaryContainer, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
             Icon(
                 Icons.Rounded.AutoAwesome,
                 contentDescription = null,
-                modifier = Modifier.size(64.dp),
-                tint = MaterialTheme.colorScheme.primary
+                modifier = Modifier.size(StateIconSize),
+                tint = scheme.onPrimaryContainer,
             )
-            Spacer(modifier = Modifier.height(16.dp))
+        }
+        Spacer(Modifier.height(Space.xl))
+        Text(
+            "Analyse requise",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.semantics { heading() },
+        )
+        Spacer(Modifier.height(Space.sm))
+        Text(
+            "Pour composer des ambiances, Synxio analyse l'empreinte sonore de tes titres " +
+                "(basses, tempo, brillance). Tout se passe sur l'appareil.",
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center,
+            color = scheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(Space.xl))
+
+        if (running) {
+            LinearProgressIndicator(
+                progress = { fraction },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { contentDescription = "Analyse en cours" },
+            )
+            Spacer(Modifier.height(Space.sm))
             Text(
-                "Analyse requise",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
+                "$done / $total titres analysés",
+                style = numbers,
+                color = scheme.onSurfaceVariant,
             )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                "Pour générer des radios intelligentes, Synxio a besoin d'analyser l'empreinte sonore de tes musiques (basses, tempo, brillance...).",
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.height(24.dp))
-            
-            if (progress.running) {
-                CircularProgressIndicator(progress = { progress.fraction })
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("${progress.done} / ${progress.total}", style = MaterialTheme.typography.labelMedium)
-            } else {
-                Button(onClick = { viewModel.analyseLibrary() }) {
-                    Text("Lancer l'analyse ($analysedCount / $totalSongs)")
-                }
-            }
         } else {
-            // Radios prêtes
             Text(
-                "Choisis ton humeur",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(bottom = 16.dp)
+                "$analysedCount / $totalSongs titres déjà analysés",
+                style = numbers,
+                color = scheme.onSurfaceVariant,
             )
-            
-            fr.synxio.player.data.repo.Mood.entries.forEach { mood ->
-                Card(
-                    onClick = { viewModel.playMoodRadio(mood) },
-                    modifier = Modifier
+            Spacer(Modifier.height(Space.md))
+            Button(
+                onClick = onAnalyse,
+                shape = SynxioShape.pill,
+                modifier = Modifier.heightIn(min = Space.touchTarget),
+            ) {
+                Icon(Icons.Rounded.AutoAwesome, contentDescription = null, Modifier.size(ButtonDefaults.IconSize))
+                Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                Text("Lancer l'analyse")
+            }
+        }
+    }
+}
+
+@Composable
+private fun MoodGrid(
+    analysedCount: Int,
+    totalSongs: Int,
+    onMood: (Mood) -> Unit,
+    onAnalyse: () -> Unit,
+) {
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(2),
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = Space.gutter, vertical = Space.lg),
+        horizontalArrangement = Arrangement.spacedBy(Space.md),
+        verticalArrangement = Arrangement.spacedBy(Space.md),
+    ) {
+        item(key = "title", span = { GridItemSpan(maxLineSpan) }, contentType = "header") {
+            Column(Modifier.padding(bottom = Space.sm)) {
+                Text(
+                    "Choisis ton ambiance",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.semantics { heading() },
+                )
+                Text(
+                    "Un mix jusqu'à 50 titres de ta bibliothèque, choisis selon leur son.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        items(Mood.entries, key = { it.name }, contentType = { "mood" }) { mood ->
+            MoodCard(mood = mood, onClick = { onMood(mood) })
+        }
+
+        // Des titres ajoutés depuis la dernière analyse ne seraient jamais proposés :
+        // on laisse la possibilité de compléter sans bloquer l'accès aux ambiances.
+        if (analysedCount < totalSongs) {
+            item(key = "refresh", span = { GridItemSpan(maxLineSpan) }, contentType = "footer") {
+                Row(
+                    Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 12.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(top = Space.sm),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            Icons.Rounded.AutoAwesome,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(32.dp)
-                        )
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Text(
-                            mood.label,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                    Text(
+                        "${totalSongs - analysedCount} titres pas encore analysés",
+                        style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = onAnalyse) { Text("Compléter") }
                 }
             }
         }
     }
 }
+
+@Composable
+private fun MoodCard(mood: Mood, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val scheme = MaterialTheme.colorScheme
+    Card(
+        onClick = onClick,
+        modifier = modifier
+            .fillMaxWidth()
+            .semantics { contentDescription = "Lancer l'ambiance ${mood.label}" },
+        shape = SynxioShape.card,
+        colors = CardDefaults.cardColors(containerColor = scheme.surfaceContainerHigh),
+    ) {
+        Column(Modifier.padding(Space.lg)) {
+            Box(
+                modifier = Modifier
+                    .size(MoodBadgeSize)
+                    .background(scheme.primaryContainer, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(mood.icon, contentDescription = null, tint = scheme.onPrimaryContainer)
+            }
+            Spacer(Modifier.height(Space.md))
+            Text(
+                mood.label,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(Space.xs))
+            Text(
+                mood.description,
+                style = MaterialTheme.typography.bodySmall,
+                color = scheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+// --- Onglets de liste ----------------------------------------------------------------
 
 @Composable
 private fun PodcastsTab(
@@ -258,27 +467,35 @@ private fun PodcastsTab(
     onEditTags: (Long) -> Unit,
 ) {
     val podcasts by viewModel.podcasts.collectAsStateWithLifecycle()
-    val playerState by viewModel.playerState.collectAsStateWithLifecycle()
+    val currentSongId by viewModel.currentSongId.collectAsStateWithLifecycle()
+    val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
     val favorites by viewModel.favoriteIds.collectAsStateWithLifecycle()
     var menuSong by remember { mutableStateOf<Song?>(null) }
 
     if (podcasts.isEmpty()) {
-        EmptyState("Aucun podcast", "Ta bibliothèque de podcasts et livres audio est vide pour le moment.")
+        EmptyOrLoading(
+            viewModel = viewModel,
+            title = "Aucun podcast",
+            subtitle = "Tes podcasts et livres audio apparaîtront ici.",
+            icon = Icons.Rounded.Podcasts,
+        )
         return
     }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+        contentPadding = PaddingValues(horizontal = Space.sm, vertical = Space.sm),
     ) {
         items(podcasts, key = { it.id }) { song ->
+            val isCurrent = currentSongId == song.id
             SongRow(
                 song = song,
                 onClick = { viewModel.playSong(song, podcasts) },
-                isCurrent = playerState.currentSong?.id == song.id,
-                isPlaying = playerState.isPlaying,
+                isCurrent = isCurrent,
+                isPlaying = isPlaying,
                 isFavorite = song.id in favorites,
                 onMenuClick = { menuSong = song },
+                modifier = Modifier.nowPlayingSemantics(isCurrent, isPlaying),
             )
         }
     }
@@ -301,7 +518,8 @@ private fun SongsTab(
     onEditTags: (Long) -> Unit,
 ) {
     val songs by viewModel.sortedSongs.collectAsStateWithLifecycle()
-    val playerState by viewModel.playerState.collectAsStateWithLifecycle()
+    val currentSongId by viewModel.currentSongId.collectAsStateWithLifecycle()
+    val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
     val favorites by viewModel.favoriteIds.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     var menuSong by remember { mutableStateOf<Song?>(null) }
@@ -317,16 +535,21 @@ private fun SongsTab(
     BackHandler(enabled = selectionMode) { selected = emptySet() }
 
     if (songs.isEmpty()) {
-        EmptyState("Aucun titre", "Ta bibliothèque est vide pour le moment.")
+        EmptyOrLoading(
+            viewModel = viewModel,
+            title = "Aucun titre",
+            subtitle = "Ta bibliothèque est vide pour le moment.",
+            icon = Icons.Rounded.LibraryMusic,
+        )
         return
     }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+        contentPadding = PaddingValues(horizontal = Space.sm, vertical = Space.sm),
     ) {
         if (selectionMode) {
-            stickyHeader {
+            stickyHeader(key = "selection", contentType = "selection") {
                 SelectionBar(
                     count = selected.size,
                     allSelected = selected.size == songs.size,
@@ -348,7 +571,7 @@ private fun SongsTab(
             }
         }
 
-        item {
+        item(key = "toolbar", contentType = "toolbar") {
             ListToolbar(
                 count = songs.size,
                 sortLabel = settings.songSort.label,
@@ -365,8 +588,9 @@ private fun SongsTab(
             )
         }
 
-        items(songs, key = { it.id }) { song ->
+        items(songs, key = { it.id }, contentType = { "song" }) { song ->
             val isSelected = song.id in selected
+            val isCurrent = currentSongId == song.id
             SongRow(
                 song = song,
                 onClick = {
@@ -376,17 +600,24 @@ private fun SongsTab(
                         viewModel.playSong(song, songs)
                     }
                 },
-                isCurrent = playerState.currentSong?.id == song.id,
-                isPlaying = playerState.isPlaying,
+                isCurrent = isCurrent,
+                isPlaying = isPlaying,
                 isFavorite = song.id in favorites,
-                modifier = if (isSelected) {
-                    Modifier.background(
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
-                        MaterialTheme.shapes.medium,
+                modifier = Modifier
+                    .then(
+                        if (isSelected) {
+                            Modifier.background(MaterialTheme.colorScheme.secondaryContainer, SynxioShape.card)
+                        } else {
+                            Modifier
+                        }
                     )
-                } else {
-                    Modifier
-                },
+                    .then(
+                        if (selectionMode) {
+                            Modifier.semantics { stateDescription = if (isSelected) "Sélectionné" else "Non sélectionné" }
+                        } else {
+                            Modifier.nowPlayingSemantics(isCurrent, isPlaying)
+                        }
+                    ),
                 onLongClick = { selected = selected + song.id },
                 onMenuClick = { if (!selectionMode) menuSong = song },
             )
@@ -434,6 +665,7 @@ private fun SelectionBar(
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
+            icon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
             title = { Text("Supprimer $count titre${if (count > 1) "s" else ""} ?") },
             text = { Text("Les fichiers seront définitivement supprimés de l'appareil.") },
             confirmButton = {
@@ -445,27 +677,29 @@ private fun SelectionBar(
         )
     }
 
+    // Couche tonale plutôt qu'ombre : la barre reste lisible au-dessus de la liste
+    // sans effet de carte flottante.
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.primaryContainer,
-        shape = MaterialTheme.shapes.medium,
-        tonalElevation = 4.dp,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        shape = SynxioShape.card,
     ) {
-        Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+        Column(Modifier.padding(horizontal = Space.sm, vertical = Space.xs)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onClear) {
                     Icon(Icons.Rounded.Close, contentDescription = "Annuler la sélection")
                 }
                 Text(
                     text = "$count sélectionné${if (count > 1) "s" else ""}",
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = "tnum"),
                     modifier = Modifier.weight(1f),
                 )
                 TextButton(onClick = if (allSelected) onClear else onSelectAll) {
                     Text(if (allSelected) "Aucun" else "Tout")
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(Space.xs)) {
                 IconButton(onClick = onPlay) {
                     Icon(Icons.Rounded.PlayArrow, contentDescription = "Lire la sélection")
                 }
@@ -473,10 +707,10 @@ private fun SelectionBar(
                     Icon(Icons.Rounded.SkipNext, contentDescription = "Lire juste après")
                 }
                 IconButton(onClick = onAddToQueue) {
-                    Icon(Icons.Rounded.QueueMusic, contentDescription = "Ajouter à la file")
+                    Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = "Ajouter à la file")
                 }
                 IconButton(onClick = onAddToPlaylist) {
-                    Icon(Icons.Rounded.PlaylistAdd, contentDescription = "Ajouter à une playlist")
+                    Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, contentDescription = "Ajouter à une playlist")
                 }
                 IconButton(onClick = onFavorite) {
                     Icon(Icons.Rounded.Favorite, contentDescription = "Basculer les favoris")
@@ -498,16 +732,23 @@ private fun AlbumsTab(viewModel: AppViewModel, onOpenAlbum: (Long) -> Unit) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
 
     if (albums.isEmpty()) {
-        EmptyState("Aucun album", "Rien à afficher pour l'instant.")
+        EmptyOrLoading(
+            viewModel = viewModel,
+            title = "Aucun album",
+            subtitle = "Tes albums apparaîtront ici après le scan.",
+            icon = Icons.Rounded.Album,
+        )
         return
     }
 
+    // AlbumCard porte déjà sa propre marge interne : gouttière de grille + marge de carte
+    // retombent sur la marge latérale d'écran.
     LazyVerticalGrid(
         columns = GridCells.Fixed(settings.albumGridColumns.coerceIn(2, 4)),
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(12.dp),
+        contentPadding = PaddingValues(horizontal = Space.md, vertical = Space.sm),
     ) {
-        item(span = { GridItemSpan(maxLineSpan) }) {
+        item(key = "toolbar", span = { GridItemSpan(maxLineSpan) }, contentType = "toolbar") {
             ListToolbar(
                 count = albums.size,
                 sortLabel = settings.albumSort.label,
@@ -524,7 +765,7 @@ private fun AlbumsTab(viewModel: AppViewModel, onOpenAlbum: (Long) -> Unit) {
             )
         }
 
-        items(albums, key = { it.id }) { album ->
+        items(albums, key = { it.id }, contentType = { "album" }) { album ->
             AlbumCard(album = album, onClick = { onOpenAlbum(album.id) })
         }
     }
@@ -536,16 +777,21 @@ private fun ArtistsTab(viewModel: AppViewModel, onOpenArtist: (String) -> Unit) 
     val settings by viewModel.settings.collectAsStateWithLifecycle()
 
     if (artists.isEmpty()) {
-        EmptyState("Aucun artiste", "Rien à afficher pour l'instant.")
+        EmptyOrLoading(
+            viewModel = viewModel,
+            title = "Aucun artiste",
+            subtitle = "Tes artistes apparaîtront ici après le scan.",
+            icon = Icons.Rounded.Person,
+        )
         return
     }
 
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(12.dp),
+        contentPadding = PaddingValues(horizontal = Space.md, vertical = Space.sm),
     ) {
-        item(span = { GridItemSpan(maxLineSpan) }) {
+        item(key = "toolbar", span = { GridItemSpan(maxLineSpan) }, contentType = "toolbar") {
             ListToolbar(
                 count = artists.size,
                 sortLabel = settings.artistSort.label,
@@ -562,7 +808,7 @@ private fun ArtistsTab(viewModel: AppViewModel, onOpenArtist: (String) -> Unit) 
             )
         }
 
-        items(artists, key = { it.name }) { artist ->
+        items(artists, key = { it.name }, contentType = { "artist" }) { artist ->
             ArtistCard(artist = artist, onClick = { onOpenArtist(artist.name) })
         }
     }
@@ -573,13 +819,18 @@ private fun GenresTab(viewModel: AppViewModel, onOpenGenre: (String) -> Unit) {
     val library by viewModel.library.collectAsStateWithLifecycle()
 
     if (library.genres.isEmpty()) {
-        EmptyState("Aucun genre", "Tes fichiers n'ont pas de tag de genre.")
+        EmptyOrLoading(
+            viewModel = viewModel,
+            title = "Aucun genre",
+            subtitle = "Tes fichiers n'ont pas de tag de genre.",
+            icon = Icons.Rounded.Category,
+        )
         return
     }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
+        contentPadding = PaddingValues(horizontal = Space.sm, vertical = Space.md),
     ) {
         items(library.genres, key = { it.name }) { genre ->
             GenreRow(genre = genre, onClick = { onOpenGenre(genre.name) })
@@ -591,9 +842,19 @@ private fun GenresTab(viewModel: AppViewModel, onOpenGenre: (String) -> Unit) {
 private fun FoldersTab(viewModel: AppViewModel, onOpenFolder: (String) -> Unit) {
     val library by viewModel.library.collectAsStateWithLifecycle()
 
+    if (library.folders.isEmpty()) {
+        EmptyOrLoading(
+            viewModel = viewModel,
+            title = "Aucun dossier",
+            subtitle = "Aucun dossier ne contient de musique pour le moment.",
+            icon = Icons.Rounded.Folder,
+        )
+        return
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
+        contentPadding = PaddingValues(horizontal = Space.sm, vertical = Space.md),
     ) {
         items(library.folders, key = { it.path }) { folder ->
             FolderRow(folder = folder, onClick = { onOpenFolder(folder.path) })
@@ -615,19 +876,33 @@ private fun ListToolbar(
 ) {
     var expanded by remember { mutableStateOf(false) }
 
-    Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+    Column(Modifier.padding(horizontal = Space.md, vertical = Space.xs)) {
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(Space.md),
         ) {
-            FilledTonalButton(onClick = onPlayAll, modifier = Modifier.weight(1f)) {
-                Icon(Icons.Rounded.PlayArrow, contentDescription = null)
-                Text("Lire", Modifier.padding(start = 6.dp))
+            Button(
+                onClick = onPlayAll,
+                shape = SynxioShape.pill,
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = Space.touchTarget),
+            ) {
+                Icon(Icons.Rounded.PlayArrow, contentDescription = null, Modifier.size(ButtonDefaults.IconSize))
+                Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                Text("Lecture")
             }
-            FilledTonalButton(onClick = onShuffle, modifier = Modifier.weight(1f)) {
-                Icon(Icons.Rounded.Shuffle, contentDescription = null)
-                Text("Aléatoire", Modifier.padding(start = 6.dp))
+            FilledTonalButton(
+                onClick = onShuffle,
+                shape = SynxioShape.pill,
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = Space.touchTarget),
+            ) {
+                Icon(Icons.Rounded.Shuffle, contentDescription = null, Modifier.size(ButtonDefaults.IconSize))
+                Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                Text("Aléatoire")
             }
         }
 
@@ -638,13 +913,19 @@ private fun ListToolbar(
         ) {
             Text(
                 text = "$count élément${if (count > 1) "s" else ""}",
-                style = MaterialTheme.typography.labelMedium,
+                style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Box {
                 TextButton(onClick = { expanded = true }) {
-                    Icon(Icons.Rounded.SortByAlpha, contentDescription = null)
-                    Text(sortLabel, Modifier.padding(start = 6.dp))
+                    Icon(Icons.Rounded.SortByAlpha, contentDescription = null, Modifier.size(ButtonDefaults.IconSize))
+                    Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                    Text(
+                        sortLabel + if (descending) " ↓" else " ↑",
+                        modifier = Modifier.semantics {
+                            contentDescription = "Trier : $sortLabel, ordre ${if (descending) "décroissant" else "croissant"}"
+                        },
+                    )
                 }
                 DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                     sortOptions.forEachIndexed { index, label ->

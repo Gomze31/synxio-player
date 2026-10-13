@@ -12,11 +12,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Folder
@@ -29,7 +29,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import fr.synxio.player.core.util.asDuration
@@ -41,7 +44,22 @@ import fr.synxio.player.data.model.Folder
 import fr.synxio.player.data.model.Genre
 import fr.synxio.player.data.model.Playlist
 import fr.synxio.player.data.model.Song
+import fr.synxio.player.ui.theme.Space
+import fr.synxio.player.ui.theme.SynxioShape
+import fr.synxio.player.ui.theme.SynxioTheme
 
+/** Hauteur minimale d'une ligne de liste : vignette + deux lignes de texte, au doigt. */
+private val RowMinHeight = 64.dp
+
+/** Vignette de ligne : assez grande pour reconnaître une pochette d'un coup d'œil. */
+private val RowThumbSize = 52.dp
+
+/**
+ * Ligne de titre, brique de toutes les listes de l'app.
+ *
+ * Le titre en cours passe en `primary` ET est annoncé par TalkBack via
+ * `stateDescription` : la couleur seule ne suffit pas à porter l'information.
+ */
 @Composable
 fun SongRow(
     song: Song,
@@ -60,24 +78,36 @@ fun SongRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .heightIn(min = RowMinHeight)
+            .clip(SynxioShape.artworkMd)
             .then(
-                if (isCurrent) Modifier.background(scheme.primary.copy(alpha = 0.12f))
+                if (isCurrent) Modifier.background(scheme.secondaryContainer.copy(alpha = 0.45f))
                 else Modifier
             )
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .combinedClickable(
+                onClick = onClick,
+                onClickLabel = "Lire",
+                role = Role.Button,
+                onLongClick = onLongClick,
+                onLongClickLabel = if (onLongClick != null) "Options" else null,
+            )
+            .then(
+                if (isCurrent) Modifier.semantics {
+                    stateDescription = if (isPlaying) "En cours de lecture" else "En pause"
+                } else Modifier
+            )
+            .padding(horizontal = Space.md, vertical = Space.sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         when {
             showArtwork -> Artwork(
                 model = song.artworkUri,
-                modifier = Modifier.size(52.dp),
-                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.size(RowThumbSize),
+                shape = SynxioShape.artworkSm,
             )
 
             trackNumber != null -> Box(
-                modifier = Modifier.width(32.dp),
+                modifier = Modifier.width(Space.xxl),
                 contentAlignment = Alignment.Center,
             ) {
                 if (isCurrent) {
@@ -85,39 +115,40 @@ fun SongRow(
                 } else {
                     Text(
                         text = trackNumber.toString(),
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
                         color = scheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
                     )
                 }
             }
         }
 
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(Space.md))
 
         Column(Modifier.weight(1f)) {
             Text(
                 text = song.title,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.bodyLarge,
                 color = if (isCurrent) scheme.primary else scheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(Space.xxs))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 AnimatedVisibility(isFavorite) {
                     Row {
                         Icon(
                             imageVector = Icons.Rounded.Favorite,
                             contentDescription = "Favori",
-                            tint = scheme.tertiary,
-                            modifier = Modifier.size(13.dp),
+                            tint = SynxioTheme.colors.favorite,
+                            modifier = Modifier.size(14.dp),
                         )
-                        Spacer(Modifier.width(4.dp))
+                        Spacer(Modifier.width(Space.xs))
                     }
                 }
                 Text(
                     text = "${song.displayArtist} · ${song.durationMs.asDuration()}",
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
                     color = scheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -126,19 +157,23 @@ fun SongRow(
         }
 
         if (showArtwork && isCurrent) {
-            PlayingIndicator(isPlaying, Modifier.padding(horizontal = 8.dp), scheme.primary)
+            PlayingIndicator(isPlaying, Modifier.padding(horizontal = Space.sm), scheme.primary)
         }
 
         trailing?.invoke()
 
         if (onMenuClick != null) {
-            IconButton(onClick = onMenuClick) {
-                Icon(Icons.Rounded.MoreVert, contentDescription = "Options du titre")
+            IconButton(onClick = onMenuClick, modifier = Modifier.size(Space.touchTarget)) {
+                Icon(Icons.Rounded.MoreVert, contentDescription = "Options de ${song.title}")
             }
         }
     }
 }
 
+/**
+ * Carte d'album pour les grilles et carrousels : la pochette fait la carte, le texte
+ * vit dessous. Pas de conteneur autour, la pochette suffit à délimiter l'élément.
+ */
 @Composable
 fun AlbumCard(
     album: Album,
@@ -148,28 +183,33 @@ fun AlbumCard(
 ) {
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(20.dp))
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(8.dp),
+            .clip(SynxioShape.artworkMd)
+            .combinedClickable(
+                onClick = onClick,
+                onClickLabel = "Ouvrir l'album",
+                role = Role.Button,
+                onLongClick = onLongClick,
+                onLongClickLabel = if (onLongClick != null) "Options" else null,
+            )
+            .padding(Space.sm),
     ) {
         Artwork(
             model = album.artworkUri,
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f),
-            shape = RoundedCornerShape(16.dp),
+            shape = SynxioShape.artworkMd,
         )
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(Space.sm))
         Text(
             text = album.title,
             style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
         Text(
             text = album.artist,
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -177,6 +217,7 @@ fun AlbumCard(
     }
 }
 
+/** Carte d'artiste : portrait rond, convention universelle pour « une personne ». */
 @Composable
 fun ArtistCard(
     artist: Artist,
@@ -185,9 +226,9 @@ fun ArtistCard(
 ) {
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(20.dp))
-            .clickable(onClick = onClick)
-            .padding(8.dp),
+            .clip(SynxioShape.artworkMd)
+            .clickable(onClickLabel = "Ouvrir l'artiste", role = Role.Button, onClick = onClick)
+            .padding(Space.sm),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Artwork(
@@ -197,17 +238,20 @@ fun ArtistCard(
                 .aspectRatio(1f),
             shape = CircleShape,
         )
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(Space.sm))
         Text(
             text = artist.name,
             style = MaterialTheme.typography.titleSmall,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
         )
         Text(
             text = artist.albumCount.pluralAlbums(),
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -218,12 +262,13 @@ fun GenreRow(genre: Genre, onClick: () -> Unit, modifier: Modifier = Modifier) {
         title = genre.name,
         subtitle = genre.songCount.pluralSongs(),
         onClick = onClick,
+        onClickLabel = "Ouvrir le genre",
         modifier = modifier,
     ) {
         ArtworkMosaic(
             models = genre.artworkUris,
-            modifier = Modifier.size(52.dp),
-            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.size(RowThumbSize),
+            shape = SynxioShape.artworkSm,
         )
     }
 }
@@ -239,13 +284,14 @@ fun PlaylistRow(
         title = playlist.name,
         subtitle = "${playlist.songCount.pluralSongs()} · ${playlist.durationMs.asDuration()}",
         onClick = onClick,
+        onClickLabel = "Ouvrir la playlist",
         modifier = modifier,
         onMenuClick = onMenuClick,
     ) {
         ArtworkMosaic(
             models = playlist.artworkUris,
-            modifier = Modifier.size(52.dp),
-            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.size(RowThumbSize),
+            shape = SynxioShape.artworkSm,
         )
     }
 }
@@ -256,13 +302,14 @@ fun FolderRow(folder: Folder, onClick: () -> Unit, modifier: Modifier = Modifier
         title = folder.name,
         subtitle = "${folder.songCount.pluralSongs()} · ${folder.path}",
         onClick = onClick,
+        onClickLabel = "Ouvrir le dossier",
         modifier = modifier,
     ) {
         Box(
             modifier = Modifier
-                .size(52.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                .size(RowThumbSize)
+                .clip(SynxioShape.artworkSm)
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
@@ -274,11 +321,13 @@ fun FolderRow(folder: Folder, onClick: () -> Unit, modifier: Modifier = Modifier
     }
 }
 
+/** Gabarit commun des lignes « collection » (genre, playlist, dossier). */
 @Composable
 private fun SimpleRow(
     title: String,
     subtitle: String,
     onClick: () -> Unit,
+    onClickLabel: String,
     modifier: Modifier = Modifier,
     onMenuClick: (() -> Unit)? = null,
     leading: @Composable () -> Unit,
@@ -286,31 +335,33 @@ private fun SimpleRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .heightIn(min = RowMinHeight)
+            .clip(SynxioShape.artworkMd)
+            .clickable(onClickLabel = onClickLabel, role = Role.Button, onClick = onClick)
+            .padding(horizontal = Space.md, vertical = Space.sm),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(Space.md),
     ) {
         leading()
         Column(Modifier.weight(1f)) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.bodyLarge,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            Spacer(Modifier.height(Space.xxs))
             Text(
                 text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
         if (onMenuClick != null) {
-            IconButton(onClick = onMenuClick) {
-                Icon(Icons.Rounded.MoreVert, contentDescription = "Options")
+            IconButton(onClick = onMenuClick, modifier = Modifier.size(Space.touchTarget)) {
+                Icon(Icons.Rounded.MoreVert, contentDescription = "Options de $title")
             }
         }
     }

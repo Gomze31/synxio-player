@@ -1,14 +1,9 @@
 package fr.synxio.player.ui.screens
 
 import android.media.MediaPlayer
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -17,21 +12,26 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
 import fr.synxio.player.core.util.asDuration
 import fr.synxio.player.data.model.Song
+import fr.synxio.player.ui.components.Artwork
+import fr.synxio.player.ui.theme.Space
+import fr.synxio.player.ui.theme.SynxioShape
 import fr.synxio.player.ui.viewmodel.AppViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+private val TrimArtworkSize = 64.dp
+private val PreviewButtonSize = 64.dp
+private val PreviewIconSize = 32.dp
+private val ProgressStroke = 2.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -92,16 +92,12 @@ fun TrimScreen(
         }
     }
 
+    val numbers = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum")
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {
-                    Text(
-                        text = "Découpage audio",
-                        fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.titleLarge
-                    )
-                },
+                title = { Text("Découpage audio") },
                 navigationIcon = {
                     IconButton(onClick = {
                         stopPreview()
@@ -118,33 +114,29 @@ fun TrimScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 12.dp),
+                .padding(horizontal = Space.gutter, vertical = Space.md),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // Carte d'information sur la chanson
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                shape = SynxioShape.card,
+                color = MaterialTheme.colorScheme.surfaceContainerLow
             ) {
                 Row(
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.padding(Space.lg),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    AsyncImage(
+                    Artwork(
                         model = song.artworkUri,
-                        contentDescription = null,
-                        modifier = Modifier
-                            .size(64.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surface)
+                        modifier = Modifier.size(TrimArtworkSize),
+                        shape = SynxioShape.artworkSm,
                     )
-                    Spacer(modifier = Modifier.width(16.dp))
+                    Spacer(modifier = Modifier.width(Space.lg))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = song.title,
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -157,35 +149,34 @@ fun TrimScreen(
                         )
                         Text(
                             text = "Durée totale : ${song.durationMs.asDuration()}",
-                            style = MaterialTheme.typography.bodySmall,
+                            style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
                             color = MaterialTheme.colorScheme.primary
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(Space.xl))
 
             // Durée de la sélection
             val selectionDuration = (range.endInclusive - range.start).toLong()
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = SynxioShape.card,
                 color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.padding(bottom = 16.dp)
+                modifier = Modifier.padding(bottom = Space.lg)
             ) {
                 Column(
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                    modifier = Modifier.padding(horizontal = Space.xl, vertical = Space.md),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
                         text = "Extrait sélectionné",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                     Text(
                         text = selectionDuration.asDuration(),
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.headlineMedium.copy(fontFeatureSettings = "tnum"),
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
@@ -202,7 +193,8 @@ fun TrimScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            // Début et fin avec réglages fins (-1s / +1s)
+            // Début et fin avec réglages fins (-1s / +1s). Boutons à 48 dp : à 36 dp, ils
+            // passaient sous la cible tactile minimale et leur libellé était illisible.
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -212,29 +204,32 @@ fun TrimScreen(
                 Column(horizontalAlignment = Alignment.Start) {
                     Text(
                         text = "Début : ${range.start.toLong().asDuration()}",
-                        fontWeight = FontWeight.SemiBold,
-                        style = MaterialTheme.typography.bodyMedium
+                        style = numbers
                     )
-                    Row(modifier = Modifier.padding(top = 4.dp)) {
-                        FilledTonalIconButton(
+                    Row(
+                        modifier = Modifier.padding(top = Space.xs),
+                        horizontalArrangement = Arrangement.spacedBy(Space.sm)
+                    ) {
+                        NudgeButton(
+                            label = "-1s",
+                            description = "Début une seconde plus tôt",
+                            enabled = range.start > 0f,
                             onClick = {
                                 val newStart = (range.start - 1000f).coerceAtLeast(0f)
                                 if (newStart < range.endInclusive) range = newStart..range.endInclusive
                             },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Text("-1s", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        }
-                        Spacer(modifier = Modifier.width(6.dp))
-                        FilledTonalIconButton(
+                        )
+                        NudgeButton(
+                            label = "+1s",
+                            description = "Début une seconde plus tard",
+                            enabled = range.start + 1000f <= range.endInclusive - 1000f,
                             onClick = {
-                                val newStart = (range.start + 1000f).coerceAtMost(range.endInclusive - 1000f)
-                                range = newStart..range.endInclusive
+                                val newStart = range.start + 1000f
+                                if (newStart <= range.endInclusive - 1000f) {
+                                    range = newStart..range.endInclusive
+                                }
                             },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Text("+1s", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        }
+                        )
                     }
                 }
 
@@ -242,43 +237,47 @@ fun TrimScreen(
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
                         text = "Fin : ${range.endInclusive.toLong().asDuration()}",
-                        fontWeight = FontWeight.SemiBold,
-                        style = MaterialTheme.typography.bodyMedium
+                        style = numbers
                     )
-                    Row(modifier = Modifier.padding(top = 4.dp)) {
-                        FilledTonalIconButton(
+                    Row(
+                        modifier = Modifier.padding(top = Space.xs),
+                        horizontalArrangement = Arrangement.spacedBy(Space.sm)
+                    ) {
+                        NudgeButton(
+                            label = "-1s",
+                            description = "Fin une seconde plus tôt",
+                            enabled = range.endInclusive - 1000f >= range.start + 1000f,
                             onClick = {
-                                val newEnd = (range.endInclusive - 1000f).coerceAtLeast(range.start + 1000f)
-                                range = range.start..newEnd
+                                val newEnd = range.endInclusive - 1000f
+                                if (newEnd >= range.start + 1000f) {
+                                    range = range.start..newEnd
+                                }
                             },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Text("-1s", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        }
-                        Spacer(modifier = Modifier.width(6.dp))
-                        FilledTonalIconButton(
+                        )
+                        NudgeButton(
+                            label = "+1s",
+                            description = "Fin une seconde plus tard",
+                            enabled = range.endInclusive < totalDuration,
                             onClick = {
                                 val newEnd = (range.endInclusive + 1000f).coerceAtMost(totalDuration)
-                                range = range.start..newEnd
+                                if (newEnd > range.start) range = range.start..newEnd
                             },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Text("+1s", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        }
+                        )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(Space.xl))
 
             // Boutons de pré-écoute
             Text(
                 text = "Pré-écoute de l'extrait",
                 style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.semantics { heading() }
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(Space.md))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -291,10 +290,11 @@ fun TrimScreen(
                         val start = range.start.toLong()
                         playPreview(start, (start + 3000L).coerceAtMost(range.endInclusive.toLong()))
                     },
-                    shape = RoundedCornerShape(12.dp)
+                    shape = SynxioShape.pill,
+                    modifier = Modifier.heightIn(min = Space.touchTarget)
                 ) {
-                    Icon(Icons.Rounded.FastRewind, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Icon(Icons.Rounded.FastRewind, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
+                    Spacer(modifier = Modifier.width(ButtonDefaults.IconSpacing))
                     Text("Début 3s")
                 }
 
@@ -308,13 +308,13 @@ fun TrimScreen(
                         }
                     },
                     shape = CircleShape,
-                    modifier = Modifier.size(60.dp),
+                    modifier = Modifier.size(PreviewButtonSize),
                     contentPadding = PaddingValues(0.dp)
                 ) {
                     Icon(
                         imageVector = if (isPlayingPreview) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                        contentDescription = if (isPlayingPreview) "Pause" else "Lire",
-                        modifier = Modifier.size(32.dp)
+                        contentDescription = if (isPlayingPreview) "Arrêter la pré-écoute" else "Écouter l'extrait",
+                        modifier = Modifier.size(PreviewIconSize)
                     )
                 }
 
@@ -324,15 +324,16 @@ fun TrimScreen(
                         val end = range.endInclusive.toLong()
                         playPreview((end - 3000L).coerceAtLeast(range.start.toLong()), end)
                     },
-                    shape = RoundedCornerShape(12.dp)
+                    shape = SynxioShape.pill,
+                    modifier = Modifier.heightIn(min = Space.touchTarget)
                 ) {
                     Text("Fin 3s")
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Icon(Icons.Rounded.FastForward, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(ButtonDefaults.IconSpacing))
+                    Icon(Icons.Rounded.FastForward, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
                 }
             }
 
-            Spacer(modifier = Modifier.height(40.dp))
+            Spacer(modifier = Modifier.height(Space.xxl))
 
             // Bouton de sauvegarde
             Button(
@@ -345,23 +346,42 @@ fun TrimScreen(
                 enabled = !isProcessing && selectionDuration >= 1000L,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(54.dp),
-                shape = RoundedCornerShape(16.dp)
+                    .heightIn(min = Space.touchTarget),
+                shape = SynxioShape.pill
             ) {
                 if (isProcessing) {
                     CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(ButtonDefaults.IconSize),
+                        strokeWidth = ProgressStroke,
                         color = MaterialTheme.colorScheme.onPrimary
                     )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text("Création du fichier audio...")
+                    Spacer(modifier = Modifier.width(ButtonDefaults.IconSpacing))
+                    Text("Création du fichier audio…")
                 } else {
-                    Icon(Icons.Rounded.ContentCut, contentDescription = null)
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text("Sauvegarder l'extrait découpé", fontWeight = FontWeight.Bold)
+                    Icon(Icons.Rounded.ContentCut, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
+                    Spacer(modifier = Modifier.width(ButtonDefaults.IconSpacing))
+                    Text("Sauvegarder l'extrait découpé")
                 }
             }
         }
+    }
+}
+
+/** Réglage fin d'une borne : bouton tonal de 48 dp, libellé lisible en `labelLarge`. */
+@Composable
+private fun NudgeButton(
+    label: String,
+    description: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    FilledTonalIconButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier
+            .size(Space.touchTarget)
+            .semantics { contentDescription = description },
+    ) {
+        Text(label, style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"))
     }
 }

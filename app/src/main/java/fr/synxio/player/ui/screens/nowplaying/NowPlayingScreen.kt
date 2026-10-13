@@ -81,6 +81,8 @@ import fr.synxio.player.data.model.RepeatMode
 import fr.synxio.player.ui.theme.LocalReduceMotion
 import fr.synxio.player.ui.theme.Motion
 import fr.synxio.player.ui.theme.SynxioTheme
+import fr.synxio.player.ui.theme.Radius
+import fr.synxio.player.ui.theme.SynxioShape
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -195,7 +197,7 @@ fun NowPlayingScreen(
                     .scale(if (reduceMotion) 1.4f else scaleAnim)
                     .rotate(if (reduceMotion) 0f else rotationAnim)
                     .blur(80.dp),
-                shape = RoundedCornerShape(0.dp),
+                shape = androidx.compose.ui.graphics.RectangleShape,
             )
         }
 
@@ -274,7 +276,7 @@ fun NowPlayingScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp, vertical = 24.dp),
-                shape = RoundedCornerShape(32.dp),
+                shape = RoundedCornerShape(Radius.xl),
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.2f),
                 shadowElevation = 0.dp,
                 border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
@@ -473,7 +475,7 @@ private fun ArtworkStage(
                         .fillMaxWidth(1f)
                         .aspectRatio(0.9f)
                         .scale(scale),
-                    shape = RoundedCornerShape(32.dp),
+                    shape = RoundedCornerShape(Radius.xl),
                     color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
                     tonalElevation = 12.dp,
                     shadowElevation = 24.dp,
@@ -484,7 +486,7 @@ private fun ArtworkStage(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .aspectRatio(1f),
-                            shape = RoundedCornerShape(24.dp),
+                            shape = RoundedCornerShape(Radius.lg),
                         )
                     }
                 }
@@ -495,7 +497,7 @@ private fun ArtworkStage(
                         .fillMaxWidth(0.7f)
                         .aspectRatio(1f)
                         .scale(scale),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = SynxioShape.artworkMd,
                 )
 
                 NowPlayingSkin.IMMERSIVE -> Artwork(
@@ -504,7 +506,7 @@ private fun ArtworkStage(
                         .fillMaxWidth(1f)
                         .aspectRatio(1f)
                         .scale(scale),
-                    shape = RoundedCornerShape(32.dp),
+                    shape = RoundedCornerShape(Radius.xl),
                 )
             }
         }
@@ -537,11 +539,11 @@ private fun VinylArtwork(model: Any?, spinning: Boolean, modifier: Modifier = Mo
                 .clip(CircleShape)
                 .background(Brush.sweepGradient(
                     listOf(
-                        Color(0xFF141418),
-                        Color(0xFF2C2C35),
-                        Color(0xFF0F0F12),
-                        Color(0xFF2C2C35),
-                        Color(0xFF141418)
+                        SynxioTheme.colors.vinyl,
+                        SynxioTheme.colors.vinylGroove,
+                        SynxioTheme.colors.vinyl,
+                        SynxioTheme.colors.vinylGroove,
+                        SynxioTheme.colors.vinyl
                     )
                 ))
                 .rotate(if (spinning) angle else rotation)

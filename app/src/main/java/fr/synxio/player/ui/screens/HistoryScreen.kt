@@ -1,564 +1,341 @@
 package fr.synxio.player.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Album
-import androidx.compose.material.icons.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.ArtTrack
-import androidx.compose.material.icons.rounded.CalendarToday
-import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material.icons.rounded.Timer
-import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil.compose.AsyncImage
-import fr.synxio.player.R
-import fr.synxio.player.core.util.asDuration
-import fr.synxio.player.data.model.PlayHistory
+import fr.synxio.player.data.model.Song
 import fr.synxio.player.data.model.StatsPeriod
-import fr.synxio.player.data.model.formatDate
+import fr.synxio.player.ui.components.EmptyState
 import fr.synxio.player.ui.components.SongRow
+import fr.synxio.player.ui.theme.LocalReduceMotion
+import fr.synxio.player.ui.theme.Space
+import fr.synxio.player.ui.theme.SynxioShape
 import fr.synxio.player.ui.viewmodel.AppViewModel
 import fr.synxio.player.ui.viewmodel.HistoryViewModel
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /**
- * Écran de l'historique de lecture.
- * Affiche l'historique des morceaux écoutés avec filtres par période.
+ * Historique de lecture, groupé par jour, filtrable par période.
+ *
+ * Le groupement et le formatage des heures sont faits dans [HistoryViewModel.days] :
+ * la liste ne fait qu'afficher. Chaque ligne a un vrai menu (lire, file d'attente,
+ * album, artiste) au lieu de l'ancien bouton sans effet.
  */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun HistoryScreen(
     viewModel: AppViewModel,
     onBack: () -> Unit,
     onOpenArtist: (String) -> Unit,
     onOpenAlbum: (Long) -> Unit,
-    onPlaySong: (List<fr.synxio.player.data.model.Song>, Int) -> Unit
+    onPlaySong: (List<Song>, Int) -> Unit
 ) {
     val historyViewModel: HistoryViewModel = hiltViewModel()
-    
-    val history by historyViewModel.filteredHistory.collectAsStateWithLifecycle()
+
+    val days by historyViewModel.days.collectAsStateWithLifecycle()
     val periodFilter by historyViewModel.periodFilter.collectAsStateWithLifecycle()
-    val historyCount by historyViewModel.historyCount.collectAsStateWithLifecycle()
-    val dailyStats by historyViewModel.dailyStats.collectAsStateWithLifecycle()
-    
-    var expanded by remember { mutableStateOf(false) }
-    var showClearDialog by remember { mutableStateOf(false) }
-    var selectedItem by remember { mutableStateOf<PlayHistory?>(null) }
-    
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-    ) {
-        // Top App Bar
-        TopAppBar(
-            title = { Text("Historique") },
-            navigationIcon = {
-                IconButton(onClick = onBack) {
-                    Icon(
-                        imageVector = Icons.Rounded.ArrowBack,
-                        contentDescription = "Retour"
-                    )
-                }
-            },
-            actions = {
-                // Menu de filtre
-                Box {
-                    IconButton(onClick = { expanded = !expanded }) {
-                        Icon(Icons.Rounded.Tune, contentDescription = "Période")
+    val filteredCount by historyViewModel.filteredCount.collectAsStateWithLifecycle()
+    val totalCount by historyViewModel.historyCount.collectAsStateWithLifecycle()
+    val lastSevenDays by historyViewModel.lastSevenDays.collectAsStateWithLifecycle()
+    val currentSongId by viewModel.currentSongId.collectAsStateWithLifecycle()
+    val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
+    val reduceMotion = LocalReduceMotion.current
+
+    var showClearDialog by rememberSaveable { mutableStateOf(false) }
+
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
+    Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        topBar = {
+            TopAppBar(
+                title = { Text("Historique") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Retour")
                     }
-                    
-                    DropdownMenu(
-                        expanded = expanded,
-                        onDismissRequest = { expanded = false }
-                    ) {
-                        StatsPeriod.entries.forEach { period ->
-                            DropdownMenuItem(
-                                text = { Text(period.label) },
-                                onClick = {
-                                    historyViewModel.setPeriodFilter(period)
-                                    expanded = false
-                                },
-                                leadingIcon = {
-                                    val icon = when (period) {
-                                        StatsPeriod.TODAY -> Icons.Rounded.CalendarToday
-                                        StatsPeriod.WEEK -> Icons.Rounded.Timer
-                                        StatsPeriod.MONTH -> Icons.Rounded.Timer
-                                        StatsPeriod.YEAR -> Icons.Rounded.CalendarToday
-                                        StatsPeriod.ALL_TIME -> Icons.Rounded.Tune
-                                    }
-                                    Icon(icon, contentDescription = null)
-                                }
-                            )
+                },
+                actions = {
+                    if (totalCount > 0) {
+                        IconButton(onClick = { showClearDialog = true }) {
+                            Icon(Icons.Rounded.DeleteSweep, contentDescription = "Effacer l'historique")
                         }
-                        
-                        androidx.compose.material3.HorizontalDivider()
-                        
-                        DropdownMenuItem(
-                            text = { Text("Effacer l'historique", color = MaterialTheme.colorScheme.error) },
-                            onClick = {
-                                showClearDialog = true
-                                expanded = false
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Rounded.Delete,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.error
-                                )
-                            }
+                    }
+                },
+                scrollBehavior = scrollBehavior,
+            )
+        },
+    ) { padding ->
+        if (totalCount == 0) {
+            EmptyState(
+                title = "Aucune écoute enregistrée",
+                subtitle = "Les titres que tu écoutes apparaîtront ici, jour par jour.",
+                icon = Icons.Rounded.History,
+                modifier = Modifier.padding(padding),
+            )
+            return@Scaffold
+        }
+
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                top = padding.calculateTopPadding(),
+                bottom = padding.calculateBottomPadding() + Space.xxl,
+            ),
+        ) {
+            item(key = "periods", contentType = "periods") {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = Space.gutter, vertical = Space.sm),
+                    horizontalArrangement = Arrangement.spacedBy(Space.sm),
+                ) {
+                    items(StatsPeriod.entries, key = { it.name }) { period ->
+                        FilterChip(
+                            selected = period == periodFilter,
+                            onClick = { historyViewModel.setPeriodFilter(period) },
+                            label = { Text(period.label) },
+                            shape = SynxioShape.pill,
                         )
                     }
                 }
             }
-        )
-        
-        // Contenu
-        LazyColumn(
-            state = rememberLazyListState(),
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
-        ) {
-            // Section Résumé
-            item {
-                HistorySummarySection(
-                    period = periodFilter,
-                    historyCount = historyCount,
-                    dailyStats = dailyStats
-                )
+
+            item(key = "summary", contentType = "summary") {
+                HistorySummary(count = filteredCount, lastSevenDays = lastSevenDays)
             }
-            
-            item { Spacer(Modifier.height(16.dp)) }
-            
-            // Section Résultat vide
-            if (history.isEmpty()) {
-                item {
-                    EmptyHistorySection()
-                }
-            } else {
-                // Liste de l'historique
-                items(history, key = { it.playedAt.toEpochMilli() }) { item ->
-                    val date = item.playedAt.formatDate()
-                    val time = SimpleDateFormat("HH:mm", Locale.getDefault())
-                        .format(Date(item.playedAt.toEpochMilli()))
-                    
-                    // Afficher la date comme en-tête de section
-                    if (history.indexOf(item) == 0 || 
-                        item.playedAt.formatDate() != history[history.indexOf(item) - 1].playedAt.formatDate()) {
-                        StickyDateHeader(date = date)
-                    }
-                    
-                    HistoryItem(
-                        history = item,
-                        time = time,
-                        onPlay = { onPlaySong(listOf(item.song), 0) },
-                        onOpenArtist = { onOpenArtist(item.song.artist) },
-                        onOpenAlbum = { onOpenAlbum(item.song.albumId) }
+
+            if (days.isEmpty()) {
+                item(key = "period-empty", contentType = "note") {
+                    Text(
+                        text = "Aucune écoute sur cette période.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = Space.gutter, vertical = Space.lg),
                     )
-                    
-                    // Séparateur
-                    if (history.indexOf(item) < history.size - 1) {
-                        Spacer(Modifier.height(4.dp))
-                    }
+                }
+            }
+
+            days.forEach { day ->
+                stickyHeader(key = "day-${day.key}", contentType = "day") {
+                    Text(
+                        text = day.label,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surface)
+                            .padding(horizontal = Space.gutter, vertical = Space.sm)
+                            .semantics { heading() },
+                    )
+                }
+                items(day.entries, key = { it.key }, contentType = { "entry" }) { entry ->
+                    val song = entry.item.song
+                    HistoryRow(
+                        song = song,
+                        time = entry.time,
+                        isCurrent = song.id == currentSongId,
+                        isPlaying = song.id == currentSongId && isPlaying,
+                        onPlay = { onPlaySong(listOf(song), 0) },
+                        onPlayNext = { viewModel.playNext(listOf(song)) },
+                        onAddToQueue = { viewModel.addToQueue(listOf(song)) },
+                        onOpenAlbum = { onOpenAlbum(song.albumId) },
+                        onOpenArtist = { onOpenArtist(song.artist) },
+                        modifier = if (reduceMotion) Modifier else Modifier.animateItem(),
+                    )
                 }
             }
         }
     }
-    
-    // Dialog de confirmation d'effacement
+
     if (showClearDialog) {
         AlertDialog(
             onDismissRequest = { showClearDialog = false },
-            title = { Text("Effacer l'historique") },
-            text = { Text("Êtes-vous sûr de vouloir effacer tout l'historique de lecture ? Cette action ne peut pas être annulée.") },
+            title = { Text("Effacer l'historique ?") },
+            text = {
+                Text("Toutes les écoutes enregistrées seront supprimées. Tes statistiques de lecture ne sont pas touchées. Cette action est irréversible.")
+            },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        historyViewModel.clear()
-                        showClearDialog = false
-                    }
-                ) {
-                    Text("Effacer", color = MaterialTheme.colorScheme.error)
-                }
+                TextButton(onClick = {
+                    showClearDialog = false
+                    historyViewModel.clear()
+                }) { Text("Effacer", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = {
-                TextButton(
-                    onClick = { showClearDialog = false }
-                ) {
-                    Text("Annuler")
-                }
-            }
+                TextButton(onClick = { showClearDialog = false }) { Text("Annuler") }
+            },
         )
     }
 }
 
-/**
- * Section de résumé de l'historique.
- */
+/** Nombre d'écoutes de la période et activité des sept derniers jours. */
 @Composable
-private fun HistorySummarySection(
-    period: StatsPeriod,
-    historyCount: Int,
-    dailyStats: Map<String, Int>
-) {
-    ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // Période sélectionnée
-            Text(
-                text = "${period.label}",
-                style = MaterialTheme.typography.titleMedium.copy(
-                    fontWeight = FontWeight.Bold
-                ),
-                color = MaterialTheme.colorScheme.primary
-            )
-            
-            Spacer(Modifier.height(16.dp))
-            
-            // Total des entrées
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center
-            ) {
-                Icon(
-                    Icons.Rounded.ArtTrack,
-                    contentDescription = null,
-                    modifier = Modifier.size(24.dp),
-                    tint = MaterialTheme.colorScheme.primary
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "$historyCount écoutes",
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontWeight = FontWeight.Bold
-                    ),
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-            }
-            
-            Spacer(Modifier.height(16.dp))
-            
-            // Graphique de l'activité récente (derniers 7 jours)
-            if (dailyStats.isNotEmpty()) {
-                val last7Days = dailyStats.entries
-                    .sortedByDescending { it.key }
-                    .take(7)
-                    .reversed()
-                
-                if (last7Days.size >= 2) {
-                    MiniBarChart(
-                        stats = last7Days.associate { it.key to it.value },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(80.dp)
-                    )
-                }
-            }
+private fun HistorySummary(count: Int, lastSevenDays: List<HistoryViewModel.DayCount>) {
+    Column(modifier = Modifier.padding(horizontal = Space.gutter, vertical = Space.sm)) {
+        Text(
+            text = if (count > 1) "$count écoutes" else "$count écoute",
+            style = MaterialTheme.typography.headlineSmall.copy(fontFeatureSettings = "tnum"),
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        if (lastSevenDays.any { it.count > 0 }) {
+            Spacer(Modifier.height(Space.md))
+            SevenDayChart(lastSevenDays)
         }
     }
 }
 
-/**
- * Section historique vide.
- */
 @Composable
-private fun EmptyHistorySection() {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Box(
-            modifier = Modifier
-                .size(100.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surfaceContainer),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                Icons.Rounded.Timer,
-                contentDescription = null,
-                modifier = Modifier.size(50.dp),
-                tint = MaterialTheme.colorScheme.primary
-            )
-        }
-        
-        Spacer(Modifier.height(24.dp))
-        
-        Text(
-            text = "Aucune écoute enregistrée",
-            style = MaterialTheme.typography.headlineSmall.copy(
-                fontWeight = FontWeight.Bold
-            ),
-            color = MaterialTheme.colorScheme.onBackground,
-            textAlign = TextAlign.Center
-        )
-        
-        Spacer(Modifier.height(8.dp))
-        
-        Text(
-            text = "Commencez à écouter de la musique pour voir votre historique.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center
-        )
+private fun SevenDayChart(days: List<HistoryViewModel.DayCount>) {
+    val max = days.maxOf { it.count }.coerceAtLeast(1)
+    val summary = remember(days) {
+        "Écoutes des sept derniers jours : " + days.joinToString { "${it.fullLabel} ${it.count}" }
     }
-}
-
-/**
- * En-tête de date collant.
- */
-@Composable
-private fun StickyDateHeader(date: String) {
-    Box(
+    val scheme = MaterialTheme.colorScheme
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 8.dp)
-    ) {
-        Text(
-            text = date,
-            style = MaterialTheme.typography.titleSmall.copy(
-                fontWeight = FontWeight.Bold
-            ),
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier
-                .background(
-                    MaterialTheme.colorScheme.surfaceContainer,
-                    RoundedCornerShape(8.dp)
-                )
-                .padding(horizontal = 12.dp, vertical = 6.dp)
-        )
-    }
-}
-
-/**
- * Élément de l'historique.
- */
-@Composable
-private fun HistoryItem(
-    history: PlayHistory,
-    time: String,
-    onPlay: () -> Unit,
-    onOpenArtist: () -> Unit,
-    onOpenAlbum: () -> Unit
-) {
-    Card(
-        onClick = onPlay,
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Artwork
-            if (history.song.artworkUri != null) {
-                AsyncImage(
-                    model = history.song.artworkUri,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(8.dp)),
-                    contentScale = ContentScale.Crop
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainer),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Rounded.Album,
-                        contentDescription = null,
-                        modifier = Modifier.size(24.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-            
-            Spacer(modifier = Modifier.width(12.dp))
-            
-            // Informations
-            Column(
-                modifier = Modifier.weight(1f)
-            ) {
-                Text(
-                    text = history.song.title,
-                    style = MaterialTheme.typography.bodyLarge.copy(
-                        fontWeight = FontWeight.Medium
-                    ),
-                    color = MaterialTheme.colorScheme.onBackground,
-                    maxLines = 1
-                )
-                
-                Spacer(Modifier.height(2.dp))
-                
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Rounded.Person,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = history.song.artist,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1
-                    )
-                }
-                
-                Spacer(Modifier.height(2.dp))
-                
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Rounded.Timer,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "$time - ${history.listenedMs.asDuration()}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-            
-            // Bouton de menu
-            Box {
-                IconButton(
-                    onClick = { /* Menu actions */ },
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Icon(
-                        Icons.Rounded.MoreVert,
-                        contentDescription = "Plus d'options",
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * Mini graphique en barres pour l'activité quotidienne.
- */
-@Composable
-private fun MiniBarChart(stats: Map<String, Int>, modifier: Modifier = Modifier) {
-    val maxCount = stats.values.maxOrNull() ?: 1
-    val days = stats.keys.toList().reversed()
-    
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.Bottom
+            .clearAndSetSemantics { contentDescription = summary },
+        horizontalArrangement = Arrangement.spacedBy(Space.sm),
+        verticalAlignment = Alignment.Bottom,
     ) {
         days.forEach { day ->
-            val count = stats[day] ?: 0
-            val height = if (maxCount > 0) (count.toFloat() / maxCount) else 0f
-            
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.weight(1f)
-            ) {
+            Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "${day.count}",
+                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                    color = scheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+                Spacer(Modifier.height(Space.xs))
                 Box(
                     modifier = Modifier
-                        .height(60.dp * height)
                         .fillMaxWidth(0.6f)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(MaterialTheme.colorScheme.primary),
-                    contentAlignment = Alignment.BottomCenter
+                        .height(64.dp),
+                    contentAlignment = Alignment.BottomCenter,
                 ) {
-                    if (count > 0 && height > 0.15) {
-                        Text(
-                            text = count.toString(),
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 10.sp
-                            ),
-                            modifier = Modifier.padding(bottom = 2.dp)
-                        )
-                    }
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .fillMaxHeight((day.count.toFloat() / max).coerceAtLeast(0.04f))
+                            .clip(SynxioShape.pill)
+                            .background(if (day.count > 0) scheme.primary else scheme.surfaceContainerHighest)
+                    )
                 }
+                Spacer(Modifier.height(Space.xs))
+                Text(
+                    text = day.shortLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = scheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
             }
         }
     }
+}
+
+/**
+ * Ligne d'historique : un appui lit le titre, un appui long ou le bouton « Options »
+ * ouvre le menu d'actions.
+ */
+@Composable
+private fun HistoryRow(
+    song: Song,
+    time: String,
+    isCurrent: Boolean,
+    isPlaying: Boolean,
+    onPlay: () -> Unit,
+    onPlayNext: () -> Unit,
+    onAddToQueue: () -> Unit,
+    onOpenAlbum: () -> Unit,
+    onOpenArtist: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    SongRow(
+        song = song,
+        onClick = onPlay,
+        isCurrent = isCurrent,
+        isPlaying = isPlaying,
+        onLongClick = { menuOpen = true },
+        modifier = modifier.padding(horizontal = Space.sm),
+        trailing = {
+            Text(
+                text = time,
+                style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = Space.sm),
+            )
+            Box {
+                IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(Space.touchTarget)) {
+                    Icon(Icons.Rounded.MoreVert, contentDescription = "Options de ${song.title}")
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    MenuEntry("Lire", Icons.Rounded.PlayArrow) { menuOpen = false; onPlay() }
+                    MenuEntry("Lire ensuite", Icons.AutoMirrored.Rounded.QueueMusic) { menuOpen = false; onPlayNext() }
+                    MenuEntry("Ajouter à la file", Icons.AutoMirrored.Rounded.PlaylistAdd) { menuOpen = false; onAddToQueue() }
+                    MenuEntry("Ouvrir l'album", Icons.Rounded.Album) { menuOpen = false; onOpenAlbum() }
+                    MenuEntry("Ouvrir l'artiste", Icons.Rounded.Person) { menuOpen = false; onOpenArtist() }
+                }
+            }
+        },
+    )
+}
+
+@Composable
+private fun MenuEntry(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+    DropdownMenuItem(
+        text = { Text(label) },
+        leadingIcon = { Icon(icon, contentDescription = null) },
+        onClick = onClick,
+    )
 }

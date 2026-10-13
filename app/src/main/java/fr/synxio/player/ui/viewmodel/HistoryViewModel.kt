@@ -4,10 +4,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import fr.synxio.player.data.model.StatsPeriod
-import fr.synxio.player.data.model.formatDate
+import fr.synxio.player.data.model.PlayHistory
 import fr.synxio.player.data.repo.HistoryRepository
 import fr.synxio.player.data.repo.MusicRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -15,6 +17,10 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import javax.inject.Inject
 
 /**
@@ -156,21 +162,78 @@ class HistoryViewModel @Inject constructor(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /**
-     * Récupère les statistiques par jour pour la semaine.
+     * Écoutes des sept derniers jours, du plus ancien à aujourd'hui, jours vides compris.
+     * (L'ancienne version triait des dates formatées comme du texte : l'ordre était faux.)
      */
-    val dailyStats: StateFlow<Map<String, Int>> = history
+    val lastSevenDays: StateFlow<List<DayCount>> = history
         .map { historyList ->
-            val dailyCounts = mutableMapOf<String, Int>()
-            historyList.forEach { item ->
-                val date = item.playedAt.formatDate()
-                dailyCounts[date] = (dailyCounts[date] ?: 0) + 1
+            val zone = ZoneId.systemDefault()
+            val today = LocalDate.now(zone)
+            val counts = historyList.groupingBy { it.playedAt.atZone(zone).toLocalDate() }.eachCount()
+            (6 downTo 0).map { offset ->
+                val day = today.minusDays(offset.toLong())
+                DayCount(
+                    shortLabel = day.format(SHORT_DAY),
+                    fullLabel = dayLabel(day, today),
+                    count = counts[day] ?: 0,
+                )
             }
-            dailyCounts.entries
-                .sortedBy { it.key }
-                .take(7)
-                .associate { it.toPair() }
         }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * Historique filtré, groupé par jour, avec l'heure déjà formatée : la liste n'a plus
+     * qu'à afficher (le groupement et le formatage se faisaient à chaque composition
+     * d'une ligne, avec des `indexOf` en O(n²)).
+     */
+    val days: StateFlow<List<HistoryDay>> = filteredHistory
+        .map { list ->
+            val zone = ZoneId.systemDefault()
+            val today = LocalDate.now(zone)
+            val seen = HashMap<String, Int>()
+            list.groupBy { it.playedAt.atZone(zone).toLocalDate() }
+                .map { (day, items) ->
+                    HistoryDay(
+                        key = day.toString(),
+                        label = dayLabel(day, today),
+                        entries = items.map { item ->
+                            val base = "${item.playedAt.toEpochMilli()}-${item.song.id}"
+                            val n = seen.merge(base, 1, Int::plus) ?: 1
+                            HistoryEntry(
+                                key = if (n == 1) base else "$base-$n",
+                                item = item,
+                                time = item.playedAt.atZone(zone).toLocalTime().format(TIME),
+                            )
+                        },
+                    )
+                }
+        }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Nombre d'écoutes de la période choisie (et non de tout l'historique). */
+    val filteredCount: StateFlow<Int> = filteredHistory
+        .map { it.size }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    data class DayCount(val shortLabel: String, val fullLabel: String, val count: Int)
+    data class HistoryEntry(val key: String, val item: PlayHistory, val time: String)
+    data class HistoryDay(val key: String, val label: String, val entries: List<HistoryEntry>)
+
+    private companion object {
+        val SHORT_DAY: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE", Locale.FRENCH)
+        val LONG_DAY: DateTimeFormatter = DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.FRENCH)
+        val LONG_DAY_YEAR: DateTimeFormatter = DateTimeFormatter.ofPattern("EEEE d MMMM yyyy", Locale.FRENCH)
+        val TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm", Locale.FRENCH)
+
+        fun dayLabel(day: LocalDate, today: LocalDate): String = when (day) {
+            today -> "Aujourd'hui"
+            today.minusDays(1) -> "Hier"
+            else -> day.format(if (day.year == today.year) LONG_DAY else LONG_DAY_YEAR)
+                .replaceFirstChar { it.titlecase(Locale.FRENCH) }
+        }
+    }
 
     /**
      * Récupère les statistiques par jour de la semaine.

@@ -16,10 +16,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
@@ -27,15 +29,13 @@ import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material.icons.rounded.PlaylistAdd
-import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.PlaylistRemove
 import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -52,7 +52,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import fr.synxio.player.ui.viewmodel.SongInsightsViewModel
@@ -60,6 +63,8 @@ import fr.synxio.player.core.util.asDuration
 import fr.synxio.player.core.util.asFileSize
 import fr.synxio.player.data.model.Playlist
 import fr.synxio.player.data.model.Song
+import fr.synxio.player.ui.theme.Space
+import fr.synxio.player.ui.theme.SynxioShape
 
 /** Actions proposées sur un titre, appelées depuis les listes et le lecteur. */
 data class SongActions(
@@ -76,6 +81,12 @@ data class SongActions(
     val onDelete: (() -> Unit)? = null,
 )
 
+/**
+ * Feuille d'options d'un titre. Les actions sont rangées en trois groupes séparés par
+ * un simple espace (lecture, collection, fichier) : pas de traits, la respiration
+ * suffit à les distinguer. La suppression, seule action destructrice, ferme la liste
+ * en `error`.
+ */
 @Composable
 fun SongOptionsSheet(
     song: Song,
@@ -90,59 +101,72 @@ fun SongOptionsSheet(
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
             Modifier
+                .verticalScroll(rememberScrollState())
                 .navigationBarsPadding()
-                .padding(bottom = 12.dp)
+                .padding(bottom = Space.md)
         ) {
             Row(
-                Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                Modifier.padding(horizontal = Space.xl, vertical = Space.sm),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Artwork(song.artworkUri, Modifier.size(56.dp), RoundedCornerShape(12.dp))
-                Spacer(Modifier.width(14.dp))
-                Column {
-                    Text(song.title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                Artwork(song.artworkUri, Modifier.size(56.dp), SynxioShape.artworkSm)
+                Spacer(Modifier.width(Space.lg))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = song.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.semantics { heading() },
+                    )
                     Text(
                         text = "${song.displayArtist} · ${song.displayAlbum}",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
 
-            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            GroupSpacer()
 
+            // Lecture
             SheetAction(Icons.Rounded.SkipNext, "Lire juste après") {
                 actions.onPlayNext(); onDismiss()
             }
-            SheetAction(Icons.Rounded.QueueMusic, "Ajouter à la file") {
+            SheetAction(Icons.AutoMirrored.Rounded.QueueMusic, "Ajouter à la file") {
                 actions.onAddToQueue(); onDismiss()
             }
             actions.onStartRadio?.let {
                 SheetAction(Icons.Rounded.Radio, "Lancer une radio") { it(); onDismiss() }
             }
+
+            GroupSpacer()
+
+            // Collection
             SheetAction(
                 icon = if (isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
                 label = if (isFavorite) "Retirer des favoris" else "Ajouter aux favoris",
             ) { actions.onToggleFavorite(); onDismiss() }
-            SheetAction(Icons.Rounded.PlaylistAdd, "Ajouter à une playlist") {
+            SheetAction(Icons.AutoMirrored.Rounded.PlaylistAdd, "Ajouter à une playlist") {
                 actions.onAddToPlaylist(); onDismiss()
             }
-
             actions.onRemoveFromPlaylist?.let {
-                SheetAction(Icons.Rounded.PlaylistAdd, "Retirer de cette playlist") {
+                SheetAction(Icons.Rounded.PlaylistRemove, "Retirer de cette playlist") {
                     it(); onDismiss()
                 }
             }
-
-            HorizontalDivider(Modifier.padding(vertical = 8.dp))
-
             actions.onOpenAlbum?.let {
                 SheetAction(Icons.Rounded.Album, "Aller à l'album") { it(); onDismiss() }
             }
             actions.onOpenArtist?.let {
                 SheetAction(Icons.Rounded.Person, "Aller à l'artiste") { it(); onDismiss() }
             }
+
+            GroupSpacer()
+
+            // Fichier
             actions.onEditTags?.let {
                 SheetAction(Icons.Rounded.Edit, "Modifier les tags") { it(); onDismiss() }
             }
@@ -151,9 +175,10 @@ fun SongOptionsSheet(
             }
             SheetAction(Icons.Rounded.Info, "Détails du fichier") { showDetails = true }
             actions.onDelete?.let { delete ->
-                SheetAction(Icons.Rounded.Delete, "Supprimer de l'appareil") {
+                SheetAction(Icons.Rounded.Delete, "Supprimer de l'appareil", destructive = true) {
                     // Android 11+ affiche sa propre confirmation (corbeille système) :
-                    // inutile d'en empiler une deuxième. Avant, la suppression est directe.
+                    // inutile d'en empiler une deuxième. Avant, la suppression est directe
+                    // et définitive, d'où notre AlertDialog.
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                         delete(); onDismiss()
                     } else {
@@ -185,18 +210,40 @@ fun SongOptionsSheet(
     }
 }
 
+/** Séparation entre deux groupes d'actions : un espace, pas un trait. */
 @Composable
-private fun SheetAction(icon: ImageVector, label: String, onClick: () -> Unit) {
+private fun GroupSpacer() = Spacer(Modifier.height(Space.sm))
+
+/** Hauteur d'une ligne d'action de feuille (liste Material à une ligne + icône). */
+private val SheetActionHeight = 56.dp
+
+@Composable
+private fun SheetAction(
+    icon: ImageVector,
+    label: String,
+    destructive: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 24.dp, vertical = 14.dp),
+            .heightIn(min = SheetActionHeight)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = Space.xl, vertical = Space.sm),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(20.dp),
+        horizontalArrangement = Arrangement.spacedBy(Space.lg),
     ) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(label, style = MaterialTheme.typography.bodyLarge)
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (destructive) scheme.error else scheme.onSurfaceVariant,
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (destructive) scheme.error else scheme.onSurface,
+        )
     }
 }
 
@@ -251,7 +298,7 @@ fun SongDetailsDialog(song: Song, onDismiss: () -> Unit) {
 
 @Composable
 private fun DetailLine(label: String, value: String) {
-    Column(Modifier.padding(vertical = 6.dp)) {
+    Column(Modifier.padding(vertical = Space.xs)) {
         Text(
             text = label.uppercase(),
             style = MaterialTheme.typography.labelSmall,
@@ -279,24 +326,25 @@ fun AddToPlaylistSheet(
         Column(
             Modifier
                 .navigationBarsPadding()
-                .padding(bottom = 12.dp)
+                .padding(bottom = Space.md)
         ) {
             Text(
                 text = "Ajouter à une playlist",
                 style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                modifier = Modifier
+                    .padding(horizontal = Space.xl, vertical = Space.md)
+                    .semantics { heading() },
             )
 
-            SheetAction(Icons.Rounded.PlaylistAdd, "Nouvelle playlist…") { creating = true }
-            HorizontalDivider(Modifier.padding(vertical = 4.dp))
+            SheetAction(Icons.Rounded.Add, "Nouvelle playlist…") { creating = true }
+            GroupSpacer()
 
             LazyColumn(Modifier.heightIn(max = 380.dp)) {
                 items(playlists, key = { it.id }) { playlist ->
                     PlaylistRow(
                         playlist = playlist,
                         onClick = { onSelect(playlist); onDismiss() },
-                        modifier = Modifier.padding(horizontal = 12.dp),
+                        modifier = Modifier.padding(horizontal = Space.md),
                     )
                 }
             }
@@ -335,9 +383,9 @@ fun SynxioDialog(onDismiss: () -> Unit, content: @Composable () -> Unit) {
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
             tonalElevation = 6.dp,
         ) {
-            Column(Modifier.padding(24.dp)) {
+            Column(Modifier.padding(Space.xl)) {
                 content()
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(Space.sm))
             }
         }
     }

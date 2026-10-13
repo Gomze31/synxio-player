@@ -30,9 +30,15 @@ fun SongMenuHost(
     val context = LocalContext.current
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val favorites by viewModel.favoriteIds.collectAsStateWithLifecycle()
-    var showPlaylistPicker by remember { mutableStateOf(false) }
+    // Réinitialisés à chaque nouveau titre ouvert.
+    var showOptions by remember(song.id) { mutableStateOf(true) }
+    var showPlaylistPicker by remember(song.id) { mutableStateOf(false) }
 
-    SongOptionsSheet(
+    // « Ajouter à une playlist » ferme la feuille d'options puis ouvre le sélecteur :
+    // si l'on prévenait l'écran à ce moment-là, il oublierait le titre sélectionné et
+    // le sélecteur disparaîtrait avant d'avoir été vu. On ne relâche donc l'écran
+    // qu'une fois les deux feuilles fermées.
+    if (showOptions) SongOptionsSheet(
         song = song,
         isFavorite = song.id in favorites,
         actions = SongActions(
@@ -55,7 +61,10 @@ fun SongMenuHost(
             onRemoveFromPlaylist = onRemoveFromPlaylist,
             onDelete = { viewModel.deleteSong(song) },
         ),
-        onDismiss = onDismiss,
+        onDismiss = {
+            showOptions = false
+            if (!showPlaylistPicker) onDismiss()
+        },
     )
 
     if (showPlaylistPicker) {

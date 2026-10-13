@@ -3,9 +3,7 @@ package fr.synxio.player.ui.screens
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -13,18 +11,22 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.AutoFixHigh
-import androidx.compose.material3.AssistChip
+import androidx.compose.material.icons.rounded.TaskAlt
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -35,17 +37,24 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -53,6 +62,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.synxio.player.data.repo.RepairProposal
 import fr.synxio.player.ui.components.Artwork
 import fr.synxio.player.ui.components.EmptyState
+import fr.synxio.player.ui.theme.LocalReduceMotion
+import fr.synxio.player.ui.theme.Space
+import fr.synxio.player.ui.theme.SynxioShape
 import fr.synxio.player.ui.viewmodel.RepairViewModel
 
 /**
@@ -61,12 +73,16 @@ import fr.synxio.player.ui.viewmodel.RepairViewModel
  * Le principe : on n'écrit jamais sans montrer. L'analyse propose, l'utilisateur
  * décoche ce qui lui semble douteux, et l'écriture ne part qu'ensuite — avec une
  * seule demande d'autorisation système pour tous les fichiers.
+ *
+ * L'écran n'a pas accès à l'AppViewModel : ses messages passent par sa propre snackbar.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RepairScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
     val viewModel: RepairViewModel = hiltViewModel()
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
+    val reduceMotion = LocalReduceMotion.current
 
     val consentLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
@@ -87,8 +103,9 @@ fun RepairScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
         }
     }
 
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     Scaffold(
-        modifier = modifier,
+        modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
@@ -98,6 +115,7 @@ fun RepairScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Retour")
                     }
                 },
+                scrollBehavior = scrollBehavior,
             )
         },
     ) { padding ->
@@ -132,6 +150,7 @@ fun RepairScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                 EmptyState(
                     title = "Rien à corriger",
                     subtitle = "Aucune correspondance fiable trouvée pour les titres suspects.",
+                    icon = Icons.Rounded.TaskAlt,
                     actionLabel = "Relancer l'analyse",
                     onAction = viewModel::analyse,
                 )
@@ -141,39 +160,44 @@ fun RepairScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                    .padding(start = Space.gutter, end = Space.sm, top = Space.sm, bottom = Space.sm),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     text = "${state.selectedCount} / ${state.proposals.size} retenus",
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = "tnum"),
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = { viewModel.setAllSelected(true) }) { Text("Tout") }
+                TextButton(onClick = { viewModel.setAllSelected(true) }) { Text("Tout cocher") }
                 TextButton(onClick = { viewModel.setAllSelected(false) }) { Text("Aucun") }
             }
 
             LazyColumn(
                 modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(bottom = 12.dp),
+                contentPadding = PaddingValues(bottom = Space.md),
             ) {
                 items(state.proposals, key = { it.song.id }) { proposal ->
-                    ProposalRow(proposal) { viewModel.toggle(proposal) }
-                    HorizontalDivider()
+                    Column(if (reduceMotion) Modifier else Modifier.animateItem()) {
+                        ProposalRow(proposal) { viewModel.toggle(proposal) }
+                        HorizontalDivider()
+                    }
                 }
             }
 
             Button(
                 onClick = viewModel::requestApply,
                 enabled = state.selectedCount > 0,
+                shape = SynxioShape.pill,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
+                    .padding(horizontal = Space.gutter, vertical = Space.lg)
+                    .heightIn(min = Space.touchTarget),
             ) {
                 Icon(Icons.Rounded.AutoFixHigh, contentDescription = null)
                 Text(
-                    text = "Appliquer aux ${state.selectedCount} titres",
-                    modifier = Modifier.padding(start = 8.dp, top = 6.dp, bottom = 6.dp),
+                    text = if (state.selectedCount > 1) "Appliquer aux ${state.selectedCount} titres"
+                    else "Appliquer au titre retenu",
+                    modifier = Modifier.padding(start = Space.sm),
                 )
             }
         }
@@ -188,7 +212,11 @@ private fun IntroPane(
     onArtwork: (Boolean) -> Unit,
     onStart: () -> Unit,
 ) {
-    Column(Modifier.padding(20.dp)) {
+    Column(
+        Modifier
+            .verticalScroll(rememberScrollState())
+            .padding(Space.gutter)
+    ) {
         Text(
             text = "Synxio repère les titres aux tags douteux — artiste manquant, chaîne " +
                 "de re-upload, « (Lyrics) » dans le titre, album de compilation, accents " +
@@ -196,13 +224,16 @@ private fun IntroPane(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(Space.xl))
 
-        Text("Seuil de fiabilité : $minConfidence %", style = MaterialTheme.typography.titleSmall)
+        Text(
+            "Seuil de fiabilité : $minConfidence %",
+            style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = "tnum"),
+        )
         Text(
             text = "Calculé sur l'écart de durée avec ton fichier. Plus haut = moins de " +
                 "propositions, mais plus sûres.",
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Slider(
@@ -210,29 +241,48 @@ private fun IntroPane(
             onValueChange = { onConfidence(it.toInt()) },
             valueRange = 35f..95f,
             steps = 3,
+            modifier = Modifier.semantics {
+                contentDescription = "Seuil de fiabilité"
+                stateDescription = "$minConfidence %"
+            },
         )
 
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Spacer(Modifier.height(Space.sm))
+        // Ligne entière basculable : la cible tactile n'est pas réduite à l'interrupteur.
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = Space.touchTarget)
+                .toggleable(value = withArtwork, role = Role.Switch, onValueChange = onArtwork),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Column(Modifier.weight(1f)) {
                 Text("Télécharger les pochettes", style = MaterialTheme.typography.bodyLarge)
                 Text(
                     text = "Images 1000×1000 embarquées dans les fichiers",
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Switch(checked = withArtwork, onCheckedChange = onArtwork)
+            Spacer(Modifier.width(Space.md))
+            Switch(checked = withArtwork, onCheckedChange = null)
         }
 
-        Spacer(Modifier.height(24.dp))
-        Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) {
-            Text("Analyser la bibliothèque", Modifier.padding(vertical = 6.dp))
+        Spacer(Modifier.height(Space.xl))
+        Button(
+            onClick = onStart,
+            shape = SynxioShape.pill,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = Space.touchTarget),
+        ) {
+            Text("Analyser la bibliothèque")
         }
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(Space.md))
         Text(
             text = "Rien n'est modifié à ce stade : tu verras la liste des corrections " +
                 "proposées avant d'écrire quoi que ce soit.",
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
@@ -249,47 +299,53 @@ private fun ProgressPane(
     Column(
         Modifier
             .fillMaxSize()
-            .padding(24.dp),
+            .padding(Space.xl),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(label, style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(Space.lg))
         LinearProgressIndicator(
             progress = { fraction },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics { contentDescription = "$label $done sur $total" },
         )
-        Spacer(Modifier.height(10.dp))
-        Text("$done / $total", style = MaterialTheme.typography.bodySmall)
-        Spacer(Modifier.height(24.dp))
-        OutlinedButton(onClick = onCancel) { Text("Arrêter") }
+        Spacer(Modifier.height(Space.sm))
+        Text(
+            "$done / $total",
+            style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(Space.xl))
+        OutlinedButton(onClick = onCancel, shape = SynxioShape.pill) { Text("Arrêter") }
     }
 }
 
+/** Une proposition : toute la ligne est la case à cocher. */
 @Composable
 private fun ProposalRow(proposal: RepairProposal, onToggle: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .clickable(onClick = onToggle)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .toggleable(value = proposal.selected, role = Role.Checkbox, onValueChange = { onToggle() })
+            .padding(horizontal = Space.md, vertical = Space.md),
         verticalAlignment = Alignment.Top,
     ) {
-        Checkbox(checked = proposal.selected, onCheckedChange = { onToggle() })
-        Spacer(Modifier.width(4.dp))
+        Checkbox(checked = proposal.selected, onCheckedChange = null, modifier = Modifier.padding(end = Space.sm))
         Artwork(
             model = proposal.match?.artworkUrl ?: proposal.song.artworkUri,
             modifier = Modifier.size(52.dp),
-            shape = RoundedCornerShape(10.dp),
+            shape = SynxioShape.artworkSm,
         )
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(Space.md))
 
         Column(Modifier.weight(1f)) {
             Text(
                 text = proposal.song.title,
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough,
+                textDecoration = TextDecoration.LineThrough,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -297,29 +353,29 @@ private fun ProposalRow(proposal: RepairProposal, onToggle: () -> Unit) {
                 Row {
                     Text(
                         text = "$field ",
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
                         text = value,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Medium,
+                        style = MaterialTheme.typography.bodyMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
-            Spacer(Modifier.height(4.dp))
-            Box {
-                AssistChip(
-                    onClick = onToggle,
-                    label = {
-                        Text(
-                            text = "${proposal.match?.confidence ?: 0} % · " +
-                                proposal.issues.first().label,
-                            style = MaterialTheme.typography.labelSmall,
-                        )
-                    },
+            Spacer(Modifier.height(Space.xs))
+            // Étiquette d'information (fiabilité + raison) : pas une seconde cible de clic.
+            Surface(
+                shape = SynxioShape.pill,
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            ) {
+                Text(
+                    text = "${proposal.match?.confidence ?: 0} % · " +
+                        (proposal.issues.firstOrNull()?.label ?: "Tags à vérifier"),
+                    style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
+                    modifier = Modifier.padding(horizontal = Space.md, vertical = Space.xs),
                 )
             }
         }

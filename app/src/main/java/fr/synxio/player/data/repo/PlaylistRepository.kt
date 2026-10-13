@@ -147,35 +147,21 @@ class PlaylistRepository @Inject constructor(
      */
     suspend fun importM3u(source: Uri, fallbackName: String): Result<Long> = withContext(Dispatchers.IO) {
         runCatching {
-            val lines = context.contentResolver.openInputStream(source)
-                ?.bufferedReader()
-                ?.use(BufferedReader::readLines)
+            // Même lecture que l'import de l'écran Sauvegarde : taille bornée (un fichier
+            // énorme choisi par erreur ne fait pas exploser la mémoire), BOM et chemins
+            // file:// gérés, correspondance stricte sans doublon.
+            val bytes = context.contentResolver.openInputStream(source)
+                ?.use { BackupRepository.readCapped(it, M3u8Format.MAX_BYTES) }
                 ?: error("Fichier illisible")
+            val parsed = M3u8Format.parse(bytes.toString(Charsets.UTF_8))
+            if (parsed.entries.isEmpty()) error("Ce fichier ne contient aucun titre")
 
-            var name = fallbackName
-            val paths = mutableListOf<String>()
-            for (raw in lines) {
-                val line = raw.trim()
-                when {
-                    line.isEmpty() -> Unit
-                    line.startsWith("#PLAYLIST:") -> name = line.removePrefix("#PLAYLIST:").trim()
-                    line.startsWith("#") -> Unit
-                    else -> paths += line
-                }
-            }
-
-            val library = musicRepository.library.value.songs
-            val byPath = library.associateBy { it.path }
-            val byFileName = library.groupBy { it.fileName.lowercase() }
-
-            val songs = paths.mapNotNull { path ->
-                val normalized = path.replace('\\', '/')
-                byPath[normalized]
-                    ?: byFileName[File(normalized).name.lowercase()]?.firstOrNull()
-            }
+            val library = musicRepository.library.value
+            if (!library.hasScanned) error("La bibliothèque est encore en cours de chargement, réessaie dans un instant")
+            val songs = M3u8Format.match(parsed.entries, library.songs)
 
             if (songs.isEmpty()) error("Aucun titre de cette playlist n'a été trouvé dans ta bibliothèque")
-            create(name, songs)
+            create(uniqueName(parsed.name?.takeIf { it.isNotBlank() } ?: fallbackName), songs)
         }
     }
 

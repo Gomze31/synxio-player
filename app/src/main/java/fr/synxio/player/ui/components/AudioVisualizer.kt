@@ -1,7 +1,5 @@
 package fr.synxio.player.ui.components
 
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -14,7 +12,14 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import fr.synxio.player.ui.theme.LocalReduceMotion
 
+/**
+ * Spectre en barres tiré de la FFT du Visualizer Android.
+ *
+ * C'est une animation ambiante par nature : quand l'utilisateur a demandé moins
+ * d'animations, les barres restent couchées au minimum au lieu de sautiller.
+ */
 @Composable
 fun AudioVisualizer(
     fft: ByteArray,
@@ -22,9 +27,10 @@ fun AudioVisualizer(
     barColor: Color = MaterialTheme.colorScheme.primary,
     barCount: Int = 32
 ) {
+    val reduceMotion = LocalReduceMotion.current
     // Transformer les données FFT complexes en magnitudes (0..1)
-    val magnitudes = remember(fft) {
-        if (fft.isEmpty() || fft.size < 2) return@remember FloatArray(barCount) { 0f }
+    val magnitudes = remember(fft, barCount, reduceMotion) {
+        if (reduceMotion || fft.isEmpty() || fft.size < 2) return@remember FloatArray(barCount) { 0f }
         
         val result = FloatArray(barCount)
         val usableBands = minOf(fft.size / 2, 128) // On se limite aux fréquences pertinentes
@@ -57,10 +63,12 @@ fun AudioVisualizer(
         val totalWidth = (barWidth + spacing) * barCount - spacing
         val startX = (size.width - totalWidth) / 2f
         val maxBarHeight = size.height * 0.8f
+        val minHeight = 4.dp.toPx()
+        val cornerRadius = CornerRadius(barWidth / 2f, barWidth / 2f)
 
         for (i in 0 until barCount) {
             val magnitude = magnitudes[i]
-            val height = (magnitude * maxBarHeight).coerceAtLeast(4f.dp.toPx()) // Hauteur minimale
+            val height = (magnitude * maxBarHeight).coerceAtLeast(minHeight)
 
             val x = startX + i * (barWidth + spacing)
             val y = size.height - height
@@ -69,7 +77,7 @@ fun AudioVisualizer(
                 color = barColor.copy(alpha = 0.6f + (magnitude * 0.4f)),
                 topLeft = Offset(x, y),
                 size = Size(barWidth, height),
-                cornerRadius = CornerRadius(barWidth / 2f, barWidth / 2f)
+                cornerRadius = cornerRadius
             )
         }
     }

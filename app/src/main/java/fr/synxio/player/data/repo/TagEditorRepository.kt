@@ -88,12 +88,17 @@ class TagEditorRepository @Inject constructor(
         // appartiennent au MediaProvider : sous stockage cantonné, écrire directement sur
         // song.path échoue avec EACCES, même après le consentement accordé — celui-ci
         // porte sur l'URI de contenu, pas sur le chemin.
-        val workDir = File(context.cacheDir, WORK_DIR).apply { mkdirs() }
         val ext = song.extension.lowercase().ifBlank { "mp3" }
-        // Noms uniques : deux éditions simultanées ne doivent pas partager leurs fichiers.
-        val work = File.createTempFile("edit-", ".$ext", workDir)
+        // Un sous-dossier unique par écriture : deux éditions simultanées ne partagent rien.
+        //
+        // Les fichiers gardent des noms simples (edit.m4a) : avec un nom unique de la forme
+        // « edit-123….m4a », l'écriture MP4 de jaudiotagger cherchait un « edit.m4a »
+        // inexistant et échouait (ENOENT) sur certains fichiers .m4a.
+        val workDir = File(File(context.cacheDir, WORK_DIR), java.util.UUID.randomUUID().toString().take(8))
+            .apply { mkdirs() }
+        val work = File(workDir, "edit.$ext")
         // Copie intacte de l'original : seule assurance si la réécriture échoue à mi-chemin.
-        val backup = File.createTempFile("orig-", ".$ext", workDir)
+        val backup = File(workDir, "orig.$ext")
         var originalTruncated = false
         var restoreFailed = false
 
@@ -183,7 +188,11 @@ class TagEditorRepository @Inject constructor(
         }.also {
             work.delete()
             // On ne jette la copie de l'original que si le fichier source est sain.
-            if (!restoreFailed) backup.delete()
+            if (!restoreFailed) {
+                backup.delete()
+                // Fichiers .tmp ou .old éventuellement laissés par jaudiotagger.
+                workDir.deleteRecursively()
+            }
         }
     }
 

@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import fr.synxio.player.core.util.pluralSongs
 import fr.synxio.player.data.repo.BackupRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -48,6 +49,8 @@ class BackupViewModel @Inject constructor(
      * Importe les données depuis un fichier.
      */
     fun importData(uri: Uri) = viewModelScope.launch {
+        // L'aperçu du fichier a servi à confirmer : on le ferme dès que l'import démarre.
+        _backupInfo.value = null
         _backupState.value = BackupState.Importing
         val result = backupRepository.importFromFile(uri)
         _backupState.value = if (result.isSuccess) {
@@ -113,17 +116,21 @@ class BackupViewModel @Inject constructor(
         }
 
     /**
-     * Importe un fichier M3U8 et crée une playlist.
+     * Importe un fichier M3U8 et crée une playlist avec les titres retrouvés.
+     * Le message dit combien d'entrées manquaient : un import partiel ne doit pas
+     * passer pour un import complet.
      */
     fun importM3u8File(uri: Uri, playlistName: String) = viewModelScope.launch {
         _backupState.value = BackupState.Importing
         val result = backupRepository.importM3u8File(uri, playlistName)
-        _backupState.value = if (result.isSuccess) {
-            val songCount = result.getOrNull() ?: 0
-            BackupState.ImportSuccess("$songCount morceaux importés")
-        } else {
-            BackupState.ImportFailed(result.exceptionOrNull()?.message ?: "Erreur inconnue")
-        }
+        _backupState.value = result.fold(
+            onSuccess = { report ->
+                val missing = report.total - report.found
+                val base = "« ${report.playlistName} » créée : ${report.found.pluralSongs()}"
+                BackupState.ImportSuccess(if (missing > 0) "$base ($missing introuvable${if (missing > 1) "s" else ""})" else base)
+            },
+            onFailure = { BackupState.ImportFailed(it.message ?: "Erreur inconnue") },
+        )
     }
 
     /**
