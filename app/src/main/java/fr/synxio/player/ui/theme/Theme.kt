@@ -17,6 +17,9 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.runtime.SideEffect
+import androidx.core.view.WindowCompat
 import fr.synxio.player.data.model.AccentSource
 import fr.synxio.player.data.model.ThemeMode
 
@@ -67,6 +70,20 @@ fun SynxioTheme(
     val density = LocalDensity.current
     val scaledDensity = remember(density, textScale) {
         if (textScale == 1f) density else Density(density.density, density.fontScale * textScale)
+    }
+
+    // Icônes des barres système accordées au thème choisi dans Synxio, et non à celui du
+    // système : en thème clair forcé sur un téléphone en mode sombre, l'heure et les
+    // boutons de navigation devenaient blancs sur fond clair, donc invisibles.
+    val view = LocalView.current
+    if (!view.isInEditMode) {
+        SideEffect {
+            val window = view.context.findActivity()?.window ?: return@SideEffect
+            WindowCompat.getInsetsController(window, view).apply {
+                isAppearanceLightStatusBars = !dark
+                isAppearanceLightNavigationBars = !dark
+            }
+        }
     }
 
     CompositionLocalProvider(
@@ -150,4 +167,10 @@ private fun ColorScheme.animated(): ColorScheme {
         surfaceContainerHighest = animate(surfaceContainerHighest),
         outlineVariant = animate(outlineVariant),
     )
+}
+
+private tailrec fun android.content.Context.findActivity(): android.app.Activity? = when (this) {
+    is android.app.Activity -> this
+    is android.content.ContextWrapper -> baseContext.findActivity()
+    else -> null
 }

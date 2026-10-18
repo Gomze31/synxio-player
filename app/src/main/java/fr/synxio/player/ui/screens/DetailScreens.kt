@@ -1,5 +1,7 @@
 package fr.synxio.player.ui.screens
 
+import fr.synxio.player.ui.theme.synxioTopBarColors
+import androidx.compose.ui.graphics.Color
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -30,6 +32,7 @@ import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.SwapVert
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Shuffle
@@ -137,6 +140,7 @@ fun SongListScreen(
     }
 
     Scaffold(
+        containerColor = Color.Transparent,
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             DetailTopBar(
@@ -249,6 +253,7 @@ private fun DetailTopBar(
         derivedStateOf { listState == null || listState.firstVisibleItemIndex > 0 }
     }
     TopAppBar(
+        colors = synxioTopBarColors(),
         title = {
             AnimatedVisibility(
                 visible = showTitle,
@@ -284,6 +289,7 @@ private fun DetailMessageScreen(
     icon: ImageVector,
 ) {
     Scaffold(
+        containerColor = Color.Transparent,
         topBar = { DetailTopBar(title = if (loading) "" else topBarTitle, onBack = onBack, listState = null) },
     ) { padding ->
         if (loading) {
@@ -495,6 +501,7 @@ fun ArtistDetailScreen(
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     Scaffold(
+        containerColor = Color.Transparent,
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             DetailTopBar(
@@ -602,6 +609,7 @@ fun PlaylistDetailScreen(
     var renaming by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
+    var reordering by remember { mutableStateOf(false) }
 
     val current = state?.value
     if (current == null) {
@@ -631,6 +639,13 @@ fun PlaylistDetailScreen(
                     Icon(Icons.Rounded.MoreVert, contentDescription = "Options de la playlist")
                 }
                 DropdownMenu(menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                    if (current.songs.size > 1) {
+                        DropdownMenuItem(
+                            text = { Text("Réorganiser") },
+                            leadingIcon = { Icon(Icons.Rounded.SwapVert, null) },
+                            onClick = { reordering = true; menuExpanded = false },
+                        )
+                    }
                     DropdownMenuItem(
                         text = { Text("Renommer") },
                         leadingIcon = { Icon(Icons.Rounded.Edit, null) },
@@ -645,6 +660,15 @@ fun PlaylistDetailScreen(
             }
         },
     )
+
+    if (reordering) {
+        fr.synxio.player.ui.components.ReorderSongsSheet(
+            title = "Réorganiser",
+            songs = current.songs,
+            onMove = { from, to -> viewModel.moveInPlaylist(current.id, from, to) },
+            onDismiss = { reordering = false },
+        )
+    }
 
     if (renaming) {
         RenamePlaylistDialog(

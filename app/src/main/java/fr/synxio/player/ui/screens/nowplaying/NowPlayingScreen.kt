@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
@@ -32,7 +33,12 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.Lyrics
+import fr.synxio.player.ui.theme.glass
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.MoreVert
@@ -159,63 +165,44 @@ fun NowPlayingScreen(
     val reduceMotion = LocalReduceMotion.current
 
     val background = MaterialTheme.colorScheme.background
-    val gradient = remember(artworkColors, background) {
-        artworkColors.gradient(background)
-    }
+    val scheme = MaterialTheme.colorScheme
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(background)
     ) {
-        if (settings.blurBackground && song != null) {
-            val infiniteTransition = rememberInfiniteTransition(label = "fluid")
-            val scaleAnim by infiniteTransition.animateFloat(
-                initialValue = 1.3f,
-                targetValue = 1.7f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(14000, easing = EaseInOut),
-                    repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
-                ),
-                label = "fluidScale"
-            )
-            val rotationAnim by infiniteTransition.animateFloat(
-                initialValue = 0f,
-                targetValue = 360f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(40000, easing = LinearEasing),
-                    repeatMode = androidx.compose.animation.core.RepeatMode.Restart
-                ),
-                label = "fluidRotation"
-            )
-
-            // Animations réduites : le fond reste flou mais immobile.
-            Artwork(
+        // Fond : la pochette, très floutée et agrandie pour couvrir tout l'écran, sous un
+        // voile qui assure la lisibilité. Immobile : un fond animé coûtait une image par
+        // trame et laissait voir ses coins en tournant.
+        if (song != null) {
+            BlurredArtworkBackdrop(
                 model = song.artworkUri,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .scale(if (reduceMotion) 1.4f else scaleAnim)
-                    .rotate(if (reduceMotion) 0f else rotationAnim)
-                    .blur(80.dp),
-                shape = androidx.compose.ui.graphics.RectangleShape,
+                placeholderSeed = song.artworkUri,
+                enabled = settings.blurBackground,
             )
         }
-
         Box(
             Modifier
                 .fillMaxSize()
-                .background(brush = Brush.verticalGradient(gradient), alpha = 0.65f)
+                .background(
+                    Brush.verticalGradient(
+                        0f to background.copy(alpha = 0.35f),
+                        0.45f to background.copy(alpha = 0.55f),
+                        1f to background.copy(alpha = 0.92f),
+                    )
+                )
         )
 
         if (settings.showVisualizer && recordAudioPermission.status.isGranted) {
             AudioVisualizer(
                 fft = fft,
-                barColor = MaterialTheme.colorScheme.primary,
+                barColor = scheme.primary.copy(alpha = 0.5f),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .fillMaxHeight(0.5f)
+                    .fillMaxHeight(0.35f)
                     .align(Alignment.BottomCenter)
-                    .blur(1.dp)
+                    .navigationBarsPadding()
             )
         }
 
@@ -229,9 +216,11 @@ fun NowPlayingScreen(
         Column(
             Modifier
                 .fillMaxSize()
-                .systemBarsPadding(),
+                .systemBarsPadding()
+                .padding(bottom = 8.dp),
         ) {
             TopRow(
+                context = song.displayAlbum,
                 onCollapse = onCollapse,
                 onMenu = { showMenu = true },
             )
@@ -270,84 +259,83 @@ fun NowPlayingScreen(
                 }
             }
 
-            Spacer(Modifier.height(24.dp))
-
-            Surface(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 24.dp),
-                shape = RoundedCornerShape(Radius.xl),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.2f),
-                shadowElevation = 0.dp,
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                    .padding(horizontal = 28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Box {
-                    // Voile sombre léger : l'ancien « verre » floutait une boîte vide, sans effet.
-                    Box(modifier = Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.15f)))
-
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            // Titre → album, artiste → page artiste : les deux raccourcis
-                            // attendus d'un lecteur, absents jusqu'ici.
-                            MarqueeText(
-                                text = song.title,
-                                style = MaterialTheme.typography.headlineSmall,
-                                modifier = Modifier.clickable(onClickLabel = "Ouvrir l'album") {
-                                    onCollapse(); onOpenAlbum(song.albumId)
-                                },
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = song.displayArtist,
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                                modifier = Modifier.clickable(onClickLabel = "Ouvrir l'artiste") {
-                                    onCollapse(); onOpenArtist(song.displayArtist)
-                                },
-                            )
-                        }
-
-                        FavoriteButton(
-                            isFavorite = song.id in favorites,
-                            onToggle = { viewModel.toggleFavorite(song) },
+                Spacer(Modifier.height(20.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        // Titre : album, artiste : page artiste.
+                        MarqueeText(
+                            text = song.title,
+                            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                            animate = state.isPlaying,
+                            modifier = Modifier.clickable(onClickLabel = "Ouvrir l'album") {
+                                onCollapse(); onOpenAlbum(song.albumId)
+                            },
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = song.displayArtist,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = scheme.onSurface.copy(alpha = 0.72f),
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            modifier = Modifier.clickable(onClickLabel = "Ouvrir l'artiste") {
+                                onCollapse(); onOpenArtist(song.displayArtist)
+                            },
                         )
                     }
 
-                    Spacer(Modifier.height(24.dp))
-
-                    SeekBar(
-                        positionMs = state.positionMs,
-                        durationMs = state.durationMs.takeIf { it > 0 } ?: song.durationMs,
-                        onSeek = viewModel::seekTo,
-                    )
-
-                    Spacer(Modifier.height(24.dp))
-
-                    MainControls(
-                        isPlaying = state.isPlaying,
-                        isBuffering = state.isBuffering,
-                        shuffle = state.shuffleEnabled,
-                        repeatMode = state.repeatMode,
-                        onShuffle = viewModel::toggleShuffle,
-                        onRepeat = viewModel::cycleRepeat,
-                        onPrevious = viewModel::previous,
-                        onPlayPause = viewModel::togglePlayPause,
-                        onNext = viewModel::next,
+                    FavoriteButton(
+                        isFavorite = song.id in favorites,
+                        onToggle = { viewModel.toggleFavorite(song) },
                     )
                 }
-                } // Close Box
-            } // Close Surface
-        } // Close Column
-    } // Close Box
+
+                Spacer(Modifier.height(16.dp))
+
+                SeekBar(
+                    positionMs = state.positionMs,
+                    durationMs = state.durationMs.takeIf { it > 0 } ?: song.durationMs,
+                    onSeek = viewModel::seekTo,
+                )
+
+                Spacer(Modifier.height(12.dp))
+
+                MainControls(
+                    isPlaying = state.isPlaying,
+                    isBuffering = state.isBuffering,
+                    shuffle = state.shuffleEnabled,
+                    repeatMode = state.repeatMode,
+                    onShuffle = viewModel::toggleShuffle,
+                    onRepeat = viewModel::cycleRepeat,
+                    onPrevious = viewModel::previous,
+                    onPlayPause = viewModel::togglePlayPause,
+                    onNext = viewModel::next,
+                )
+
+                Spacer(Modifier.height(20.dp))
+
+                ActionBar(
+                    lyricsShown = showLyrics,
+                    sleepTimerActive = sleepTimer.active,
+                    sleepRemainingMs = sleepTimer.remainingMs,
+                    queueCount = (state.queue.size - state.queueIndex - 1).coerceAtLeast(0),
+                    onLyrics = { showLyrics = !showLyrics },
+                    onQueue = { showQueue = true },
+                    onSleepTimer = { showSleepTimer = true },
+                    onEqualizer = onOpenEqualizer,
+                )
+            }
+        }
+    }
 
     if (showQueue) {
         QueueSheet(
@@ -405,23 +393,152 @@ fun NowPlayingScreen(
 }
 
 @Composable
-private fun TopRow(onCollapse: () -> Unit, onMenu: () -> Unit) {
+private fun TopRow(context: String, onCollapse: () -> Unit, onMenu: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(top = 12.dp, start = 16.dp, end = 16.dp),
+            .padding(top = 8.dp, start = 12.dp, end = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
     ) {
         IconButton(onClick = onCollapse) {
             Icon(Icons.Rounded.ExpandMore, contentDescription = "Réduire le lecteur", modifier = Modifier.size(32.dp))
         }
-
-        fr.synxio.player.ui.components.CastButton()
-
-        IconButton(onClick = onMenu) {
-            Icon(Icons.Rounded.MoreVert, contentDescription = "Plus d'options", modifier = Modifier.size(28.dp))
+        Column(
+            modifier = Modifier.weight(1f),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(
+                text = "EN LECTURE",
+                style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.6.sp, fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            )
+            if (context.isNotBlank()) {
+                Text(
+                    text = context,
+                    style = MaterialTheme.typography.labelLarge,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+            }
         }
+        IconButton(onClick = onMenu) {
+            Icon(Icons.Rounded.MoreVert, contentDescription = "Plus d'options", modifier = Modifier.size(26.dp))
+        }
+    }
+}
+
+/**
+ * Pochette floutée en fond. `Modifier.blur` n'existe qu'à partir d'Android 12 : avant,
+ * l'image est simplement décodée en très petit puis agrandie, ce qui la floute aussi.
+ */
+@Composable
+private fun BlurredArtworkBackdrop(model: Any?, placeholderSeed: Any?, enabled: Boolean) {
+    if (!enabled) return
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val request = remember(model) {
+        coil.request.ImageRequest.Builder(context)
+            .data(model)
+            .size(64)
+            .crossfade(Motion.LONG)
+            .build()
+    }
+    val dark = fr.synxio.player.ui.theme.isDarkSurface
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(fr.synxio.player.ui.theme.placeholderBrush(placeholderSeed, dark), alpha = 0.6f)
+    ) {
+        coil.compose.AsyncImage(
+            model = request,
+            contentDescription = null,
+            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+            modifier = Modifier
+                .fillMaxSize()
+                .scale(1.25f)
+                .blur(60.dp, androidx.compose.ui.draw.BlurredEdgeTreatment.Rectangle),
+        )
+    }
+}
+
+/**
+ * Accès directs : paroles, file d'attente, minuterie, égaliseur.
+ *
+ * Ces fonctions vivaient dans le menu « ⋮ » : trois gestes pour afficher les paroles.
+ * Un panneau de verre les garde à portée de pouce, avec leur état visible (minuterie
+ * en cours, nombre de titres à venir).
+ */
+@Composable
+private fun ActionBar(
+    lyricsShown: Boolean,
+    sleepTimerActive: Boolean,
+    sleepRemainingMs: Long,
+    queueCount: Int,
+    onLyrics: () -> Unit,
+    onQueue: () -> Unit,
+    onSleepTimer: () -> Unit,
+    onEqualizer: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(SynxioShape.pill)
+            .glass(SynxioShape.pill, strength = 0.5f)
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ActionChip(
+            icon = Icons.Rounded.Lyrics,
+            label = "Paroles",
+            active = lyricsShown,
+            onClick = onLyrics,
+        )
+        ActionChip(
+            icon = Icons.AutoMirrored.Rounded.QueueMusic,
+            label = if (queueCount > 0) "File · $queueCount" else "File",
+            active = false,
+            onClick = onQueue,
+        )
+        ActionChip(
+            icon = Icons.Rounded.Bedtime,
+            label = if (sleepTimerActive) sleepRemainingMs.asDuration() else "Minuteur",
+            active = sleepTimerActive,
+            onClick = onSleepTimer,
+        )
+        ActionChip(
+            icon = Icons.Rounded.GraphicEq,
+            label = "Égaliseur",
+            active = false,
+            onClick = onEqualizer,
+        )
+    }
+}
+
+@Composable
+private fun ActionChip(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    active: Boolean,
+    onClick: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    val tint = if (active) scheme.primary else scheme.onSurface.copy(alpha = 0.78f)
+    Column(
+        modifier = Modifier
+            .clip(SynxioShape.pill)
+            .clickable(onClickLabel = label, role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
+            .semantics { if (active) stateDescription = "actif" }
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+            color = tint,
+            maxLines = 1,
+        )
     }
 }
 
@@ -577,9 +694,13 @@ private fun VinylArtwork(model: Any?, spinning: Boolean, modifier: Modifier = Mo
 private fun SeekBar(positionMs: Long, durationMs: Long, onSeek: (Long) -> Unit) {
     var dragging by remember { mutableStateOf(false) }
     var dragValue by remember { mutableFloatStateOf(0f) }
+    // Toucher la durée bascule entre « durée totale » et « temps restant ».
+    var showRemaining by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(true) }
 
     val progress = if (durationMs > 0) positionMs.toFloat() / durationMs else 0f
     val value = if (dragging) dragValue else progress.coerceIn(0f, 1f)
+    val scheme = MaterialTheme.colorScheme
+    val elapsed = (durationMs * value).toLong()
 
     Column {
         Slider(
@@ -589,24 +710,56 @@ private fun SeekBar(positionMs: Long, durationMs: Long, onSeek: (Long) -> Unit) 
                 onSeek((durationMs * dragValue).toLong())
                 dragging = false
             },
-            colors = SliderDefaults.colors(
-                thumbColor = MaterialTheme.colorScheme.primary,
-                activeTrackColor = MaterialTheme.colorScheme.primary,
-                inactiveTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-            ),
-            modifier = Modifier.semantics { contentDescription = "Position dans le titre" },
+            thumb = {
+                Box(
+                    Modifier
+                        .size(if (dragging) 18.dp else 12.dp)
+                        .clip(CircleShape)
+                        .background(scheme.onSurface)
+                )
+            },
+            track = { sliderState ->
+                val fraction = sliderState.value.coerceIn(0f, 1f)
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(if (dragging) 6.dp else 4.dp)
+                        .clip(SynxioShape.pill)
+                        .background(scheme.onSurface.copy(alpha = 0.22f))
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth(fraction)
+                            .fillMaxHeight()
+                            .clip(SynxioShape.pill)
+                            .background(scheme.onSurface)
+                    )
+                }
+            },
+            modifier = Modifier
+                .height(28.dp)
+                .semantics {
+                    contentDescription = "Position dans le titre"
+                    stateDescription = "${elapsed.asDuration()} sur ${durationMs.asDuration()}"
+                },
         )
-        Spacer(modifier = Modifier.height(4.dp))
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
+            val timeStyle = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium, fontFeatureSettings = "tnum")
             Text(
-                text = (durationMs * value).toLong().asDuration(),
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium, fontFeatureSettings = "tnum"),
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                text = elapsed.asDuration(),
+                style = timeStyle,
+                color = scheme.onSurface.copy(alpha = 0.7f),
             )
             Text(
-                text = durationMs.asDuration(),
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium, fontFeatureSettings = "tnum"),
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                text = if (showRemaining) "-" + (durationMs - elapsed).coerceAtLeast(0).asDuration() else durationMs.asDuration(),
+                style = timeStyle,
+                color = scheme.onSurface.copy(alpha = 0.7f),
+                modifier = Modifier
+                    .clip(SynxioShape.pill)
+                    .clickable(onClickLabel = if (showRemaining) "Afficher la durée totale" else "Afficher le temps restant") {
+                        showRemaining = !showRemaining
+                    }
+                    .padding(horizontal = 4.dp),
             )
         }
     }

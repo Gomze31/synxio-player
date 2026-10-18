@@ -1,5 +1,7 @@
 package fr.synxio.player.ui.screens
 
+import fr.synxio.player.ui.theme.synxioTopBarColors
+import androidx.compose.ui.graphics.Color
 import android.media.MediaPlayer
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -95,8 +97,10 @@ fun TrimScreen(
     val numbers = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum")
 
     Scaffold(
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
+                colors = synxioTopBarColors(),
                 title = { Text("Découpage audio") },
                 navigationIcon = {
                     IconButton(onClick = {

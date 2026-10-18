@@ -1,5 +1,6 @@
 package fr.synxio.player.ui.screens
 
+import androidx.compose.ui.graphics.Color
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -158,6 +159,8 @@ fun LibraryScreen(
         PrimaryScrollableTabRow(
             selectedTabIndex = pagerState.currentPage,
             edgePadding = Space.lg,
+            // Transparente : le fond ambiant (couleur de la pochette) passe dessous.
+            containerColor = Color.Transparent,
             divider = {},
         ) {
             tabs.forEachIndexed { index, tab ->

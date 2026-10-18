@@ -1,262 +1,217 @@
 package fr.synxio.player.widget
 
-import android.content.ComponentName
 import android.content.Context
-import android.content.Intent
-import android.content.res.Configuration
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.view.KeyEvent
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.glance.ColorFilter
+import androidx.datastore.preferences.core.Preferences
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
-import androidx.glance.GlanceTheme
-import androidx.glance.Image
-import androidx.glance.ImageProvider
 import androidx.glance.LocalSize
-import androidx.glance.action.ActionParameters
-import androidx.glance.action.actionParametersOf
-import androidx.glance.action.actionStartActivity
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.SizeMode
-import androidx.glance.appwidget.action.ActionCallback
-import androidx.glance.appwidget.action.actionRunCallback
-import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.provideContent
-import androidx.glance.appwidget.updateAll
-import androidx.glance.background
+import androidx.glance.currentState
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
-import androidx.glance.layout.ContentScale
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
+import androidx.glance.layout.RowScope
 import androidx.glance.layout.Spacer
-import androidx.glance.layout.fillMaxHeight
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
 import androidx.glance.layout.padding
-import androidx.glance.layout.size
 import androidx.glance.layout.width
-import androidx.glance.text.FontWeight
-import androidx.glance.text.Text
-import androidx.glance.text.TextStyle
-import androidx.glance.text.TextAlign
-import androidx.glance.unit.ColorProvider
-import dagger.hilt.EntryPoint
-import dagger.hilt.InstallIn
-import dagger.hilt.android.EntryPointAccessors
-import dagger.hilt.components.SingletonComponent
-import fr.synxio.player.MainActivity
+import androidx.media3.common.Player
 import fr.synxio.player.R
-import fr.synxio.player.core.prefs.SettingsRepository
-import fr.synxio.player.data.db.QueueDao
-import fr.synxio.player.data.model.Song
-import fr.synxio.player.data.model.ThemeMode
-import fr.synxio.player.data.repo.MusicRepository
-import fr.synxio.player.data.repo.SimilarityRepository
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
 
+/**
+ * Widget étendu : grande pochette, métadonnées, progression et commandes complètes
+ * (aléatoire, précédent, lecture, suivant, répétition, favori, ouverture du lecteur).
+ *
+ * Deux dispositions selon la forme posée : pochette au-dessus quand le widget est haut,
+ * pochette à gauche quand il est large. Aucune n'écrase les commandes.
+ */
 class SynxioLargeWidget : GlanceAppWidget() {
 
     override val sizeMode = SizeMode.Exact
 
-    @EntryPoint
-    @InstallIn(SingletonComponent::class)
-    interface WidgetEntryPoint {
-        fun musicRepository(): MusicRepository
-        fun queueDao(): QueueDao
-        fun settingsRepository(): SettingsRepository
-        fun similarityRepository(): SimilarityRepository
-        fun artRenderer(): WidgetArtRenderer
-    }
-
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val entryPoint = EntryPointAccessors.fromApplication(
-            context.applicationContext,
-            WidgetEntryPoint::class.java,
-        )
-
-        val state = entryPoint.queueDao().state()
-        val queue = entryPoint.queueDao().queue().sortedBy { it.position }
-        val song = state?.currentIndex
-            ?.let { queue.getOrNull(it) }
-            ?.let { entryPoint.musicRepository().resolveSong(it.songId) }
-        val isPlaying = state?.isPlaying == true
-        val artwork = song?.let { loadArtwork(context, it) }
-
-        val settings = entryPoint.settingsRepository().settings.first()
-        val theme = settings.themeMode
-        val palette = Palette(
-            dark = when (theme) {
-                ThemeMode.LIGHT -> false
-                ThemeMode.DARK, ThemeMode.AMOLED -> true
-                ThemeMode.SYSTEM -> context.isSystemInDarkMode()
-            },
-            amoled = theme == ThemeMode.AMOLED,
-        )
-
-        val bands = song?.let { entryPoint.similarityRepository().featuresFor(it) }
-        val density = context.resources.displayMetrics.density
-
+        val fallback = widgetFallback(context)
         provideContent {
-            GlanceTheme {
-                val size = LocalSize.current
-                
-                Box(modifier = GlanceModifier.fillMaxSize()) {
-                    Column(
-                        modifier = GlanceModifier
-                            .fillMaxSize()
-                            .background(GlanceTheme.colors.widgetBackground)
-                            .cornerRadius(24.dp)
-                            .padding(24.dp)
-                            .clickable(actionStartActivity<MainActivity>()),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (artwork != null) {
-                            Image(
-                                provider = ImageProvider(artwork),
-                                contentDescription = null,
-                                modifier = GlanceModifier
-                                    .size(160.dp)
-                                    .cornerRadius(24.dp),
-                                contentScale = ContentScale.Crop
-                            )
-                            Spacer(GlanceModifier.height(24.dp))
+            val prefs = currentState<Preferences>()
+            val snapshot = resolveSnapshot(prefs, fallback)
+            val palette = WidgetPalette.of(
+                snapshot,
+                dark = prefs[WidgetSnapshot.Keys.DARK] ?: fallback.dark,
+                amoled = prefs[WidgetSnapshot.Keys.AMOLED] ?: fallback.amoled,
+            )
+            WidgetSurface(snapshot, palette, GlanceModifier.clickable(openPlayerAction())) {
+                Column(
+                    modifier = GlanceModifier.fillMaxSize().padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val size = LocalSize.current
+                    val inner = size.width - 32.dp
+                    // Hauteur prise par le titre, la progression et les commandes.
+                    val stackedArt = size.height - 32.dp - CONTROLS_BLOCK
+                    when {
+                        snapshot.isEmpty -> EmptyContent(palette)
+                        stackedArt >= inner * 0.55f -> StackedHeader(snapshot, palette, minOf(stackedArt, inner, 240.dp))
+                        else -> SideHeader(snapshot, palette, (size.height - 32.dp - 60.dp - 16.dp).coerceIn(56.dp, 150.dp))
+                    }
+                    if (!snapshot.isEmpty) {
+                        if (!snapshot.live && snapshot.durationMs > 0) {
+                            Spacer(GlanceModifier.height(12.dp))
+                            WidgetProgress(snapshot, palette)
                         }
-
-                        if (song == null) {
-                            Text(
-                                text = "Aucune lecture",
-                                style = TextStyle(color = GlanceTheme.colors.onSurface, fontSize = 18.sp),
-                            )
-                        } else {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = GlanceModifier.fillMaxWidth()
-                            ) {
-                                Text(
-                                    text = song.title,
-                                    maxLines = 1,
-                                    style = TextStyle(
-                                        color = GlanceTheme.colors.onSurface,
-                                        fontSize = 22.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        textAlign = TextAlign.Center
-                                    ),
-                                )
-                                Spacer(GlanceModifier.height(8.dp))
-                                Text(
-                                    text = song.displayArtist,
-                                    maxLines = 1,
-                                    style = TextStyle(
-                                        color = GlanceTheme.colors.onSurfaceVariant,
-                                        fontSize = 16.sp,
-                                        textAlign = TextAlign.Center
-                                    ),
-                                )
-                                Spacer(GlanceModifier.height(24.dp))
-                                Controls(isPlaying)
-                            }
-                        }
+                        Spacer(GlanceModifier.height(8.dp))
+                        FullControls(snapshot, palette)
                     }
                 }
             }
         }
     }
 
+    /** Pochette centrée au-dessus, titre et favori en dessous. */
     @Composable
-    private fun Controls(isPlaying: Boolean) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            WidgetButton(
-                R.drawable.ic_widget_previous,
-                "Précédent",
-                KeyEvent.KEYCODE_MEDIA_PREVIOUS,
-                isPrimary = false,
-            )
-            Spacer(GlanceModifier.width(24.dp))
-            WidgetButton(
-                iconRes = if (isPlaying) R.drawable.ic_widget_pause else R.drawable.ic_widget_play,
-                description = if (isPlaying) "Pause" else "Lecture",
-                keyCode = KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
-                isPrimary = true,
-            )
-            Spacer(GlanceModifier.width(24.dp))
-            WidgetButton(
-                R.drawable.ic_widget_next,
-                "Suivant",
-                KeyEvent.KEYCODE_MEDIA_NEXT,
-                isPrimary = false,
-            )
+    private fun StackedHeader(s: WidgetSnapshot, palette: WidgetPalette, artSide: Dp) {
+        Box(modifier = GlanceModifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            WidgetArtwork(s, palette, artSide, radius = 20.dp)
         }
+        Spacer(GlanceModifier.height(12.dp))
+        TitleRow(s, palette)
     }
 
+    /** Pochette à gauche, métadonnées à droite : pour les widgets plus larges que hauts. */
     @Composable
-    private fun WidgetButton(
-        iconRes: Int,
-        description: String,
-        keyCode: Int,
-        isPrimary: Boolean = false,
-    ) {
-        Image(
-            provider = ImageProvider(iconRes),
-            contentDescription = description,
-            colorFilter = ColorFilter.tint(if (isPrimary) GlanceTheme.colors.primary else GlanceTheme.colors.onSurfaceVariant),
-            modifier = GlanceModifier
-                .size(if (isPrimary) 64.dp else 48.dp)
-                .clickable(
-                    actionRunCallback<MediaKeyAction>(
-                        actionParametersOf(MediaKeyAction.KEY_CODE to keyCode)
-                    )
-                ),
-        )
-    }
-
-    private fun loadArtwork(context: Context, song: Song): Bitmap? = runCatching {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        context.contentResolver.openInputStream(song.artworkUri)?.use {
-            BitmapFactory.decodeStream(it, null, bounds)
-        }
-        if (bounds.outWidth <= 0) return null
-
-        var sample = 1
-        while (bounds.outWidth / sample > 256) sample *= 2 // Plus grand pour le grand widget
-
-        val options = BitmapFactory.Options().apply { inSampleSize = sample }
-        context.contentResolver.openInputStream(song.artworkUri)?.use {
-            BitmapFactory.decodeStream(it, null, options)
-        }
-    }.getOrNull()
-
-    private class Palette(val dark: Boolean, amoled: Boolean) {
-        val background = ColorProvider(
-            when {
-                amoled -> Color(0xFF000000)
-                dark -> Color(0xFF15131C)
-                else -> Color(0xFFF6F3FB)
+    private fun SideHeader(s: WidgetSnapshot, palette: WidgetPalette, artSide: Dp) {
+        Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            WidgetArtwork(s, palette, artSide, radius = 20.dp)
+            Spacer(GlanceModifier.width(14.dp))
+            Column(modifier = GlanceModifier.defaultWeight()) {
+                WidgetTitle(s.title, palette, 18.sp)
+                WidgetSubtitle(s.artist, palette, 14.sp)
+                if (s.album.isNotBlank()) WidgetSubtitle(s.album, palette, 12.sp)
+                Spacer(GlanceModifier.height(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    FavoriteButton(s, palette)
+                    OpenButton(palette)
+                }
             }
+        }
+    }
+
+    @Composable
+    private fun TitleRow(s: WidgetSnapshot, palette: WidgetPalette) {
+        Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = GlanceModifier.defaultWeight()) {
+                WidgetTitle(s.title, palette, 17.sp)
+                WidgetSubtitle(s.artist, palette, 13.sp)
+            }
+            FavoriteButton(s, palette)
+            OpenButton(palette)
+        }
+    }
+
+    @Composable
+    private fun FavoriteButton(s: WidgetSnapshot, palette: WidgetPalette) {
+        WidgetIconButton(
+            iconRes = if (s.favorite) R.drawable.ic_widget_favorite else R.drawable.ic_widget_favorite_border,
+            description = if (s.favorite) "Retirer des favoris" else "Ajouter aux favoris",
+            action = commandAction(PlayerCommandAction.FAVORITE),
+            tint = if (s.favorite) palette.accent else palette.textVariant,
+            size = 40.dp,
+            iconSize = 22.dp,
         )
-        val onSurface = ColorProvider(if (dark) Color(0xFFF2EFFA) else Color(0xFF1B1A20))
-        val onSurfaceVariant = ColorProvider(if (dark) Color(0xFFB9B3C7) else Color(0xFF5C5768))
-        val accent = ColorProvider(if (dark) Color(0xFF9D8DF8) else Color(0xFF6C5CE7))
+    }
+
+    @Composable
+    private fun OpenButton(palette: WidgetPalette) {
+        WidgetIconButton(
+            iconRes = R.drawable.ic_widget_open,
+            description = "Ouvrir le lecteur",
+            action = openPlayerAction(),
+            tint = palette.textVariant,
+            size = 40.dp,
+            iconSize = 24.dp,
+        )
+    }
+
+    @Composable
+    private fun FullControls(s: WidgetSnapshot, palette: WidgetPalette) {
+        val repeatOn = s.repeatMode != Player.REPEAT_MODE_OFF
+        // Cinq commandes sur la largeur : elles rétrécissent plutôt que d'être rognées.
+        val slot = (LocalSize.current.width - 32.dp) / 5
+        val playSize = minOf(56.dp, slot)
+        val buttonSize = minOf(44.dp, slot)
+        Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Slot {
+                WidgetIconButton(
+                    R.drawable.ic_widget_shuffle,
+                    if (s.shuffle) "Lecture aléatoire activée" else "Lecture aléatoire désactivée",
+                    commandAction(PlayerCommandAction.SHUFFLE),
+                    if (s.shuffle) palette.accent else palette.textVariant,
+                    size = buttonSize,
+                    iconSize = 22.dp,
+                )
+            }
+            Slot {
+                WidgetIconButton(R.drawable.ic_widget_previous, "Titre précédent",
+                    mediaKeyAction(KeyEvent.KEYCODE_MEDIA_PREVIOUS), palette.text, size = buttonSize, iconSize = 28.dp)
+            }
+            Slot { PlayPauseButton(s.isPlaying, palette, playSize) }
+            Slot {
+                WidgetIconButton(R.drawable.ic_widget_next, "Titre suivant",
+                    mediaKeyAction(KeyEvent.KEYCODE_MEDIA_NEXT), palette.text, size = buttonSize, iconSize = 28.dp)
+            }
+            Slot {
+                WidgetIconButton(
+                    if (s.repeatMode == Player.REPEAT_MODE_ONE) R.drawable.ic_widget_repeat_one else R.drawable.ic_widget_repeat,
+                    when (s.repeatMode) {
+                        Player.REPEAT_MODE_ONE -> "Répétition du titre"
+                        Player.REPEAT_MODE_ALL -> "Répétition de la file"
+                        else -> "Répétition désactivée"
+                    },
+                    commandAction(PlayerCommandAction.REPEAT),
+                    if (repeatOn) palette.accent else palette.textVariant,
+                    size = buttonSize,
+                    iconSize = 22.dp,
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun EmptyContent(palette: WidgetPalette) {
+        Column(
+            modifier = GlanceModifier.fillMaxSize(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            WidgetTitle("Synxio Player", palette, 18.sp)
+            WidgetSubtitle("Touchez lecture pour reprendre votre écoute", palette)
+            Spacer(GlanceModifier.height(16.dp))
+            PlayPauseButton(false, palette, 60.dp)
+        }
+    }
+
+    @Composable
+    private fun RowScope.Slot(content: @Composable () -> Unit) {
+        Box(GlanceModifier.defaultWeight(), contentAlignment = Alignment.Center) { content() }
+    }
+
+    private companion object {
+        /** Titre (≈ 44 dp) + progression (≈ 16 dp) + commandes (≈ 64 dp) + marges. */
+        val CONTROLS_BLOCK = 140.dp
     }
 }
 
 class SynxioLargeWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget: GlanceAppWidget = SynxioLargeWidget()
 }
-
-private fun Context.isSystemInDarkMode(): Boolean =
-    resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
-        Configuration.UI_MODE_NIGHT_YES

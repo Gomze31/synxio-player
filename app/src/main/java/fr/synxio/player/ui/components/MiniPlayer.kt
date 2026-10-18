@@ -40,9 +40,11 @@ import fr.synxio.player.ui.theme.LocalReduceMotion
 import fr.synxio.player.ui.theme.Motion
 import fr.synxio.player.ui.theme.Space
 import fr.synxio.player.ui.theme.SynxioShape
+import fr.synxio.player.ui.theme.glass
+import androidx.compose.ui.draw.clip
 
 /** Épaisseur de la barre de progression : un repère, pas un contrôle. */
-private val ProgressHeight = 2.dp
+private val ProgressHeight = 3.dp
 
 /**
  * Barre de lecture compacte posée au-dessus de la navigation.
@@ -79,17 +81,17 @@ fun MiniPlayer(
         label = "miniPress",
     )
 
-    Surface(
+    // Verre flottant : laisse deviner le fond ambiant teinté par la pochette.
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = Space.sm, vertical = Space.xs)
+            .padding(horizontal = Space.md, vertical = Space.xs)
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
-            },
-        color = scheme.surfaceContainerHigh,
-        shadowElevation = 6.dp,
-        shape = SynxioShape.card,
+            }
+            .clip(SynxioShape.card)
+            .glass(SynxioShape.card, strength = 1f),
     ) {
         Column(
             Modifier.clickable(
@@ -129,7 +131,11 @@ fun MiniPlayer(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                IconButton(onClick = onPlayPause, modifier = Modifier.size(Space.touchTarget)) {
+                androidx.compose.material3.FilledIconButton(
+                    onClick = onPlayPause,
+                    modifier = Modifier.size(44.dp),
+                    shape = androidx.compose.foundation.shape.CircleShape,
+                ) {
                     Crossfade(
                         targetState = state.isPlaying,
                         animationSpec = Motion.standardOrSnap(reduceMotion, Motion.SHORT),
@@ -153,18 +159,22 @@ fun MiniPlayer(
             Box(
                 Modifier
                     .fillMaxWidth()
+                    .padding(horizontal = Space.lg)
                     .height(ProgressHeight)
-                    .background(scheme.surfaceContainerHighest)
+                    .clip(SynxioShape.pill)
+                    .background(scheme.onSurface.copy(alpha = 0.12f))
             ) {
                 if (progress > 0f) {
                     Box(
                         Modifier
                             .fillMaxWidth(progress)
                             .height(ProgressHeight)
+                            .clip(SynxioShape.pill)
                             .background(scheme.primary)
                     )
                 }
             }
+            Spacer(Modifier.height(Space.xs))
         }
     }
 }

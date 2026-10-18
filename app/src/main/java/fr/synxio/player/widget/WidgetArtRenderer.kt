@@ -1,339 +1,185 @@
 package fr.synxio.player.widget
 
+import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
-import android.graphics.Path
-import android.graphics.RadialGradient
-import android.graphics.Rect
-import android.graphics.RectF
 import android.graphics.Shader
+import android.net.Uri
 import androidx.core.graphics.ColorUtils
+import androidx.palette.graphics.Palette
+import dagger.hilt.android.qualifiers.ApplicationContext
+import fr.synxio.player.core.util.PlaceholderPalette
+import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.math.max
-import kotlin.math.min
 
 /**
- * Dessine le fond d'écran d'accueil du widget Synxio en pur style « Liquid Glass ».
+ * Prépare les images des widgets : pochette réduite, fond flouté et accent de couleur.
  *
- * Combine réfraction optique multicouche, halo chromatique diffus extrait de la pochette,
- * liseré prismatique 3D et double vague fluide harmonique réagissant au spectre audio réel.
+ * Tout passe par un `RemoteViews`, dont la transaction Binder plafonne autour du
+ * mégaoctet : une pochette 1000×1000 décodée en ARGB pèse quatre mégaoctets et ferait
+ * disparaître le widget sans erreur. Les images sont donc réduites ici, une seule fois
+ * par morceau, et écrites en fichiers que chaque widget relit.
+ *
+ * Le « verre » du widget est un vrai flou de la pochette : réduite à quelques pixels
+ * puis agrandie avec filtrage, elle donne un champ de couleurs doux sur lequel on pose
+ * un voile pour garantir la lisibilité du texte.
  */
 @Singleton
-class WidgetArtRenderer @Inject constructor() {
+class WidgetArtRenderer @Inject constructor(
+    @ApplicationContext private val context: Context,
+) {
+
+    data class Prepared(val artPath: String, val backdropPath: String, val accent: Int)
+
+    private val dir: File get() = File(context.filesDir, "widget").apply { mkdirs() }
 
     /**
-     * @param artwork pochette du morceau, ou `null`
-     * @param bands énergies de bande du morceau, ou `null` si non analysé
-     * @param dark palette sombre demandée par le thème de l'application
-     * @param showWave afficher les vagues liquides spectrales
-     * @param glassOpacity intensité d'opacité du verre (0.2f à 1.0f)
-     * @param waveTint style de couleur néon du fluide ("ACCENT", "NEON_CYAN", "AMETHYST", "EMERALD")
+     * Prépare les images pour [artworkUri], ou rend un résultat vide sans pochette.
+     * [key] identifie le morceau et le thème : on ne refait rien si rien n'a changé.
      */
-    fun render(
-        widthPx: Int,
-        heightPx: Int,
-        artwork: Bitmap?,
-        bands: FloatArray?,
-        dark: Boolean,
-        showWave: Boolean = true,
-        glassOpacity: Float = 0.75f,
-        waveTint: String = "ACCENT",
-    ): Bitmap? = runCatching {
-        val width = widthPx.coerceIn(MIN_SIDE, MAX_WIDTH)
-        val height = heightPx.coerceIn(MIN_SIDE, MAX_HEIGHT)
-        val canvas: Canvas
-        val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-            .also { canvas = Canvas(it) }
-
-        val opacity = glassOpacity.coerceIn(0.2f, 1.0f)
-
-        drawBackdrop(canvas, width, height, artwork, dark, opacity)
-        drawLiquidGlass(canvas, width, height, dark, opacity)
-        if (showWave) {
-            drawLiquidWaves(canvas, width, height, bands, dark, waveTint)
+    fun prepare(artworkUri: Uri?, key: String, dark: Boolean): Prepared {
+        val safeKey = key.hashCode().toUInt().toString(16) + if (dark) "d" else "l"
+        val art = File(dir, "art_$safeKey.jpg")
+        val backdrop = File(dir, "bg_$safeKey.jpg")
+        val accentFile = File(dir, "accent_$safeKey")
+        if (art.exists() && backdrop.exists() && accentFile.exists()) {
+            val accent = accentFile.readText().toIntOrNull() ?: 0
+            return Prepared(art.path, backdrop.path, accent)
         }
 
-        output
+        // Sans pochette : le même dégradé que dans l'application, plutôt qu'un carré gris.
+        val source = artworkUri?.let { decode(it, ART_PIXELS) }
+            ?: placeholder(artworkUri ?: key)
+
+        return runCatching {
+            val square = centerCrop(source, ART_PIXELS)
+            art.outputStream().use { square.compress(Bitmap.CompressFormat.JPEG, 90, it) }
+
+            val blurred = renderBackdrop(square, dark)
+            backdrop.outputStream().use { blurred.compress(Bitmap.CompressFormat.JPEG, 92, it) }
+
+            val accent = accentOf(square, dark)
+            accentFile.writeText(accent.toString())
+
+            if (square !== source) square.recycle()
+            source.recycle()
+            blurred.recycle()
+            cleanup(keep = setOf(art.name, backdrop.name, accentFile.name))
+            Prepared(art.path, backdrop.path, accent)
+        }.getOrElse {
+            android.util.Log.w(TAG, "Pochette du widget non préparée", it)
+            Prepared("", "", 0)
+        }
+    }
+
+    /** Pochette générée : dégradé de [PlaceholderPalette] et une note discrète. */
+    private fun placeholder(seed: Any): Bitmap {
+        val (start, end) = PlaceholderPalette.pairFor(seed)
+        val side = ART_PIXELS
+        val bitmap = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        canvas.drawRect(0f, 0f, side.toFloat(), side.toFloat(), Paint().apply {
+            shader = LinearGradient(0f, 0f, side.toFloat(), side.toFloat(), start, end, Shader.TileMode.CLAMP)
+        })
+        val note = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = ColorUtils.setAlphaComponent(0xFFFFFFFF.toInt(), 140)
+            textSize = side * 0.42f
+            textAlign = Paint.Align.CENTER
+        }
+        val y = side / 2f - (note.descent() + note.ascent()) / 2f
+        canvas.drawText("♪", side / 2f, y, note)
+        return bitmap
+    }
+
+    /** Décode en réduisant avant lecture : jamais plus de deux fois [target] de côté. */
+    private fun decode(uri: Uri, target: Int): Bitmap? = runCatching {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sample = 1
+        while (minOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= target) sample *= 2
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sample
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
     }.getOrNull()
 
+    private fun centerCrop(src: Bitmap, side: Int): Bitmap {
+        val min = minOf(src.width, src.height)
+        val x = (src.width - min) / 2
+        val y = (src.height - min) / 2
+        val cropped = Bitmap.createBitmap(src, x, y, min, min)
+        if (min <= side) return cropped
+        val scaled = Bitmap.createScaledBitmap(cropped, side, side, true)
+        if (cropped !== src) cropped.recycle()
+        return scaled
+    }
+
     /**
-     * Pochette étirée et floutée avec halo chromatique d'ambiance projeté.
+     * Flou par réductions successives : chaque division par deux moyenne quatre pixels,
+     * ce qui évite le crénelage d'une réduction directe vers une toute petite taille.
      */
-    private fun drawBackdrop(
-        canvas: Canvas,
-        width: Int,
-        height: Int,
-        artwork: Bitmap?,
-        dark: Boolean,
-        opacity: Float,
-    ) {
-        if (artwork == null) {
-            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                shader = LinearGradient(
-                    0f, 0f, width.toFloat(), height.toFloat(),
-                    if (dark) 0xFF181524.toInt() else 0xFFECE6F8.toInt(),
-                    if (dark) 0xFF0A0910.toInt() else 0xFFF9F7FD.toInt(),
-                    Shader.TileMode.CLAMP,
-                )
-            }
-            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
-            return
+    private fun renderBackdrop(art: Bitmap, dark: Boolean): Bitmap {
+        var tiny = art
+        while (tiny.width > BLUR_SIDE) {
+            val next = Bitmap.createScaledBitmap(tiny, tiny.width / 2, tiny.height / 2, true)
+            if (tiny !== art) tiny.recycle()
+            tiny = next
         }
+        val out = Bitmap.createBitmap(BACKDROP_W, BACKDROP_H, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(out)
+        val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
+        // Agrandi deux fois : un seul agrandissement laisse voir la grille des pixels.
+        val mid = Bitmap.createScaledBitmap(tiny, BACKDROP_W / 4, BACKDROP_H / 4, true)
+        canvas.drawBitmap(mid, null, android.graphics.Rect(0, 0, BACKDROP_W, BACKDROP_H), paint)
+        mid.recycle()
+        if (tiny !== art) tiny.recycle()
 
-        // Flou progressif bilinéaire
-        val tiny = Bitmap.createScaledBitmap(artwork, BLUR_SIDE, BLUR_SIDE, true)
-        val smooth = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
-        canvas.drawBitmap(tiny, Rect(0, 0, BLUR_SIDE, BLUR_SIDE), Rect(0, 0, width, height), smooth)
-        tiny.recycle()
-
-        // Halo d'ambiance chromatique projeté depuis la pochette
-        val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = RadialGradient(
-                width * 0.25f, height * 0.5f, width * 0.6f,
-                ColorUtils.setAlphaComponent(Color.WHITE, if (dark) 28 else 60),
-                0,
-                Shader.TileMode.CLAMP
-            )
+        // Voile de lisibilité : plus dense en bas, où se trouvent les commandes.
+        val top = if (dark) ColorUtils.setAlphaComponent(0xFF06060A.toInt(), 110)
+        else ColorUtils.setAlphaComponent(0xFFFFFFFF.toInt(), 150)
+        val bottom = if (dark) ColorUtils.setAlphaComponent(0xFF06060A.toInt(), 185)
+        else ColorUtils.setAlphaComponent(0xFFFFFFFF.toInt(), 205)
+        val scrim = Paint().apply {
+            shader = LinearGradient(0f, 0f, 0f, BACKDROP_H.toFloat(), top, bottom, Shader.TileMode.CLAMP)
         }
-        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), glowPaint)
+        canvas.drawRect(0f, 0f, BACKDROP_W.toFloat(), BACKDROP_H.toFloat(), scrim)
+        return out
+    }
 
-        // Voile de verre teinté adaptatif
-        val scrimAlpha = if (dark) {
-            ((0xB8 * opacity).toInt()).coerceIn(120, 230)
+    /**
+     * Accent tiré de la pochette, assez contrasté pour un bouton sur le fond du widget.
+     * 0 quand la pochette est trop terne : le widget garde alors l'accent Synxio.
+     */
+    private fun accentOf(art: Bitmap, dark: Boolean): Int {
+        val palette = Palette.from(art).maximumColorCount(16).generate()
+        val candidate = if (dark) {
+            palette.lightVibrantSwatch ?: palette.vibrantSwatch ?: palette.lightMutedSwatch
         } else {
-            ((0x65 * opacity).toInt()).coerceIn(60, 160)
-        }
-        val scrimColor = if (dark) {
-            ColorUtils.setAlphaComponent(0xFF000000.toInt(), scrimAlpha)
-        } else {
-            ColorUtils.setAlphaComponent(0xFFFFFFFF.toInt(), scrimAlpha)
-        }
-        canvas.drawColor(scrimColor)
+            palette.darkVibrantSwatch ?: palette.vibrantSwatch ?: palette.darkMutedSwatch
+        } ?: return 0
+        val hsl = candidate.hsl.copyOf()
+        if (hsl[1] < 0.18f) return 0
+        // Clair sur fond sombre, sombre sur fond clair : le bouton doit se détacher.
+        hsl[2] = if (dark) hsl[2].coerceIn(0.62f, 0.78f) else hsl[2].coerceIn(0.32f, 0.45f)
+        hsl[1] = hsl[1].coerceAtLeast(0.45f)
+        return ColorUtils.HSLToColor(hsl)
     }
 
-    /**
-     * Panneau Liquid Glass : brillance caustique, réflexion diagonale et biseau 3D.
-     */
-    private fun drawLiquidGlass(
-        canvas: Canvas,
-        width: Int,
-        height: Int,
-        dark: Boolean,
-        opacity: Float,
-    ) {
-        val cornerRadius = CORNER_FRACTION * height
-
-        // 1. Reflet supérieur caustique (éclat de verre courbé)
-        val topSheen = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = LinearGradient(
-                0f, 0f, 0f, height * 0.85f,
-                intArrayOf(
-                    ColorUtils.setAlphaComponent(Color.WHITE, if (dark) 70 else 180),
-                    ColorUtils.setAlphaComponent(Color.WHITE, if (dark) 25 else 60),
-                    ColorUtils.setAlphaComponent(Color.WHITE, 0),
-                ),
-                floatArrayOf(0f, 0.5f, 1f),
-                Shader.TileMode.CLAMP,
-            )
-        }
-        canvas.drawRoundRect(
-            RectF(0f, 0f, width.toFloat(), height * 0.9f),
-            cornerRadius,
-            cornerRadius,
-            topSheen
-        )
-
-        // 2. Faisceau de réfraction liquide diagonal
-        val beamPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = LinearGradient(
-                -width * 0.1f, -height * 0.2f,
-                width * 0.8f, height * 0.9f,
-                ColorUtils.setAlphaComponent(Color.WHITE, if (dark) 25 else 50),
-                0,
-                Shader.TileMode.CLAMP
-            )
-        }
-        canvas.drawRoundRect(
-            RectF(0f, 0f, width.toFloat(), height.toFloat()),
-            cornerRadius,
-            cornerRadius,
-            beamPaint
-        )
-
-        // Retrait de la capsule matérielle fixe (étape 3).
-        // L'UI Glance dessinera son propre conteneur aligné avec le texte,
-        // ce qui évite le désalignement lors du redimensionnement du widget.
-
-        // 4. Liseré prismatique 3D (biseau lumineux supérieur, ombre inférieure)
-        val strokeWidth = max(1.2f, width / 360f)
-        val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            this.strokeWidth = strokeWidth
-            shader = LinearGradient(
-                0f, 0f, width.toFloat(), height.toFloat(),
-                intArrayOf(
-                    ColorUtils.setAlphaComponent(Color.WHITE, if (dark) 120 else 220),
-                    ColorUtils.setAlphaComponent(Color.WHITE, if (dark) 40 else 90),
-                    ColorUtils.setAlphaComponent(if (dark) 0xFF8B7CF0.toInt() else 0xFF6C5CE7.toInt(), 50),
-                    ColorUtils.setAlphaComponent(Color.WHITE, if (dark) 20 else 50),
-                ),
-                floatArrayOf(0f, 0.35f, 0.7f, 1f),
-                Shader.TileMode.CLAMP
-            )
-        }
-        val inset = strokeWidth / 2f
-        canvas.drawRoundRect(
-            RectF(inset, inset, width - inset, height - inset),
-            cornerRadius,
-            cornerRadius,
-            edge,
-        )
-    }
-
-    /**
-     * Vagues de fluide harmonique liquide à double couche réactives au spectre audio.
-     */
-    private fun drawLiquidWaves(
-        canvas: Canvas,
-        width: Int,
-        height: Int,
-        bands: FloatArray?,
-        dark: Boolean,
-        waveTint: String,
-    ) {
-        val profile = normalise(bands)
-        val tintColor = resolveWaveTint(waveTint, dark)
-
-        // 1. Première couche : vague fluide d'arrière-plan (douce et enveloppante)
-        val bgBaseline = height * 0.95f
-        val bgAmplitude = height * 0.22f
-        val bgStep = width.toFloat() / (profile.size - 1)
-        val bgPath = Path().apply {
-            val startY = bgBaseline - (profile[0] * 0.6f + 0.2f) * bgAmplitude
-            moveTo(0f, startY)
-        }
-        for (i in 0 until profile.size - 1) {
-            val currentVal = profile[i] * 0.6f + 0.2f
-            val nextVal = profile[i + 1] * 0.6f + 0.2f
-            val x1 = i * bgStep
-            val y1 = bgBaseline - currentVal * bgAmplitude
-            val x2 = (i + 1) * bgStep
-            val y2 = bgBaseline - nextVal * bgAmplitude
-            val midX = (x1 + x2) / 2f
-            bgPath.cubicTo(midX, y1, midX, y2, x2, y2)
-        }
-        val bgFill = Path(bgPath).apply {
-            lineTo(width.toFloat(), height.toFloat())
-            lineTo(0f, height.toFloat())
-            close()
-        }
-        canvas.drawPath(
-            bgFill,
-            Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                shader = LinearGradient(
-                    0f, bgBaseline - bgAmplitude, 0f, height.toFloat(),
-                    ColorUtils.setAlphaComponent(tintColor, if (dark) 45 else 35),
-                    0,
-                    Shader.TileMode.CLAMP
-                )
-            }
-        )
-
-        // 2. Seconde couche : vague fluide de premier plan (précise, luminescente avec crête néon)
-        val fgBaseline = height * 0.93f
-        val fgAmplitude = height * 0.17f
-        val fgStep = width.toFloat() / (profile.size - 1)
-
-        val fgPath = Path().apply {
-            moveTo(0f, fgBaseline - profile[0] * fgAmplitude)
-        }
-        for (i in 0 until profile.size - 1) {
-            val x1 = i * fgStep
-            val y1 = fgBaseline - profile[i] * fgAmplitude
-            val x2 = (i + 1) * fgStep
-            val y2 = fgBaseline - profile[i + 1] * fgAmplitude
-            val midX = (x1 + x2) / 2f
-            fgPath.cubicTo(midX, y1, midX, y2, x2, y2)
-        }
-
-        val fgFill = Path(fgPath).apply {
-            lineTo(width.toFloat(), height.toFloat())
-            lineTo(0f, height.toFloat())
-            close()
-        }
-
-        // Remplissage dégradé lumineux
-        canvas.drawPath(
-            fgFill,
-            Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                shader = LinearGradient(
-                    0f, fgBaseline - fgAmplitude, 0f, height.toFloat(),
-                    ColorUtils.setAlphaComponent(tintColor, if (dark) 100 else 75),
-                    ColorUtils.setAlphaComponent(tintColor, 0),
-                    Shader.TileMode.CLAMP,
-                )
-            },
-        )
-
-        // Ligne de crête néon
-        val crestStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = max(2.2f, height / 55f)
-            strokeCap = Paint.Cap.ROUND
-            shader = LinearGradient(
-                0f, 0f, width.toFloat(), 0f,
-                ColorUtils.setAlphaComponent(tintColor, 120),
-                ColorUtils.setAlphaComponent(tintColor, 240),
-                Shader.TileMode.CLAMP
-            )
-        }
-        canvas.drawPath(fgPath, crestStroke)
-
-        // Gouttes de lumière / Perles liquides aux pics de fréquence
-        val beadPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.FILL
-            color = ColorUtils.setAlphaComponent(Color.WHITE, if (dark) 230 else 255)
-        }
-        for (i in 1 until profile.size - 1) {
-            if (profile[i] > 0.65f && profile[i] >= profile[i - 1] && profile[i] >= profile[i + 1]) {
-                val beadX = i * fgStep
-                val beadY = fgBaseline - profile[i] * fgAmplitude
-                canvas.drawCircle(beadX, beadY, max(2f, height / 70f), beadPaint)
-            }
-        }
-    }
-
-    private fun resolveWaveTint(tintName: String, dark: Boolean): Int = when (tintName) {
-        "NEON_CYAN" -> if (dark) 0xFF00E5FF.toInt() else 0xFF00A8B5.toInt()
-        "AMETHYST" -> if (dark) 0xFFD946EF.toInt() else 0xFFA21CAF.toInt()
-        "EMERALD" -> if (dark) 0xFF10B981.toInt() else 0xFF059669.toInt()
-        else -> if (dark) 0xFF8B7CF0.toInt() else 0xFF6C5CE7.toInt()
-    }
-
-    private fun normalise(bands: FloatArray?): FloatArray {
-        val source = bands?.takeIf { it.size >= BAND_COUNT * 2 }
-            ?.let { vector -> FloatArray(BAND_COUNT) { vector[it * 2] } }
-            ?: return NEUTRAL_PROFILE
-
-        val low = source.min()
-        val high = source.max()
-        val span = high - low
-        if (span < 1e-4f) return NEUTRAL_PROFILE
-        return FloatArray(source.size) { ((source[it] - low) / span).coerceIn(0f, 1f) }
+    private fun cleanup(keep: Set<String>) {
+        dir.listFiles()?.forEach { if (it.name !in keep) it.delete() }
     }
 
     private companion object {
-        const val BAND_COUNT = 10
-        const val BLUR_SIDE = 14
-        const val MIN_SIDE = 64
-        const val MAX_WIDTH = 256
-        const val MAX_HEIGHT = 150
-        const val CORNER_FRACTION = 0.18f
-        val NEUTRAL_PROFILE =
-            floatArrayOf(0.25f, 0.45f, 0.7f, 0.55f, 0.8f, 0.6f, 0.85f, 0.5f, 0.65f, 0.3f)
+        const val TAG = "WidgetArt"
+        const val ART_PIXELS = 300
+        const val BLUR_SIDE = 10
+        const val BACKDROP_W = 160
+        const val BACKDROP_H = 160
     }
 }

@@ -1,5 +1,7 @@
 package fr.synxio.player.ui.screens
 
+import fr.synxio.player.ui.theme.synxioTopBarColors
+import androidx.compose.ui.graphics.Color
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -105,10 +107,12 @@ fun RepairScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
 
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     Scaffold(
+        containerColor = Color.Transparent,
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
+                colors = synxioTopBarColors(),
                 title = { Text("Réparer les tags") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {

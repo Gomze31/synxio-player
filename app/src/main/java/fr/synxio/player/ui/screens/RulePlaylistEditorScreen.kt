@@ -1,5 +1,7 @@
 package fr.synxio.player.ui.screens
 
+import fr.synxio.player.ui.theme.synxioTopBarColors
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -117,9 +119,11 @@ fun RulePlaylistEditorScreen(
     val formValid = state.canSave && state.rules.all { it.error() == null }
 
     Scaffold(
+        containerColor = Color.Transparent,
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             TopAppBar(
+                colors = synxioTopBarColors(),
                 title = { Text(if (ruleId > 0) "Modifier la règle" else "Nouvelle règle") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {

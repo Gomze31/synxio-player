@@ -36,3 +36,9 @@
     public static int d(...);
     public static int i(...);
 }
+
+# Widgets Glance : les actions sont retrouvées par leur nom de classe et instanciées
+# par réflexion au clic. Renommées ou sans constructeur vide, les boutons du widget ne
+# feraient plus rien en release.
+-keep class * implements androidx.glance.appwidget.action.ActionCallback { <init>(); }
+-keep class fr.synxio.player.widget.** extends androidx.glance.appwidget.GlanceAppWidgetReceiver { <init>(); }

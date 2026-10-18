@@ -1,5 +1,7 @@
 package fr.synxio.player.ui.screens
 
+import fr.synxio.player.ui.theme.synxioTopBarColors
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -98,9 +100,11 @@ fun HistoryScreen(
 
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     Scaffold(
+        containerColor = Color.Transparent,
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             TopAppBar(
+                colors = synxioTopBarColors(),
                 title = { Text("Historique") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {

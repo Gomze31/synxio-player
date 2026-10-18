@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Aperçu du sélecteur de widgets (Android 12+) : statique, aux couleurs Synxio. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_preview_bg"
+    android:gravity="center_vertical"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:layout_width="110dp"
+            android:layout_height="110dp"
+            android:background="@drawable/widget_preview_art"
+            android:importantForAccessibility="no"
+            android:scaleType="center"
+            android:src="@drawable/ic_widget_note" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="14dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:text="@string/widget_preview_title"
+                android:textColor="#FFF5F3FA"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:text="@string/widget_preview_artist"
+                android:textColor="#FFC9C4D6"
+                android:textSize="14sp" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <ProgressBar
+        style="@android:style/Widget.ProgressBar.Horizontal"
+        android:layout_width="match_parent"
+        android:layout_height="4dp"
+        android:layout_marginTop="14dp"
+        android:progress="40"
+        android:progressBackgroundTint="#55FFFFFF"
+        android:progressTint="#FFB59BFF" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:gravity="center"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:layout_width="0dp"
+            android:layout_height="22dp"
+            android:layout_weight="1"
+            android:importantForAccessibility="no"
+            android:src="@drawable/ic_widget_shuffle" />
+
+        <ImageView
+            android:layout_width="0dp"
+            android:layout_height="28dp"
+            android:layout_weight="1"
+            android:importantForAccessibility="no"
+            android:src="@drawable/ic_widget_previous" />
+
+        <ImageView
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:importantForAccessibility="no"
+            android:src="@drawable/widget_preview_play" />
+
+        <ImageView
+            android:layout_width="0dp"
+            android:layout_height="28dp"
+            android:layout_weight="1"
+            android:importantForAccessibility="no"
+            android:src="@drawable/ic_widget_next" />
+
+        <ImageView
+            android:layout_width="0dp"
+            android:layout_height="22dp"
+            android:layout_weight="1"
+            android:importantForAccessibility="no"
+            android:src="@drawable/ic_widget_repeat" />
+    </LinearLayout>
+</LinearLayout>

@@ -1,5 +1,6 @@
 package fr.synxio.player.ui.screens
 
+import fr.synxio.player.ui.theme.synxioTopBarColors
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -89,9 +90,11 @@ fun PartyScreen(
 
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     Scaffold(
+        containerColor = Color.Transparent,
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             TopAppBar(
+                colors = synxioTopBarColors(),
                 title = { Text("Synxio Party") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {

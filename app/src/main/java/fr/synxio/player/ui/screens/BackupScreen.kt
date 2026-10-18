@@ -1,5 +1,7 @@
 package fr.synxio.player.ui.screens
 
+import fr.synxio.player.ui.theme.synxioTopBarColors
+import androidx.compose.ui.graphics.Color
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -163,10 +165,12 @@ fun BackupScreen(
 
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     Scaffold(
+        containerColor = Color.Transparent,
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             Column {
                 TopAppBar(
+                    colors = synxioTopBarColors(),
                     title = { Text("Sauvegarde et restauration") },
                     navigationIcon = {
                         IconButton(onClick = onBack) {

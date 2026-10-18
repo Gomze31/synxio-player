@@ -422,6 +422,10 @@ class AppViewModel @Inject constructor(
         _messages.emit(if (songs.size == 1) "Titre ajouté" else "${songs.size} titres ajoutés")
     }
 
+    fun moveInPlaylist(playlistId: Long, from: Int, to: Int) = viewModelScope.launch {
+        playlistRepository.moveSong(playlistId, from, to)
+    }
+
     fun removeFromPlaylist(playlistId: Long, songId: Long) = viewModelScope.launch {
         playlistRepository.removeSong(playlistId, songId)
     }

@@ -1,5 +1,7 @@
 package fr.synxio.player.ui.screens
 
+import fr.synxio.player.ui.theme.synxioTopBarColors
+import androidx.compose.ui.graphics.Color
 import android.annotation.SuppressLint
 import android.content.ClipDescription
 import android.content.ClipboardManager
@@ -122,9 +124,11 @@ fun DownloadScreen(
     val isVideoUrl = YoutubeUrls.normalizeVideo(currentUrl) != null
 
     Scaffold(
+        containerColor = Color.Transparent,
         topBar = {
             Column {
                 TopAppBar(
+                    colors = synxioTopBarColors(),
                     title = { Text("Téléchargeur YouTube") },
                     navigationIcon = {
                         IconButton(onClick = {

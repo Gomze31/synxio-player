@@ -68,6 +68,8 @@ fun AudioVisualizer(
 
         for (i in 0 until barCount) {
             val magnitude = magnitudes[i]
+            // Silence ou pause : rien plutôt qu'une rangée de points au ras de l'écran.
+            if (magnitude < 0.02f) continue
             val height = (magnitude * maxBarHeight).coerceAtLeast(minHeight)
 
             val x = startX + i * (barWidth + spacing)
