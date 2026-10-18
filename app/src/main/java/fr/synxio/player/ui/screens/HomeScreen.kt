@@ -1,5 +1,8 @@
 package fr.synxio.player.ui.screens
 
+import androidx.compose.foundation.lazy.itemsIndexed
+import fr.synxio.player.ui.components.pressBounce
+import fr.synxio.player.ui.components.enterCascade
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -112,7 +115,9 @@ fun HomeScreen(
         contentPadding = PaddingValues(bottom = Space.xl),
     ) {
         item(key = "greeting", contentType = "greeting") {
-            GreetingHeader(library.songs.size, library.totalDurationMs)
+            Box(Modifier.enterCascade(0, "greeting")) {
+                GreetingHeader(library.songs.size, library.totalDurationMs)
+            }
         }
 
         item(key = "quick", contentType = "quick") {
@@ -175,11 +180,11 @@ fun HomeScreen(
                     // AlbumCard porte déjà Space.sm de marge interne : gutter = md + sm.
                     contentPadding = PaddingValues(horizontal = Space.md),
                 ) {
-                    items(recentAlbums, key = { it.id }) { album ->
+                    itemsIndexed(recentAlbums, key = { _, it -> it.id }) { index, album ->
                         AlbumCard(
                             album = album,
                             onClick = { onOpenAlbum(album.id) },
-                            modifier = Modifier.width(AlbumCardWidth),
+                            modifier = Modifier.enterCascade(index, album.id).width(AlbumCardWidth),
                         )
                     }
                 }
@@ -195,9 +200,11 @@ fun HomeScreen(
                     contentPadding = PaddingValues(horizontal = Space.gutter),
                     horizontalArrangement = Arrangement.spacedBy(Space.lg),
                 ) {
-                    items(topArtists, key = { it.name }) { artist ->
+                    itemsIndexed(topArtists, key = { _, it -> it.name }) { index, artist ->
                         Column(
                             modifier = Modifier
+                                .enterCascade(index, artist.name)
+                                .pressBounce()
                                 .width(ArtistCardWidth)
                                 .clip(SynxioShape.artworkMd)
                                 .clickable(
@@ -314,6 +321,7 @@ private fun QuickActionChip(
     AssistChip(
         onClick = onClick,
         enabled = enabled,
+        modifier = Modifier.pressBounce(),
         shape = SynxioShape.pill,
         label = {
             Text(
@@ -343,10 +351,12 @@ private fun SongCarousel(songs: List<Song>, currentSongId: Long?, onClick: (Song
         contentPadding = PaddingValues(horizontal = Space.gutter),
         horizontalArrangement = Arrangement.spacedBy(Space.md),
     ) {
-        items(songs, key = { it.id }) { song ->
+        itemsIndexed(songs, key = { _, it -> it.id }) { index, song ->
             val isCurrent = song.id == currentSongId
             Column(
                 modifier = Modifier
+                    .enterCascade(index, song.id)
+                    .pressBounce()
                     .width(SongCardWidth)
                     .clip(SynxioShape.artworkMd)
                     .clickable(onClickLabel = "Lire", role = Role.Button) { onClick(song) }

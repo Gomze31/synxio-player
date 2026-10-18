@@ -77,6 +77,7 @@ fun SongRow(
     val scheme = MaterialTheme.colorScheme
     Row(
         modifier = modifier
+            .pressBounce(0.98f)
             .fillMaxWidth()
             .heightIn(min = RowMinHeight)
             .clip(SynxioShape.artworkMd)
@@ -183,6 +184,7 @@ fun AlbumCard(
 ) {
     Column(
         modifier = modifier
+            .pressBounce()
             .clip(SynxioShape.artworkMd)
             .combinedClickable(
                 onClick = onClick,

@@ -1,5 +1,11 @@
 package fr.synxio.player.ui.components
 
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
@@ -111,25 +117,44 @@ fun MiniPlayer(
                 ),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Artwork(
-                    model = song.artworkUri,
-                    modifier = Modifier.size(48.dp),
-                    shape = SynxioShape.artworkSm,
-                )
-                Spacer(Modifier.width(Space.md))
-                Column(Modifier.weight(1f)) {
-                    MarqueeText(
-                        text = song.title,
-                        style = MaterialTheme.typography.titleSmall,
-                        animate = state.isPlaying,
-                    )
-                    Text(
-                        text = song.displayArtist,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = scheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                // Changement de piste : la pochette et le titre glissent vers la gauche,
+                // le suivant arrive de la droite, comme une page qu'on tourne.
+                AnimatedContent(
+                    targetState = song,
+                    contentKey = { it.id },
+                    transitionSpec = {
+                        if (reduceMotion) {
+                            fadeIn(Motion.enter(Motion.SHORT)) togetherWith fadeOut(Motion.exit())
+                        } else {
+                            (slideInHorizontally(Motion.enter()) { it / 3 } + fadeIn(Motion.enter())) togetherWith
+                                (slideOutHorizontally(Motion.exit(Motion.MEDIUM)) { -it / 3 } + fadeOut(Motion.exit()))
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    label = "miniTrack",
+                ) { current ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Artwork(
+                            model = current.artworkUri,
+                            modifier = Modifier.size(48.dp),
+                            shape = SynxioShape.artworkSm,
+                        )
+                        Spacer(Modifier.width(Space.md))
+                        Column(Modifier.weight(1f)) {
+                            MarqueeText(
+                                text = current.title,
+                                style = MaterialTheme.typography.titleSmall,
+                                animate = state.isPlaying,
+                            )
+                            Text(
+                                text = current.displayArtist,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = scheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
                 }
                 androidx.compose.material3.FilledIconButton(
                     onClick = onPlayPause,

@@ -1,5 +1,11 @@
 package fr.synxio.player.ui.screens.nowplaying
 
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.EaseInOut
 import androidx.compose.animation.core.LinearEasing
@@ -180,6 +186,7 @@ fun NowPlayingScreen(
                 model = song.artworkUri,
                 placeholderSeed = song.artworkUri,
                 enabled = settings.blurBackground,
+                drifting = state.isPlaying && !reduceMotion,
             )
         }
         Box(
@@ -270,7 +277,24 @@ fun NowPlayingScreen(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(Modifier.weight(1f)) {
+                    AnimatedContent(
+                        targetState = song,
+                        contentKey = { it.id },
+                        transitionSpec = {
+                            if (reduceMotion) {
+                                fadeIn(Motion.enter(Motion.SHORT)) togetherWith
+                                    fadeOut(Motion.exit())
+                            } else {
+                                (slideInVertically(Motion.enter()) { it / 2 } +
+                                    fadeIn(Motion.enter())) togetherWith
+                                    (slideOutVertically(Motion.exit()) { -it / 2 } +
+                                        fadeOut(Motion.exit()))
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                        label = "npTitle",
+                    ) { song ->
+                    Column {
                         // Titre : album, artiste : page artiste.
                         MarqueeText(
                             text = song.title,
@@ -291,6 +315,7 @@ fun NowPlayingScreen(
                                 onCollapse(); onOpenArtist(song.displayArtist)
                             },
                         )
+                    }
                     }
 
                     FavoriteButton(
@@ -432,8 +457,18 @@ private fun TopRow(context: String, onCollapse: () -> Unit, onMenu: () -> Unit) 
  * l'image est simplement décodée en très petit puis agrandie, ce qui la floute aussi.
  */
 @Composable
-private fun BlurredArtworkBackdrop(model: Any?, placeholderSeed: Any?, enabled: Boolean) {
+private fun BlurredArtworkBackdrop(model: Any?, placeholderSeed: Any?, enabled: Boolean, drifting: Boolean) {
     if (!enabled) return
+    // Dérive lente pendant l'écoute : le fond vit avec la musique, sans jamais attirer
+    // l'œil. Arrêtée en pause et quand les animations sont réduites.
+    val drift = rememberInfiniteTransition(label = "drift")
+    val phase by drift.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(16_000, easing = EaseInOut), androidx.compose.animation.core.RepeatMode.Reverse),
+        label = "driftPhase",
+    )
+    val amount by animateFloatAsState(if (drifting) 1f else 0f, tween(Motion.LONG * 3), label = "driftAmount")
     val context = androidx.compose.ui.platform.LocalContext.current
     val request = remember(model) {
         coil.request.ImageRequest.Builder(context)
@@ -454,7 +489,13 @@ private fun BlurredArtworkBackdrop(model: Any?, placeholderSeed: Any?, enabled: 
             contentScale = androidx.compose.ui.layout.ContentScale.Crop,
             modifier = Modifier
                 .fillMaxSize()
-                .scale(1.25f)
+                .graphicsLayer {
+                    val s = 1.25f + 0.12f * phase * amount
+                    scaleX = s
+                    scaleY = s
+                    translationX = (phase - 0.5f) * size.width * 0.06f * amount
+                    rotationZ = (phase - 0.5f) * 6f * amount
+                }
                 .blur(60.dp, androidx.compose.ui.draw.BlurredEdgeTreatment.Rectangle),
         )
     }
@@ -574,7 +615,16 @@ private fun ArtworkStage(
     ) { page ->
         val song = queue[page]
         val isCurrent = page == pagerState.currentPage
-        val scale by animateFloatAsState(if (isCurrent) 1f else 0.82f, label = "artScale")
+        // En pause, la pochette recule un peu ; elle revient au premier plan à la reprise.
+        val scale by animateFloatAsState(
+            targetValue = when {
+                !isCurrent -> 0.82f
+                isPlaying -> 1f
+                else -> 0.88f
+            },
+            animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.6f, stiffness = 220f),
+            label = "artScale",
+        )
 
         Box(Modifier.fillMaxSize(), Alignment.Center) {
             when (skin) {

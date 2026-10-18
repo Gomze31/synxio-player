@@ -1,5 +1,6 @@
 package fr.synxio.player.ui
 
+import androidx.compose.ui.graphics.graphicsLayer
 import android.Manifest
 import android.content.Intent
 import android.os.Build
@@ -61,6 +62,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -202,9 +205,14 @@ fun SynxioRoot(viewModel: AppViewModel, openPlayerRequest: Long) {
         if (permission.status.isGranted) viewModel.onPermissionGranted()
     }
 
-    // Fond ambiant commun à tout l'app : les écrans sont transparents par-dessus.
+    // Fond ambiant commun à toute l'app : les écrans sont transparents par-dessus.
+    //
+    // Le Surface d'origine fournissait aussi la couleur de texte par défaut. Sans elle,
+    // tout texte sans couleur explicite retombait au noir : titre du lecteur et nom
+    // d'album illisibles sur fond sombre. On la fournit explicitement.
     Box(Modifier.fillMaxSize()) {
         AmbientBackdrop()
+        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
         if (permission.status.isGranted) {
             MainScaffold(viewModel, openPlayerRequest)
         } else {
@@ -217,6 +225,7 @@ fun SynxioRoot(viewModel: AppViewModel, openPlayerRequest: Long) {
                     permission.launchPermissionRequest()
                 },
             )
+        }
         }
     }
 }
@@ -505,8 +514,13 @@ private fun NavItem(
     )
     val indicatorWidth by animateDpAsState(
         if (selected) 56.dp else 36.dp,
-        Motion.standardOrSnap(reduceMotion),
+        if (reduceMotion) androidx.compose.animation.core.snap() else androidx.compose.animation.core.spring(dampingRatio = 0.55f, stiffness = 500f),
         label = "navWidth",
+    )
+    val iconScale by androidx.compose.animation.core.animateFloatAsState(
+        if (selected && !reduceMotion) 1.12f else 1f,
+        androidx.compose.animation.core.spring(dampingRatio = 0.4f, stiffness = 400f),
+        label = "navIcon",
     )
     Column(
         modifier = modifier
@@ -524,7 +538,17 @@ private fun NavItem(
                 .background(indicator),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(destination.icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
+            Icon(
+                destination.icon,
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier
+                    .size(22.dp)
+                    .graphicsLayer {
+                        scaleX = iconScale
+                        scaleY = iconScale
+                    },
+            )
         }
         Spacer(Modifier.height(2.dp))
         Text(

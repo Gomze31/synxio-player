@@ -1,5 +1,8 @@
 package fr.synxio.player.ui.screens
 
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.itemsIndexed
+import fr.synxio.player.ui.components.enterCascade
 import androidx.compose.ui.graphics.Color
 import android.os.Build
 import androidx.activity.compose.BackHandler
@@ -591,7 +594,7 @@ private fun SongsTab(
             )
         }
 
-        items(songs, key = { it.id }, contentType = { "song" }) { song ->
+        itemsIndexed(songs, key = { _, it -> it.id }, contentType = { _, _ -> "song" }) { index, song ->
             val isSelected = song.id in selected
             val isCurrent = currentSongId == song.id
             SongRow(
@@ -607,6 +610,7 @@ private fun SongsTab(
                 isPlaying = isPlaying,
                 isFavorite = song.id in favorites,
                 modifier = Modifier
+                    .enterCascade(index, song.id)
                     .then(
                         if (isSelected) {
                             Modifier.background(MaterialTheme.colorScheme.secondaryContainer, SynxioShape.card)
@@ -768,8 +772,12 @@ private fun AlbumsTab(viewModel: AppViewModel, onOpenAlbum: (Long) -> Unit) {
             )
         }
 
-        items(albums, key = { it.id }, contentType = { "album" }) { album ->
-            AlbumCard(album = album, onClick = { onOpenAlbum(album.id) })
+        itemsIndexed(albums, key = { _, it -> it.id }, contentType = { _, _ -> "album" }) { index, album ->
+            AlbumCard(
+                album = album,
+                onClick = { onOpenAlbum(album.id) },
+                modifier = Modifier.enterCascade(index, album.id),
+            )
         }
     }
 }
@@ -811,8 +819,12 @@ private fun ArtistsTab(viewModel: AppViewModel, onOpenArtist: (String) -> Unit) 
             )
         }
 
-        items(artists, key = { it.name }, contentType = { "artist" }) { artist ->
-            ArtistCard(artist = artist, onClick = { onOpenArtist(artist.name) })
+        itemsIndexed(artists, key = { _, it -> it.name }, contentType = { _, _ -> "artist" }) { index, artist ->
+            ArtistCard(
+                artist = artist,
+                onClick = { onOpenArtist(artist.name) },
+                modifier = Modifier.enterCascade(index, artist.name),
+            )
         }
     }
 }

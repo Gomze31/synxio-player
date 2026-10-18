@@ -142,6 +142,13 @@ class MediaStoreScanner @Inject constructor(
                     val isNativeAudiobook = (audiobookCol >= 0 && cursor.getInt(audiobookCol) != 0)
                     val isAudiobookFile = isNativeAudiobook || audiobookFolders.any { path.startsWith(it) }
 
+                    val rawTitle = cursor.getString(titleCol)?.trim().orEmpty()
+                    val rawArtist = cursor.getString(artistCol).orEmpty().trim()
+                    val rawAlbum = cursor.getString(albumCol).orEmpty().trim()
+                    val brokenEncoding = rawTitle.tidyTag() != rawTitle ||
+                        rawArtist.tidyTag() != rawArtist ||
+                        rawAlbum.tidyTag() != rawAlbum
+
                     songs += Song(
                         id = cursor.getLong(idCol),
                         // Les tags rippés traînent souvent des espaces parasites
@@ -167,6 +174,7 @@ class MediaStoreScanner @Inject constructor(
                         path = path,
                         isPodcast = isPodcastFile,
                         isAudiobook = isAudiobookFile,
+                        brokenEncoding = brokenEncoding,
                     )
                 }
             }
@@ -297,17 +305,60 @@ internal fun String.tidyTag(): String {
 }
 
 /**
- * Répare un texte UTF-8 qui a été lu comme du Latin-1.
+ * Répare un texte UTF-8 qui a été lu comme du Latin-1 ou du Windows-1252.
  *
- * Sans risque pour un texte sain : « Café » en Latin-1 donne l'octet E9 seul, qui n'est
- * pas de l'UTF-8 valide, et le texte est rendu tel quel. Seules les suites d'octets qui
- * forment un UTF-8 correct — signature du double encodage — sont reconverties.
+ * « Câ€™est la Vie » : les trois octets UTF-8 de l'apostrophe typographique, relus en
+ * Windows-1252, donnent « â€™ ». On refait le chemin inverse : chaque caractère redevient
+ * l'octet d'origine, puis le tout est décodé en UTF-8.
+ *
+ * Sans risque pour un texte sain : « Café » donne l'octet E9 seul, « C’est » l'octet 92
+ * seul, qui ne sont pas de l'UTF-8 valide, et le texte est rendu tel quel. Seules les
+ * suites d'octets qui forment un UTF-8 correct — signature du double encodage — sont
+ * reconverties.
  */
 internal fun repairMojibake(text: String): String {
-    if (text.none { it.code in 0x80..0xFF } || text.any { it.code > 0xFF }) return text
-    val bytes = text.toByteArray(Charsets.ISO_8859_1)
+    if (text.all { it.code < 0x80 }) return text
+    val bytes = ByteArray(text.length)
+    for ((i, c) in text.withIndex()) {
+        val code = c.code
+        bytes[i] = when {
+            code <= 0xFF -> code.toByte()
+            else -> (CP1252_BYTES[c] ?: return text).toByte()
+        }
+    }
     val decoder = Charsets.UTF_8.newDecoder()
         .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
         .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
     return runCatching { decoder.decode(java.nio.ByteBuffer.wrap(bytes)).toString() }.getOrDefault(text)
 }
+
+/** Caractères Windows-1252 de la plage 80–9F, et l'octet qu'ils représentent. */
+private val CP1252_BYTES: Map<Char, Int> = mapOf(
+    '\u20AC' to 0x80,
+    '\u201A' to 0x82,
+    '\u0192' to 0x83,
+    '\u201E' to 0x84,
+    '\u2026' to 0x85,
+    '\u2020' to 0x86,
+    '\u2021' to 0x87,
+    '\u02C6' to 0x88,
+    '\u2030' to 0x89,
+    '\u0160' to 0x8A,
+    '\u2039' to 0x8B,
+    '\u0152' to 0x8C,
+    '\u017D' to 0x8E,
+    '\u2018' to 0x91,
+    '\u2019' to 0x92,
+    '\u201C' to 0x93,
+    '\u201D' to 0x94,
+    '\u2022' to 0x95,
+    '\u2013' to 0x96,
+    '\u2014' to 0x97,
+    '\u02DC' to 0x98,
+    '\u2122' to 0x99,
+    '\u0161' to 0x9A,
+    '\u203A' to 0x9B,
+    '\u0153' to 0x9C,
+    '\u017E' to 0x9E,
+    '\u0178' to 0x9F
+)

@@ -13,6 +13,8 @@ import kotlinx.coroutines.withContext
 import android.util.Log
 import org.jaudiotagger.audio.AudioFileIO
 import org.jaudiotagger.tag.FieldKey
+import org.jaudiotagger.tag.TagOptionSingleton
+import org.jaudiotagger.tag.id3.valuepair.TextEncoding
 import org.jaudiotagger.tag.images.AndroidArtwork
 import java.io.File
 import javax.inject.Inject
@@ -72,13 +74,34 @@ class TagEditorRepository @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
 
+    init {
+        // Tous les cadres texte en Unicode, y compris ceux déjà présents dans le fichier.
+        //
+        // jaudiotagger écrivait en Latin-1 ce qui y tenait et en UTF-16 le reste. Sur ce
+        // mélange, le scanner média d'Android devine un jeu de caractères pour l'ensemble
+        // du tag et abîme les cadres Unicode : un titre corrigé ressortait « ReÌveiller ».
+        TagOptionSingleton.getInstance().apply {
+            id3v23DefaultTextEncoding = TextEncoding.UTF_16
+            id3v24DefaultTextEncoding = TextEncoding.UTF_8
+            id3v24UnicodeTextEncoding = TextEncoding.UTF_8
+            isResetTextEncodingForExistingFrames = true
+            // « Pop » et non « 13 » : en ID3v2.4, le code numérique ressortait tel quel
+            // dans la bibliothèque.
+            isWriteMp3GenresAsText = true
+            isWriteMp4GenresAsText = true
+        }
+    }
+
     /**
      * Écrit les tags dans le fichier avec jaudiotagger, puis force MediaStore à ré-indexer.
      *
      * Sous Scoped Storage, une app ne peut modifier un fichier média qu'elle ne possède pas
      * qu'après un consentement explicite : on remonte l'[IntentSender] à l'UI dans ce cas.
      */
-    suspend fun write(song: Song, edit: TagEdit): TagWriteResult = withContext(Dispatchers.IO) {
+    suspend fun write(song: Song, rawEdit: TagEdit): TagWriteResult = withContext(Dispatchers.IO) {
+        // Les services de métadonnées renvoient parfois « é » décomposé (e + accent
+        // combinant) : on écrit toujours la forme composée, la seule que tout lit bien.
+        val edit = rawEdit.composed()
         val source = File(song.path)
         if (!source.exists()) return@withContext TagWriteResult.Failure("Fichier introuvable")
 
@@ -146,8 +169,11 @@ class TagEditorRepository @Inject constructor(
             // que dans [backup]. On vérifie la taille écrite et on restaure en cas d'échec.
             writeThroughUri(song, work, onTruncated = { originalTruncated = true })
 
-            // Forcer la mise à jour des colonnes du MediaStore pour que l'app voie
-            // les changements immédiatement au prochain scan (et que l'observer se déclenche).
+            rescan(song.path)
+
+            // Colonnes MediaStore posées APRÈS le scan, et non avant : le scanner d'Android
+            // ne lit pas l'année d'un tag ID3v2.4 (TDRC) et effaçait celle que l'on venait
+            // d'écrire. La réparation reproposait alors l'année à chaque analyse.
             val values = android.content.ContentValues().apply {
                 edit.title?.takeIf { it.isNotBlank() }?.let { put(MediaStore.Audio.Media.TITLE, it) }
                 edit.artist?.let { put(MediaStore.Audio.Media.ARTIST, it) }
@@ -161,9 +187,10 @@ class TagEditorRepository @Inject constructor(
                 edit.track?.toIntOrNull()?.let { put(MediaStore.Audio.Media.TRACK, it) }
                 put(MediaStore.Audio.Media.DATE_MODIFIED, System.currentTimeMillis() / 1000)
             }
-            context.contentResolver.update(song.uri, values, null, null)
+            // Le fichier est déjà écrit : un refus ici ne doit pas annoncer un échec.
+            runCatching { context.contentResolver.update(song.uri, values, null, null) }
+                .onFailure { Log.w(TAG, "Colonnes MediaStore non mises à jour", it) }
 
-            rescan(song.path)
             TagWriteResult.Success
         }.getOrElse { error ->
             when (error) {
@@ -230,11 +257,23 @@ class TagEditorRepository @Inject constructor(
         /** Type de pochette ID3 « front cover ». */
         const val FRONT_COVER = 3
         const val WORK_DIR = "tag-edit"
+        const val RESCAN_TIMEOUT_MS = 5_000L
     }
 
-    /** Relance le media scanner pour que la bibliothèque reflète les nouveaux tags. */
-    private fun rescan(path: String) {
-        MediaScannerConnection.scanFile(context, arrayOf(path), null, null)
+    /**
+     * Relance le scanner média et attend qu'il ait fini (5 s au plus).
+     *
+     * Sans attente, la bibliothèque était relue juste après l'écriture, avant la fin du
+     * scan : l'app affichait encore les anciens tags, comme si la correction avait échoué.
+     */
+    private suspend fun rescan(path: String) {
+        kotlinx.coroutines.withTimeoutOrNull(RESCAN_TIMEOUT_MS) {
+            kotlinx.coroutines.suspendCancellableCoroutine<Unit> { cont ->
+                MediaScannerConnection.scanFile(context, arrayOf(path), null) { _, _ ->
+                    if (cont.isActive) cont.resumeWith(Result.success(Unit))
+                }
+            }
+        }
     }
 
     /** Lit les tags actuels pour préremplir le formulaire d'édition. */
@@ -255,6 +294,18 @@ class TagEditorRepository @Inject constructor(
             )
         }.getOrElse { fallback(song) }
     }
+
+    private fun TagEdit.composed() = copy(
+        title = title?.nfc(),
+        artist = artist?.nfc(),
+        album = album?.nfc(),
+        albumArtist = albumArtist?.nfc(),
+        genre = genre?.nfc(),
+        comment = comment?.nfc(),
+        lyrics = lyrics?.nfc(),
+    )
+
+    private fun String.nfc(): String = java.text.Normalizer.normalize(trim(), java.text.Normalizer.Form.NFC)
 
     private fun ByteArray.isPng(): Boolean =
         size > 8 && this[0] == 0x89.toByte() && this[1] == 'P'.code.toByte()

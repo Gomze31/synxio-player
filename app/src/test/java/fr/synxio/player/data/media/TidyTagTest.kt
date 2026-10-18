@@ -43,4 +43,17 @@ class TidyTagTest {
     fun `un texte hors Latin-1 n est pas touche`() {
         assertEquals("東京 \u00C3\u00A9", "東京 \u00C3\u00A9".tidyTag())
     }
+
+    @Test
+    fun `un double encodage Windows-1252 est repare`() {
+        // « C’est la Vie » relu en Windows-1252 : « Câ€™est la Vie ».
+        assertEquals("C\u2019est la Vie", "C\u00E2\u20AC\u2122est la Vie".tidyTag())
+        assertEquals("Beyoncé – Halo", "Beyonc\u00C3\u00A9 \u00E2\u20AC\u201C Halo".tidyTag())
+    }
+
+    @Test
+    fun `la typographie saine n est jamais modifiee`() {
+        assertEquals("C\u2019est la vie", "C\u2019est la vie".tidyTag())
+        assertEquals("Œuvre… complète", "Œuvre… complète".tidyTag())
+    }
 }

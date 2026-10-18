@@ -35,6 +35,12 @@ data class Song(
     val path: String,
     val isPodcast: Boolean = false,
     val isAudiobook: Boolean = false,
+    /**
+     * Vrai quand les tags lus dans MediaStore étaient mal encodés (double encodage,
+     * accents décomposés) et ont été réparés à l'affichage. Le fichier, lui, reste à
+     * corriger : la réparation des tags le propose.
+     */
+    val brokenEncoding: Boolean = false,
 ) {
     val uri: Uri
         get() = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)

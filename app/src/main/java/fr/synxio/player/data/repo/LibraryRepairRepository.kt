@@ -20,6 +20,7 @@ enum class TagIssue(val label: String) {
     DAMAGED_ACCENTS("Accents perdus dans les tags"),
     ALBUM_IS_TITLE("Album identique au titre"),
     COMPILATION("Album de compilation générique"),
+    BROKEN_ENCODING("Accents mal encodés dans le fichier"),
 }
 
 /** Proposition de correction pour un morceau. */
@@ -30,6 +31,8 @@ data class RepairProposal(
     val year: Int?,
     val genre: String?,
     val selected: Boolean = true,
+    /** Le fichier n'a pas de pochette : seule la pochette en ligne peut en apporter une. */
+    val needsArtwork: Boolean = false,
 ) {
     val hasMatch: Boolean get() = match != null
 
@@ -38,12 +41,20 @@ data class RepairProposal(
         get() {
             val m = match ?: return emptyList()
             return buildList {
-                if (!m.title.equals(song.title, true)) add("Titre" to m.title)
-                if (!m.artist.equals(song.displayArtist, true)) add("Artiste" to m.artist)
-                if (!m.album.equals(song.displayAlbum, true)) add("Album" to m.album)
-                year?.let { add("Année" to it.toString()) }
-                genre?.let { add("Genre" to it) }
-                if (m.artworkUrl != null) add("Pochette" to "haute résolution")
+                if (m.albumId == LibraryRepairRepository.LOCAL_FIX_ALBUM_ID) {
+                    add("Encodage" to "accents réparés dans le fichier")
+                    return@buildList
+                }
+                // Seuls les vrais changements comptent : proposer à chaque analyse une année,
+                // un genre ou une pochette déjà présents faisait revenir les mêmes titres
+                // indéfiniment, comme si la correction n'avait jamais été appliquée.
+                if (!m.title.sameTag(song.title)) add("Titre" to m.title)
+                if (!m.artist.sameTag(song.displayArtist)) add("Artiste" to m.artist)
+                if (!m.album.sameTag(song.displayAlbum)) add("Album" to m.album)
+                if (TagIssue.BROKEN_ENCODING in issues) add("Encodage" to "accents réparés dans le fichier")
+                year?.takeIf { it != song.year }?.let { add("Année" to it.toString()) }
+                genre?.takeUnless { it.sameTag(song.genre.orEmpty()) }?.let { add("Genre" to it) }
+                if (m.artworkUrl != null && needsArtwork) add("Pochette" to "haute résolution")
             }
         }
 }
@@ -80,6 +91,7 @@ class LibraryRepairRepository @Inject constructor(
         if (song.displayAlbum.equals(song.title, true)) add(TagIssue.ALBUM_IS_TITLE)
         if (COMPILATION_HINTS.any { song.displayAlbum.contains(it, true) }) add(TagIssue.COMPILATION)
         if (hasDamagedAccents(song)) add(TagIssue.DAMAGED_ACCENTS)
+        if (song.brokenEncoding) add(TagIssue.BROKEN_ENCODING)
     }
 
     /**
@@ -129,8 +141,12 @@ class LibraryRepairRepository @Inject constructor(
                 ).getOrNull().orEmpty()
             }
 
+            // Sans fiche en ligne, un fichier mal encodé se répare quand même : ses tags,
+            // déjà relus correctement par Synxio, y sont simplement réécrits proprement.
             val best = candidates.firstOrNull { it.confidence >= minConfidence }
-            val details = best?.let { metadata.albumDetails(it.albumId) }
+                ?: song.takeIf { TagIssue.BROKEN_ENCODING in issues }?.localFix()
+            val details = best?.takeIf { it.albumId != LOCAL_FIX_ALBUM_ID }
+                ?.let { metadata.albumDetails(it.albumId) }
 
             RepairProposal(
                 song = song,
@@ -139,8 +155,9 @@ class LibraryRepairRepository @Inject constructor(
                 year = details?.year,
                 genre = details?.genre,
                 selected = best != null,
+                needsArtwork = !hasArtwork(song),
             )
-        }.filter { it.hasMatch }
+        }.filter { it.hasMatch && it.changes.isNotEmpty() }
     }
 
     /**
@@ -181,21 +198,32 @@ class LibraryRepairRepository @Inject constructor(
             onProgress(index + 1, proposals.size)
             val match = proposal.match ?: return@forEachIndexed
 
-            val artwork = if (withArtwork && match.artworkUrl != null) {
+            val artwork = if (withArtwork && proposal.needsArtwork && match.artworkUrl != null) {
                 metadata.downloadArtwork(match.artworkUrl)
             } else {
                 null
             }
 
-            val edit = TagEdit(
-                title = match.title,
-                artist = match.artist,
-                album = match.album,
-                albumArtist = match.artist,
-                genre = proposal.genre,
-                year = proposal.year?.toString(),
-                artwork = artwork,
-            )
+            val edit = if (match.albumId == LOCAL_FIX_ALBUM_ID) {
+                // Correction locale : on ne touche qu'aux champs texte que l'on avait.
+                val song = proposal.song
+                TagEdit(
+                    title = song.title,
+                    artist = song.artist.takeUnless { it.isBlank() || it == Song.UNKNOWN_MEDIASTORE },
+                    album = song.album.takeIf { it.isNotBlank() },
+                    albumArtist = song.albumArtist?.takeIf { it.isNotBlank() },
+                )
+            } else {
+                TagEdit(
+                    title = match.title,
+                    artist = match.artist,
+                    album = match.album,
+                    albumArtist = match.artist,
+                    genre = proposal.genre?.takeUnless { it.sameTag(proposal.song.genre.orEmpty()) },
+                    year = proposal.year?.takeIf { it != proposal.song.year }?.toString(),
+                    artwork = artwork,
+                )
+            }
 
             when (val result = tagEditor.write(proposal.song, edit)) {
                 is TagWriteResult.Success -> ok++
@@ -215,6 +243,22 @@ class LibraryRepairRepository @Inject constructor(
         ApplyResult(ok, failed, firstError)
     }
 
+    /** Vrai si MediaStore connaît une pochette pour l'album du morceau. */
+    private fun hasArtwork(song: Song): Boolean = runCatching {
+        context.contentResolver.openAssetFileDescriptor(song.artworkUri, "r")?.use { true } ?: false
+    }.getOrDefault(false)
+
+    /** « Correspondance » qui réécrit les tags du morceau tels que Synxio les a réparés. */
+    private fun Song.localFix() = MetadataMatch(
+        title = title,
+        artist = displayArtist,
+        album = displayAlbum,
+        albumId = LOCAL_FIX_ALBUM_ID,
+        durationSec = (durationMs / 1000).toInt(),
+        artworkUrl = null,
+        durationDeltaSec = 0,
+    )
+
     private fun String.cleanFileName(): String = this
         .replace(Regex("^\\d{1,3}\\s*[-._]\\s*"), "")   // « 47 - » en tête
         .replace(NOISE_REGEX, " ")
@@ -222,15 +266,18 @@ class LibraryRepairRepository @Inject constructor(
         .replace(Regex("\\s{2,}"), " ")
         .trim()
 
-    private companion object {
-        val CHANNEL_NOISE = setOf(
+    companion object {
+        /** Marque une correction faite sur place, sans fiche en ligne. */
+        const val LOCAL_FIX_ALBUM_ID = -42L
+
+        private val CHANNEL_NOISE = setOf(
             "7clouds", "Various Artists", "Topic", "Unknown", "VA",
             "NoCopyrightSounds", "Trap Nation", "Artiste inconnu",
         )
-        val COMPILATION_HINTS = listOf(
+        private val COMPILATION_HINTS = listOf(
             "hits", "compilation", "best of", "nrj", "fun radio", "mix ", "playlist",
         )
-        val NOISE_REGEX = Regex(
+        private val NOISE_REGEX = Regex(
             """\((?:official\s*)?(?:lyrics?|audio|video|music\s*video|visualizer|hd|hq|4k)[^)]*\)""" +
                 """|\[[^\]]*(?:lyrics?|official|audio|video|hd|hq|4k)[^\]]*]""" +
                 """|\b(?:official\s+(?:music\s+)?video|lyrics?\s+video|audio\s+officiel)\b""",
@@ -238,3 +285,8 @@ class LibraryRepairRepository @Inject constructor(
         )
     }
 }
+
+/** Même valeur de tag, à la casse et à la forme Unicode près. */
+private fun String.sameTag(other: String): Boolean =
+    Normalizer.normalize(trim(), Normalizer.Form.NFC)
+        .equals(Normalizer.normalize(other.trim(), Normalizer.Form.NFC), ignoreCase = true)
