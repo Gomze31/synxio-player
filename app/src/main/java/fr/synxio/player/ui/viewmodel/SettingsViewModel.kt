@@ -140,6 +140,9 @@ class SettingsViewModel @Inject constructor(
     fun setResumeOnHeadsetConnect(value: Boolean) =
         update { settings.setResumeOnHeadsetConnect(value) }
 
+    /** Double et triple appui sur la télécommande du casque */
+    fun setHeadsetMultiClick(value: Boolean) = update { settings.setHeadsetMultiClick(value) }
+
     /** Arrêter après inactivité (en minutes, 0 = désactivé) */
     fun setStopAfterInactivity(value: Int) = update { settings.setStopAfterInactivity(value) }
 

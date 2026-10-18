@@ -4,6 +4,7 @@ import android.net.Uri
 import android.os.Bundle
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import fr.synxio.player.data.model.RadioStation
 import fr.synxio.player.data.model.Song
 
 const val EXTRA_PATH = "fr.synxio.player.PATH"
@@ -46,12 +47,15 @@ fun Song.toMediaItem(): MediaItem {
         .setTitle(title.cleanTitle())
         .setArtist(displayArtist.cleanTitle())
         .setAlbumTitle(displayAlbum)
+        .setSubtitle(displayArtist.cleanTitle())
         .setAlbumArtist(albumArtist?.cleanTitle() ?: displayArtist.cleanTitle())
         .setGenre(genre)
         .setTrackNumber(track.takeIf { it > 0 })
         .setDiscNumber(disc.takeIf { it > 0 })
         .setRecordingYear(year.takeIf { it > 0 })
-        .setArtworkUri(artworkUri)
+        // Adresse lisible par Android Auto, l'écran de verrouillage et les casques : les
+        // pochettes privées de la cascade sont des fichiers qu'eux ne peuvent pas ouvrir.
+        .setArtworkUri(ArtworkProvider.publicUri(artworkUri))
         .setDurationMs(durationMs)
         .setIsBrowsable(false)
         .setIsPlayable(true)
@@ -73,6 +77,31 @@ fun Song.toMediaItem(): MediaItem {
 }
 
 fun List<Song>.toMediaItems(): List<MediaItem> = map { it.toMediaItem() }
+
+/** Identifiant de lecteur d'une webradio : négatif, pour ne jamais croiser un id MediaStore. */
+val RadioStation.playerId: Long
+    get() = -(stationUuid.hashCode().toLong() and 0x7FFFFFFF)
+
+/** Webradio jouable : même forme depuis l'app et depuis Android Auto. */
+fun RadioStation.toMediaItem(): MediaItem {
+    val metadata = MediaMetadata.Builder()
+        .setTitle(name)
+        .setArtist(tags.ifBlank { country })
+        .setSubtitle(tags.split(',').firstOrNull { it.isNotBlank() }?.trim() ?: country)
+        .setAlbumTitle("Webradio")
+        .setStation(name)
+        .setArtworkUri(if (favicon.isNotBlank()) Uri.parse(favicon) else null)
+        .setIsBrowsable(false)
+        .setIsPlayable(true)
+        .setMediaType(MediaMetadata.MEDIA_TYPE_RADIO_STATION)
+        .build()
+
+    return MediaItem.Builder()
+        .setMediaId(playerId.toString())
+        .setUri(urlResolved.ifBlank { url })
+        .setMediaMetadata(metadata)
+        .build()
+}
 
 val MediaItem.songId: Long
     get() = mediaId.toLongOrNull() ?: -1L

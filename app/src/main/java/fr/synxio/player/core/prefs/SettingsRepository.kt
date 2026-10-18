@@ -52,6 +52,8 @@ data class Settings(
     val playbackPitch: Float = 1f,
     val audioFocusPause: Boolean = true,
     val resumeOnHeadsetConnect: Boolean = false,
+    /** Double appui sur le bouton du casque : titre suivant ; triple : précédent. */
+    val headsetMultiClick: Boolean = true,
     val rememberQueue: Boolean = true,
     
     // Nouvelle option : reprendre après un appel
@@ -194,6 +196,7 @@ class SettingsRepository @Inject constructor(
         val PITCH = floatPreferencesKey("pitch")
         val AUDIO_FOCUS_PAUSE = booleanPreferencesKey("audio_focus_pause")
         val RESUME_ON_HEADSET = booleanPreferencesKey("resume_on_headset")
+        val HEADSET_MULTI_CLICK = booleanPreferencesKey("headset_multi_click")
         val REMEMBER_QUEUE = booleanPreferencesKey("remember_queue")
         
         // Nouvelle option : reprendre après un appel
@@ -302,6 +305,7 @@ class SettingsRepository @Inject constructor(
                 playbackPitch = p[Keys.PITCH] ?: 1f,
                 audioFocusPause = p[Keys.AUDIO_FOCUS_PAUSE] ?: true,
                 resumeOnHeadsetConnect = p[Keys.RESUME_ON_HEADSET] ?: false,
+                headsetMultiClick = p[Keys.HEADSET_MULTI_CLICK] ?: true,
                 rememberQueue = p[Keys.REMEMBER_QUEUE] ?: true,
                 
                 // Nouvelle option : reprendre après un appel
@@ -405,6 +409,7 @@ class SettingsRepository @Inject constructor(
     suspend fun setPitch(value: Float) = put(Keys.PITCH, value)
     suspend fun setAudioFocusPause(value: Boolean) = put(Keys.AUDIO_FOCUS_PAUSE, value)
     suspend fun setResumeOnHeadsetConnect(value: Boolean) = put(Keys.RESUME_ON_HEADSET, value)
+    suspend fun setHeadsetMultiClick(value: Boolean) = put(Keys.HEADSET_MULTI_CLICK, value)
     suspend fun setRememberQueue(value: Boolean) = put(Keys.REMEMBER_QUEUE, value)
 
     suspend fun setMinDurationSec(value: Int) = put(Keys.MIN_DURATION, value)

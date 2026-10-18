@@ -39,6 +39,9 @@ class RadioRepository @Inject constructor(
     private val _favoriteStations = MutableStateFlow<List<RadioStation>>(loadFavoritesFromPrefs())
     val favoriteStations: Flow<List<RadioStation>> = _favoriteStations.asStateFlow()
 
+    /** Favoris à l'instant présent, pour les appelants hors coroutine (Android Auto). */
+    val favoriteStationsNow: List<RadioStation> get() = _favoriteStations.value
+
     private fun loadFavoritesFromPrefs(): List<RadioStation> {
         val raw = prefs.getString("favorite_stations_json", null) ?: return emptyList()
         return runCatching { json.decodeFromString<List<RadioStation>>(raw) }.getOrDefault(emptyList())

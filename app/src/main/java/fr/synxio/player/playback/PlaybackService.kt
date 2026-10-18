@@ -6,7 +6,12 @@ import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
+import android.provider.MediaStore
+import android.view.KeyEvent
+import androidx.core.content.IntentCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -55,6 +60,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
@@ -184,6 +190,17 @@ class PlaybackService : MediaLibraryService() {
     private var queueRestored = false
     private var headsetCallback: AudioDeviceCallback? = null
 
+    /** Gestes des boutons de casque (double, triple appui, appui long). */
+    private val mediaButtons = MediaButtonInterpreter()
+    private val buttonHandler = Handler(Looper.getMainLooper())
+    private val resolveButtons = Runnable {
+        mediaButtons.onTimeout(SystemClock.uptimeMillis())?.let(::runButtonCommand)
+    }
+
+    /** Dossiers que les navigateurs (Android Auto) affichent, à prévenir quand ils changent. */
+    private val subscribedParents = HashSet<String>()
+    private var lastSearch: Pair<String, List<MediaItem>>? = null
+
     private var sensorManager: android.hardware.SensorManager? = null
     private var shakeDetector: fr.synxio.player.core.util.ShakeDetector? = null
 
@@ -244,7 +261,7 @@ class PlaybackService : MediaLibraryService() {
 
         session = MediaLibrarySession.Builder(this, player, LibrarySessionCallback())
             .setSessionActivity(sessionActivityIntent())
-            .setCustomLayout(ImmutableList.of(favoriteButton(false)))
+            .setCustomLayout(customLayout(LayoutState(favorite = null, shuffle = false, repeatMode = Player.REPEAT_MODE_OFF)))
             .build()
 
         sleepTimer.setCallback(sleepTimerCallback)
@@ -252,6 +269,7 @@ class PlaybackService : MediaLibraryService() {
         observeSettings()
         observeLibraryForQueueRestore()
         observeFavoriteForCustomLayout()
+        observeBrowseChanges()
 
         serviceScope.launch {
             sleepTimer.state.collect { state ->
@@ -389,6 +407,7 @@ class PlaybackService : MediaLibraryService() {
             }
         }
         headsetCallback = null
+        buttonHandler.removeCallbacksAndMessages(null)
         fade.release()
         sleepTimer.cancel()
         sensorManager?.unregisterListener(shakeDetector)
@@ -449,6 +468,7 @@ class PlaybackService : MediaLibraryService() {
 
                 if (previous != null && previous.themeMode != s.themeMode) refreshWidgetSoon()
                 vocalRemover.setEnabled(s.karaokeEnabled)
+                mediaButtons.gesturesEnabled = s.headsetMultiClick
                 fade.volumeCap = if (s.maxVolumeLimit) s.maxVolumeValue else 1f
 
                 if (s.partyEnabled && partyServer == null) {
@@ -473,23 +493,53 @@ class PlaybackService : MediaLibraryService() {
     private fun observeFavoriteForCustomLayout() {
         musicRepository.favoriteIds
             .onEach {
-                refreshFavoriteButton(it)
+                refreshCustomLayout(it)
                 refreshWidgetSoon()
             }
             .launchIn(serviceScope)
     }
 
-    private var favoriteButtonState: Boolean? = null
+    /**
+     * Prévient les navigateurs abonnés (Android Auto) quand la bibliothèque, les playlists,
+     * les favoris ou les radios changent : sans cela, l'écran de la voiture restait sur
+     * « bibliothèque en cours de chargement » jusqu'à ce qu'on y revienne.
+     */
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
+    private fun observeBrowseChanges() {
+        libraryTree.changes
+            .debounce(BROWSE_NOTIFY_DEBOUNCE_MS)
+            .onEach {
+                lastSearch = null
+                if (subscribedParents.isEmpty()) return@onEach
+                for (parentId in subscribedParents.toList()) {
+                    val count = runCatching { libraryTree.tree.children(parentId).size }.getOrDefault(0)
+                    session.notifyChildrenChanged(parentId, count, null)
+                }
+            }
+            .launchIn(serviceScope)
+    }
+
+    /** État des boutons personnalisés : favori (null hors bibliothèque), aléatoire, répétition. */
+    private data class LayoutState(val favorite: Boolean?, val shuffle: Boolean, val repeatMode: Int)
+
+    private var layoutState: LayoutState? = null
 
     /**
-     * Recalculé aussi à chaque changement de piste : n'écouter que les favoris laissait
-     * le cœur de la notification dans l'état du morceau précédent.
+     * Recalculé à chaque changement de piste, de favoris, d'aléatoire et de répétition :
+     * n'écouter que les favoris laissait le cœur de la notification et de la voiture dans
+     * l'état du morceau précédent.
      */
-    private fun refreshFavoriteButton(favorites: Set<Long> = musicRepository.favoriteIds.value) {
-        val isFavorite = activePlayer.currentMediaItem?.songId?.let { it in favorites } ?: false
-        if (favoriteButtonState == isFavorite) return
-        favoriteButtonState = isFavorite
-        session.setCustomLayout(ImmutableList.of(favoriteButton(isFavorite)))
+    private fun refreshCustomLayout(favorites: Set<Long> = musicRepository.favoriteIds.value) {
+        val p = activePlayer
+        val songId = p.currentMediaItem?.songId?.takeIf { it >= 0 }
+        val state = LayoutState(
+            favorite = songId?.let { it in favorites },
+            shuffle = p.shuffleModeEnabled,
+            repeatMode = p.repeatMode,
+        )
+        if (layoutState == state) return
+        layoutState = state
+        session.setCustomLayout(customLayout(state))
     }
 
     private suspend fun restoreQueueOnce() {
@@ -873,7 +923,7 @@ class PlaybackService : MediaLibraryService() {
             fade.resetVolume()
             persistQueue()
             updatePartyServerState()
-            refreshFavoriteButton()
+            refreshCustomLayout()
         }
 
         override fun onTimelineChanged(timeline: Timeline, reason: Int) {
@@ -886,10 +936,12 @@ class PlaybackService : MediaLibraryService() {
         override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
             if (shuffleModeEnabled) anchorShuffleOrderOnCurrent()
             persistQueue()
+            refreshCustomLayout()
         }
 
         override fun onRepeatModeChanged(repeatMode: Int) {
             persistQueue()
+            refreshCustomLayout()
         }
 
         /** Titre ICY d'une webradio, pochette chargée tard : le widget suit. */
@@ -1096,7 +1148,7 @@ class PlaybackService : MediaLibraryService() {
             override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) {
                 val headset = addedDevices.orEmpty()
                     .filterNot { alreadyConnected.remove(it.id) }
-                    .firstOrNull { it.type in HEADSET_TYPES }
+                    .firstOrNull { it.type in AudioOutputs.HEADSET_TYPES }
                     ?: return
 
                 // Chaque casque peut avoir sa propre correction : on l'applique dès
@@ -1104,14 +1156,14 @@ class PlaybackService : MediaLibraryService() {
                 applyProfileForDevice(headset.productName?.toString().orEmpty())
 
                 serviceScope.launch {
-                    if (!settingsRepository.settings.first().resumeOnHeadsetConnect) return@launch
-                    if (activePlayer.mediaItemCount == 0 || activePlayer.playWhenReady) return@launch
+                    val enabled = settingsRepository.settings.first().resumeOnHeadsetConnect
+                    if (!shouldResumeOnHeadset(enabled)) return@launch
 
                     // Court délai : la route audio n'est pas encore basculée sur le
                     // casque à l'instant où le périphérique est signalé.
                     delay(600)
                     // L'utilisateur a pu lancer la lecture pendant ce délai.
-                    if (activePlayer.playWhenReady || activePlayer.mediaItemCount == 0) return@launch
+                    if (!shouldResumeOnHeadset(enabled)) return@launch
                     if (activePlayer.playbackState == Player.STATE_IDLE) activePlayer.prepare()
                     activePlayer.play()
                 }
@@ -1120,6 +1172,17 @@ class PlaybackService : MediaLibraryService() {
 
         runCatching { audioManager.registerAudioDeviceCallback(headsetCallback, null) }
             .onFailure { headsetCallback = null }
+    }
+
+    /** Reprise au branchement : pas pendant un appel, ni par-dessus une lecture en cours. */
+    private fun shouldResumeOnHeadset(enabled: Boolean): Boolean {
+        val mode = getSystemService(AudioManager::class.java)?.mode ?: AudioManager.MODE_NORMAL
+        return AudioOutputs.shouldResumeOnConnect(
+            enabled = enabled,
+            hasQueue = activePlayer.mediaItemCount > 0,
+            playWhenReady = activePlayer.playWhenReady,
+            inCall = mode != AudioManager.MODE_NORMAL,
+        )
     }
 
     /** Applique la courbe mémorisée pour ce périphérique, s'il y en a une. */
@@ -1205,14 +1268,20 @@ class PlaybackService : MediaLibraryService() {
             controller: MediaSession.ControllerInfo,
         ): MediaSession.ConnectionResult {
             // Les commandes maison (favori, minuterie) ne sont offertes qu'à l'app elle-même
-            // et aux contrôleurs de confiance (notification, système). Le service est
-            // exporté : n'importe quelle app installée pouvait sinon modifier les favoris.
-            val trusted = controller.packageName == packageName || controller.isTrusted
+            // et aux contrôleurs de confiance (notification, système, Android Auto). Le
+            // service est exporté : n'importe quelle app installée pouvait sinon modifier
+            // les favoris.
+            val trusted = controller.packageName == packageName || controller.isTrusted ||
+                session.isMediaNotificationController(controller) ||
+                session.isAutoCompanionController(controller) ||
+                session.isAutomotiveController(controller)
             val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS
                 .buildUpon()
                 .apply {
                     if (trusted) {
                         add(SessionCommand(CMD_TOGGLE_FAVORITE, Bundle.EMPTY))
+                        add(SessionCommand(CMD_TOGGLE_SHUFFLE, Bundle.EMPTY))
+                        add(SessionCommand(CMD_CYCLE_REPEAT, Bundle.EMPTY))
                         add(SessionCommand(CMD_SLEEP_TIMER, Bundle.EMPTY))
                         add(SessionCommand(CMD_CANCEL_SLEEP_TIMER, Bundle.EMPTY))
                     }
@@ -1222,6 +1291,15 @@ class PlaybackService : MediaLibraryService() {
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(commands)
                 .build()
+        }
+
+        override fun onDisconnected(session: MediaSession, controller: MediaSession.ControllerInfo) {
+            // Plus aucun navigateur : rien à prévenir des changements de bibliothèque.
+            val browsers = session.connectedControllers.count { it.packageName != packageName }
+            if (browsers == 0) {
+                subscribedParents.clear()
+                lastSearch = null
+            }
         }
 
         override fun onCustomCommand(
@@ -1234,6 +1312,14 @@ class PlaybackService : MediaLibraryService() {
                 CMD_TOGGLE_FAVORITE -> {
                     val song = musicRepository.songById(activePlayer.currentMediaItem?.songId ?: -1L)
                     if (song != null) serviceScope.launch { musicRepository.toggleFavorite(song) }
+                }
+
+                CMD_TOGGLE_SHUFFLE -> activePlayer.shuffleModeEnabled = !activePlayer.shuffleModeEnabled
+
+                CMD_CYCLE_REPEAT -> activePlayer.repeatMode = when (activePlayer.repeatMode) {
+                    Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+                    Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+                    else -> Player.REPEAT_MODE_OFF
                 }
 
                 CMD_SLEEP_TIMER -> sleepTimer.start(
@@ -1254,8 +1340,17 @@ class PlaybackService : MediaLibraryService() {
             session: MediaLibrarySession,
             browser: MediaSession.ControllerInfo,
             params: LibraryParams?,
-        ): ListenableFuture<LibraryResult<MediaItem>> =
-            Futures.immediateFuture(LibraryResult.ofItem(libraryTree.rootItem, params))
+        ): ListenableFuture<LibraryResult<MediaItem>> {
+            // Styles par défaut de l'hôte ; la recherche est annoncée par Media3 lui-même,
+            // puisque la commande de recherche est accordée.
+            val rootParams = LibraryParams.Builder()
+                .setOffline(params?.isOffline ?: false)
+                .setRecent(params?.isRecent ?: false)
+                .setSuggested(params?.isSuggested ?: false)
+                .setExtras(libraryTree.rootExtras())
+                .build()
+            return Futures.immediateFuture(LibraryResult.ofItem(libraryTree.rootItem, rootParams))
+        }
 
         override fun onGetChildren(
             session: MediaLibrarySession,
@@ -1265,11 +1360,22 @@ class PlaybackService : MediaLibraryService() {
             pageSize: Int,
             params: LibraryParams?,
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
-            val children = libraryTree.children(parentId)
-            val paged = children.drop(page * pageSize).take(pageSize)
-            return Futures.immediateFuture(
-                LibraryResult.ofItemList(ImmutableList.copyOf(paged), params)
+            fun result() = LibraryResult.ofItemList(
+                ImmutableList.copyOf(libraryTree.children(parentId, page, pageSize.coerceAtLeast(1))),
+                params,
             )
+            // Au démarrage à froid depuis la voiture, le scan n'est pas fini : on l'attend
+            // un peu plutôt que d'afficher une bibliothèque vide.
+            if (musicRepository.library.value.hasScanned || parentId == BrowseIds.ROOT) {
+                return Futures.immediateFuture(result())
+            }
+            val future = com.google.common.util.concurrent.SettableFuture
+                .create<LibraryResult<ImmutableList<MediaItem>>>()
+            serviceScope.launch {
+                withTimeoutOrNull(CHILDREN_SCAN_WAIT_MS) { musicRepository.library.first { it.hasScanned } }
+                future.set(result())
+            }
+            return future
         }
 
         override fun onGetItem(
@@ -1284,6 +1390,54 @@ class PlaybackService : MediaLibraryService() {
             )
         }
 
+        override fun onSubscribe(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            parentId: String,
+            params: LibraryParams?,
+        ): ListenableFuture<LibraryResult<Void>> {
+            subscribedParents += parentId
+            return Futures.immediateFuture(LibraryResult.ofVoid())
+        }
+
+        override fun onUnsubscribe(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            parentId: String,
+        ): ListenableFuture<LibraryResult<Void>> {
+            subscribedParents -= parentId
+            return Futures.immediateFuture(LibraryResult.ofVoid())
+        }
+
+        /** Recherche tapée ou dictée depuis l'écran de la voiture. */
+        override fun onSearch(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            query: String,
+            params: LibraryParams?,
+        ): ListenableFuture<LibraryResult<Void>> {
+            val results = searchResults(query)
+            session.notifySearchResultChanged(browser, query, results.size, params)
+            return Futures.immediateFuture(LibraryResult.ofVoid())
+        }
+
+        override fun onGetSearchResult(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            query: String,
+            page: Int,
+            pageSize: Int,
+            params: LibraryParams?,
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+            val results = searchResults(query)
+            val size = pageSize.coerceAtLeast(1)
+            val from = (page.toLong() * size).coerceAtMost(results.size.toLong()).toInt()
+            val to = (from.toLong() + size).coerceAtMost(results.size.toLong()).toInt()
+            return Futures.immediateFuture(
+                LibraryResult.ofItemList(ImmutableList.copyOf(results.subList(from, to)), params)
+            )
+        }
+
         /**
          * Les contrôleurs (notification, Auto, Assistant) n'envoient qu'un `mediaId` :
          * on le retransforme en `MediaItem` jouable avec son URI.
@@ -1293,14 +1447,21 @@ class PlaybackService : MediaLibraryService() {
             controller: MediaSession.ControllerInfo,
             mediaItems: MutableList<MediaItem>,
         ): ListenableFuture<MutableList<MediaItem>> {
-            val resolved = mediaItems.mapNotNull { item ->
-                if (item.localConfiguration != null) item
-                else musicRepository.songById(item.songId)?.toMediaItem()
+            val resolved = mediaItems.flatMap { item ->
+                when {
+                    item.localConfiguration != null -> listOf(item)
+                    item.mediaId.startsWith(BrowseIds.RADIO_PREFIX) -> listOfNotNull(libraryTree.radioItem(item.mediaId))
+                    // Ajout à la file depuis la voiture : un titre en contexte reste un titre.
+                    else -> {
+                        val songId = BrowseIds.parseSongInContext(item.mediaId)?.second ?: item.songId
+                        listOfNotNull(musicRepository.songById(songId)?.toMediaItem())
+                    }
+                }
             }
             return Futures.immediateFuture(forActivePlayer(resolved).toMutableList())
         }
 
-        /** « Ok Google, joue du Nekfeu » depuis Android Auto. */
+        /** « Ok Google, joue du Nekfeu » et les choix faits dans l'arborescence de la voiture. */
         override fun onSetMediaItems(
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo,
@@ -1308,18 +1469,33 @@ class PlaybackService : MediaLibraryService() {
             startIndex: Int,
             startPositionMs: Long,
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
-            val query = mediaItems.firstOrNull()?.requestMetadata?.searchQuery
-            if (!query.isNullOrBlank()) {
-                val songs = libraryTree.search(query)
-                if (songs.isNotEmpty()) {
+            val first = mediaItems.firstOrNull()
+
+            // Recherche vocale : la requête peut être vide (« joue de la musique »).
+            val request = first?.requestMetadata
+            if (mediaItems.size == 1 && request?.searchQuery != null) {
+                val queue = libraryTree.resolveVoice(request.toVoiceRequest())
+                    ?: return Futures.immediateFailedFuture(UnsupportedOperationException("Aucun titre pour cette demande"))
+                return Futures.immediateFuture(queue.toStartPosition())
+            }
+
+            if (mediaItems.size == 1 && first != null && first.localConfiguration == null) {
+                val mediaId = first.mediaId
+                if (mediaId.startsWith(BrowseIds.RADIO_PREFIX)) {
+                    val radio = libraryTree.radioItem(mediaId)
+                        ?: return Futures.immediateFailedFuture(UnsupportedOperationException("Radio introuvable"))
                     return Futures.immediateFuture(
-                        MediaSession.MediaItemsWithStartPosition(forActivePlayer(songs.toMediaItems()), 0, 0L)
+                        MediaSession.MediaItemsWithStartPosition(forActivePlayer(listOf(radio)), 0, C.TIME_UNSET)
                     )
+                }
+                // Titre choisi dans un album, une playlist, une recherche, ou « lecture aléatoire ».
+                libraryTree.queueFor(mediaId)?.let { queue ->
+                    return Futures.immediateFuture(queue.toStartPosition())
                 }
             }
 
             if (mediaItems.size == 1 && controller.packageName != packageName) {
-                val songId = mediaItems.first().mediaId.toLongOrNull()
+                val songId = first?.mediaId?.toLongOrNull()
                 if (songId != null) {
                     val allSongs = musicRepository.library.value.songs
                     val index = allSongs.indexOfFirst { it.id == songId }
@@ -1334,6 +1510,28 @@ class PlaybackService : MediaLibraryService() {
             return super<MediaLibrarySession.Callback>.onSetMediaItems(
                 mediaSession, controller, mediaItems, startIndex, startPositionMs
             )
+        }
+
+        /**
+         * Boutons du casque, filaire ou Bluetooth : double et triple appui, appui long.
+         *
+         * La notification envoie ses propres touches (lecture, pause) : elles suivent le
+         * traitement par défaut, comme les touches que l'interprète ne connaît pas.
+         */
+        override fun onMediaButtonEvent(
+            session: MediaSession,
+            controllerInfo: MediaSession.ControllerInfo,
+            intent: Intent,
+        ): Boolean {
+            if (session.isMediaNotificationController(controllerInfo)) return false
+            val event = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
+                ?: return false
+            val outcome = mediaButtons.onKeyEvent(event.keyCode, event.action, event.repeatCount, SystemClock.uptimeMillis())
+            if (!outcome.handled) return false
+            if (outcome.cancelPending || outcome.resolveAt != null) buttonHandler.removeCallbacks(resolveButtons)
+            outcome.resolveAt?.let { buttonHandler.postAtTime(resolveButtons, it) }
+            outcome.command?.let(::runButtonCommand)
+            return true
         }
 
         /**
@@ -1374,11 +1572,99 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
-    private fun favoriteButton(isFavorite: Boolean) = CommandButton.Builder()
-        .setDisplayName(if (isFavorite) "Retirer des favoris" else "Ajouter aux favoris")
-        .setIconResId(if (isFavorite) R.drawable.ic_favorite else R.drawable.ic_favorite_border)
-        .setSessionCommand(SessionCommand(CMD_TOGGLE_FAVORITE, Bundle.EMPTY))
-        .build()
+    /** Résultats de recherche, gardés pour la requête en cours : l'hôte les demande page par page. */
+    private fun searchResults(query: String): List<MediaItem> {
+        lastSearch?.takeIf { it.first == query }?.let { return it.second }
+        val results = libraryTree.search(query)
+        lastSearch = query to results
+        return results
+    }
+
+    private fun BrowseQueue.toStartPosition() = MediaSession.MediaItemsWithStartPosition(
+        forActivePlayer(songs.toMediaItems()),
+        startIndex.coerceIn(0, (songs.size - 1).coerceAtLeast(0)),
+        0L,
+    )
+
+    /** Précisions de l'Assistant (`MediaStore.EXTRA_MEDIA_*`) jointes à la requête vocale. */
+    private fun MediaItem.RequestMetadata.toVoiceRequest(): VoiceRequest {
+        val extras = extras
+        return VoiceRequest(
+            query = searchQuery.orEmpty(),
+            focus = extras?.getString(MediaStore.EXTRA_MEDIA_FOCUS),
+            artist = extras?.getString(MediaStore.EXTRA_MEDIA_ARTIST),
+            album = extras?.getString(MediaStore.EXTRA_MEDIA_ALBUM),
+            title = extras?.getString(MediaStore.EXTRA_MEDIA_TITLE),
+            genre = extras?.getString(MediaStore.EXTRA_MEDIA_GENRE),
+            // MediaStore.EXTRA_MEDIA_PLAYLIST, dépréciée mais toujours envoyée par l'Assistant.
+            playlist = extras?.getString("android.intent.extra.playlist"),
+        )
+    }
+
+    /** Exécute un geste de casque tranché par [MediaButtonInterpreter]. */
+    private fun runButtonCommand(command: MediaButtonInterpreter.Command) {
+        val p = activePlayer
+        when (command) {
+            MediaButtonInterpreter.Command.PlayPause -> {
+                if (p.mediaItemCount == 0) resumeSavedQueueAndPlay()
+                else Util.handlePlayPauseButtonAction(p)
+            }
+            MediaButtonInterpreter.Command.Next -> if (p.mediaItemCount > 0) p.seekToNext()
+            MediaButtonInterpreter.Command.Previous -> if (p.mediaItemCount > 0) p.seekToPrevious()
+            is MediaButtonInterpreter.Command.SeekBy -> {
+                if (!p.isCurrentMediaItemSeekable) return
+                val duration = p.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: Long.MAX_VALUE
+                p.seekTo((p.currentPosition + command.deltaMs).coerceIn(0L, duration))
+            }
+        }
+    }
+
+    /** Appui sur lecture alors que rien n'est chargé : on reprend la file sauvegardée. */
+    private fun resumeSavedQueueAndPlay() {
+        serviceScope.launch {
+            if (activePlayer.mediaItemCount == 0) restoreQueueOnce()
+            val p = activePlayer
+            if (p.mediaItemCount == 0) return@launch
+            if (p.playbackState == Player.STATE_IDLE) p.prepare()
+            p.play()
+        }
+    }
+
+    /**
+     * Boutons personnalisés de la notification, de l'écran de verrouillage et d'Android
+     * Auto : favori (titres de la bibliothèque seulement), aléatoire, répétition.
+     */
+    private fun customLayout(state: LayoutState): ImmutableList<CommandButton> {
+        val buttons = ImmutableList.builder<CommandButton>()
+        state.favorite?.let { buttons.add(favoriteButton(it)) }
+        buttons.add(
+            CommandButton.Builder(if (state.shuffle) CommandButton.ICON_SHUFFLE_ON else CommandButton.ICON_SHUFFLE_OFF)
+                .setDisplayName(if (state.shuffle) "Désactiver la lecture aléatoire" else "Lecture aléatoire")
+                .setCustomIconResId(if (state.shuffle) R.drawable.ic_widget_shuffle else R.drawable.ic_action_shuffle_off)
+                .setSessionCommand(SessionCommand(CMD_TOGGLE_SHUFFLE, Bundle.EMPTY))
+                .build()
+        )
+        val (repeatIcon, repeatRes, repeatLabel) = when (state.repeatMode) {
+            Player.REPEAT_MODE_ALL -> Triple(CommandButton.ICON_REPEAT_ALL, R.drawable.ic_widget_repeat, "Répéter le titre")
+            Player.REPEAT_MODE_ONE -> Triple(CommandButton.ICON_REPEAT_ONE, R.drawable.ic_widget_repeat_one, "Désactiver la répétition")
+            else -> Triple(CommandButton.ICON_REPEAT_OFF, R.drawable.ic_action_repeat_off, "Tout répéter")
+        }
+        buttons.add(
+            CommandButton.Builder(repeatIcon)
+                .setDisplayName(repeatLabel)
+                .setCustomIconResId(repeatRes)
+                .setSessionCommand(SessionCommand(CMD_CYCLE_REPEAT, Bundle.EMPTY))
+                .build()
+        )
+        return buttons.build()
+    }
+
+    private fun favoriteButton(isFavorite: Boolean) =
+        CommandButton.Builder(if (isFavorite) CommandButton.ICON_HEART_FILLED else CommandButton.ICON_HEART_UNFILLED)
+            .setDisplayName(if (isFavorite) "Retirer des favoris" else "Ajouter aux favoris")
+            .setCustomIconResId(if (isFavorite) R.drawable.ic_favorite else R.drawable.ic_favorite_border)
+            .setSessionCommand(SessionCommand(CMD_TOGGLE_FAVORITE, Bundle.EMPTY))
+            .build()
 
     private fun sessionActivityIntent(): PendingIntent = PendingIntent.getActivity(
         this,
@@ -1394,6 +1680,8 @@ class PlaybackService : MediaLibraryService() {
         const val CMD_TOGGLE_FAVORITE = "fr.synxio.player.TOGGLE_FAVORITE"
         const val CMD_SLEEP_TIMER = "fr.synxio.player.SLEEP_TIMER"
         const val CMD_CANCEL_SLEEP_TIMER = "fr.synxio.player.CANCEL_SLEEP_TIMER"
+        const val CMD_TOGGLE_SHUFFLE = "fr.synxio.player.TOGGLE_SHUFFLE"
+        const val CMD_CYCLE_REPEAT = "fr.synxio.player.CYCLE_REPEAT"
         const val ARG_DURATION_MS = "duration_ms"
         const val ARG_FINISH_TRACK = "finish_track"
 
@@ -1415,14 +1703,7 @@ class PlaybackService : MediaLibraryService() {
         private const val PERSIST_DEBOUNCE_MS = 500L
         private const val FINAL_WRITE_TIMEOUT_MS = 1_500L
         private const val AUTO_REWIND_MIN_PAUSE_MS = 5_000L
-
-        /** Sorties considérées comme « un casque » pour la reprise automatique. */
-        private val HEADSET_TYPES = setOf(
-            AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
-            AudioDeviceInfo.TYPE_WIRED_HEADSET,
-            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
-            AudioDeviceInfo.TYPE_USB_HEADSET,
-            AudioDeviceInfo.TYPE_BLE_HEADSET,
-        )
+        private const val BROWSE_NOTIFY_DEBOUNCE_MS = 1_500L
+        private const val CHILDREN_SCAN_WAIT_MS = 4_000L
     }
 }

@@ -72,6 +72,7 @@ class AppViewModel @Inject constructor(
     private val radioRepository: fr.synxio.player.data.repo.RadioRepository,
     private val moodRadioRepository: fr.synxio.player.data.repo.MoodRadioRepository,
     private val equalizerController: fr.synxio.player.playback.EqualizerController,
+    audioOutputMonitor: fr.synxio.player.playback.AudioOutputMonitor,
     smartPlaylistRepository: SmartPlaylistRepository,
 ) : ViewModel() {
 
@@ -95,6 +96,13 @@ class AppViewModel @Inject constructor(
 
     val favoriteRadios: StateFlow<List<fr.synxio.player.data.model.RadioStation>> = radioRepository.favoriteStations
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * Sortie audio active (casque, Bluetooth, voiture). Le rappel système n'est inscrit
+     * que pendant que le lecteur l'affiche.
+     */
+    val audioOutput: StateFlow<fr.synxio.player.playback.AudioOutput> = audioOutputMonitor.output
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), fr.synxio.player.playback.AudioOutput.Speaker)
 
     fun toggleRadioFavorite(station: fr.synxio.player.data.model.RadioStation) {
         radioRepository.toggleFavorite(station)

@@ -1,6 +1,9 @@
 package fr.synxio.player.ui.screens.nowplaying
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseInOut
@@ -33,12 +36,14 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
@@ -46,6 +51,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Bedtime
+import androidx.compose.material.icons.rounded.BluetoothAudio
+import androidx.compose.material.icons.rounded.DirectionsCar
+import androidx.compose.material.icons.rounded.Headphones
+import androidx.compose.material.icons.rounded.Hearing
+import androidx.compose.material.icons.rounded.Speaker
+import androidx.compose.material.icons.rounded.Tv
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Lyrics
@@ -80,6 +91,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
@@ -98,6 +110,9 @@ import fr.synxio.player.core.util.asDuration
 import fr.synxio.player.data.model.NowPlayingSkin
 import fr.synxio.player.data.model.RepeatMode
 import fr.synxio.player.data.model.Song
+import fr.synxio.player.playback.AudioOutput
+import fr.synxio.player.playback.AudioOutputKind
+import fr.synxio.player.playback.openSystemOutputSwitcher
 import fr.synxio.player.ui.components.Artwork
 import fr.synxio.player.ui.components.AudioVisualizer
 import fr.synxio.player.ui.components.BrandPlayButton
@@ -152,6 +167,7 @@ fun NowPlayingScreen(
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val favorites by viewModel.favoriteIds.collectAsStateWithLifecycle()
     val sleepTimer by viewModel.sleepTimerState.collectAsStateWithLifecycle()
+    val audioOutput by viewModel.audioOutput.collectAsStateWithLifecycle()
 
     val lyricsViewModel: LyricsViewModel = hiltViewModel()
     val lyricsState by lyricsViewModel.state.collectAsStateWithLifecycle()
@@ -415,6 +431,8 @@ fun NowPlayingScreen(
                     onSleepTimer = { showSleepTimer = true },
                     onEqualizer = onOpenEqualizer,
                 )
+
+                AudioOutputPill(output = audioOutput)
             }
         }
     }
@@ -622,6 +640,70 @@ private fun ActionBar(
         )
         ActionChip(Icons.Rounded.GraphicEq, "Égaliseur", active = false, onClick = onEqualizer)
     }
+}
+
+/**
+ * Sortie audio active, sous la barre d'actions : n'apparaît que lorsque la musique part
+ * ailleurs que dans le haut-parleur (casque, Bluetooth, voiture). Un toucher ouvre le
+ * sélecteur de sortie du système.
+ */
+@Composable
+private fun AudioOutputPill(output: AudioOutput) {
+    val reduce = LocalReduceMotion.current
+    val context = LocalContext.current
+    val scheme = MaterialTheme.colorScheme
+    // Pendant la sortie, la pastille garde le dernier appareil au lieu de se vider.
+    var shown by remember { mutableStateOf(output) }
+    if (output.isExternal) shown = output
+
+    AnimatedVisibility(
+        visible = output.isExternal,
+        enter = if (reduce) fadeIn(Motion.enter(Motion.SHORT))
+        else fadeIn(Motion.enter()) + expandVertically(Motion.spatial(), expandFrom = Alignment.Top),
+        exit = if (reduce) fadeOut(Motion.exit())
+        else fadeOut(Motion.exit()) + shrinkVertically(Motion.exit(), shrinkTowards = Alignment.Top),
+    ) {
+        Box(Modifier.fillMaxWidth().padding(top = Space.sm), contentAlignment = Alignment.Center) {
+            Row(
+                modifier = Modifier
+                    .pressBounce(0.95f)
+                    .heightIn(min = 32.dp)
+                    .clip(SynxioShape.pill)
+                    .glass(SynxioShape.pill, strength = 0.45f)
+                    .clickable(role = Role.Button, onClickLabel = "Changer de sortie audio") {
+                        openSystemOutputSwitcher(context)
+                    }
+                    .semantics(mergeDescendants = true) { contentDescription = "Lecture sur ${shown.name}" }
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Icon(
+                    imageVector = shown.kind.icon(),
+                    contentDescription = null,
+                    tint = scheme.primary,
+                    modifier = Modifier.size(16.dp),
+                )
+                Text(
+                    text = shown.name,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = scheme.onSurface.copy(alpha = 0.86f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 220.dp),
+                )
+            }
+        }
+    }
+}
+
+private fun AudioOutputKind.icon(): ImageVector = when (this) {
+    AudioOutputKind.BLUETOOTH -> Icons.Rounded.BluetoothAudio
+    AudioOutputKind.CAR -> Icons.Rounded.DirectionsCar
+    AudioOutputKind.WIRED, AudioOutputKind.USB -> Icons.Rounded.Headphones
+    AudioOutputKind.HEARING_AID -> Icons.Rounded.Hearing
+    AudioOutputKind.HDMI -> Icons.Rounded.Tv
+    AudioOutputKind.SPEAKER, AudioOutputKind.OTHER -> Icons.Rounded.Speaker
 }
 
 @Composable

@@ -434,23 +434,7 @@ class PlayerConnection @Inject constructor(
     fun playRadio(station: fr.synxio.player.data.model.RadioStation) {
         whenConnected {
             val c = controller ?: return@whenConnected
-            val id = -(station.stationUuid.hashCode().toLong() and 0x7FFFFFFF)
-
-            val metadata = androidx.media3.common.MediaMetadata.Builder()
-                .setTitle(station.name)
-                .setArtist(station.tags.ifBlank { station.country })
-                .setAlbumTitle("Webradio")
-                .setArtworkUri(if (station.favicon.isNotBlank()) android.net.Uri.parse(station.favicon) else null)
-                .setIsPlayable(true)
-                .build()
-
-            val mediaItem = MediaItem.Builder()
-                .setMediaId(id.toString())
-                .setUri(station.urlResolved)
-                .setMediaMetadata(metadata)
-                .build()
-
-            c.setMediaItem(mediaItem)
+            c.setMediaItem(station.toMediaItem())
             c.prepare()
             c.play()
         }

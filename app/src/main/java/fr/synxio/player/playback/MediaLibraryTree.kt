@@ -1,124 +1,234 @@
 package fr.synxio.player.playback
 
+import android.Manifest
+import android.content.ContentResolver
+import android.content.Context
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
-import fr.synxio.player.core.util.fuzzyScore
+import androidx.media3.session.MediaConstants
+import dagger.hilt.android.qualifiers.ApplicationContext
+import fr.synxio.player.R
+import fr.synxio.player.data.model.Album
+import fr.synxio.player.data.model.Artist
+import fr.synxio.player.data.model.Genre
+import fr.synxio.player.data.model.Playlist
+import fr.synxio.player.data.model.RadioStation
 import fr.synxio.player.data.model.Song
 import fr.synxio.player.data.repo.MusicRepository
 import fr.synxio.player.data.repo.PlaylistRepository
+import fr.synxio.player.data.repo.RadioRepository
+import fr.synxio.player.data.repo.SearchResults
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Arborescence exposée aux clients `MediaBrowser` : Android Auto, Assistant,
- * Wear OS et notre propre widget.
+ * Arborescence exposée aux clients `MediaBrowser` : Android Auto, Assistant, Wear OS.
+ *
+ * La structure vit dans [BrowseTree], sans Android, pour être testée ; ici on la branche
+ * sur les dépôts et on la traduit en `MediaItem` : styles de grille ou de liste, icônes de
+ * catégorie, pochettes lisibles par l'hôte.
  */
 @Singleton
 class MediaLibraryTree @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val music: MusicRepository,
     private val playlists: PlaylistRepository,
+    private val radios: RadioRepository,
 ) {
 
-    val rootItem: MediaItem = browsableItem(
-        id = ROOT,
-        title = "Synxio",
-        mediaType = MediaMetadata.MEDIA_TYPE_FOLDER_MIXED,
-    )
-
-    fun children(parentId: String): List<MediaItem> = when {
-        parentId == ROOT -> rootCategories()
-        parentId == CAT_SONGS -> music.library.value.songs.toMediaItems()
-        parentId == CAT_FAVORITES -> music.favoriteSongs.value.toMediaItems()
-        parentId == CAT_RECENT -> music.recentlyAdded.value.toMediaItems()
-        parentId == CAT_MOST_PLAYED -> music.mostPlayed.value.take(50).toMediaItems()
-        parentId == CAT_SHUFFLE -> music.library.value.songs.shuffled().take(100).toMediaItems()
-
-        parentId == CAT_ALBUMS -> music.library.value.albums
-            .sortedBy { it.title.lowercase() }
-            .map { browsableItem("$ALBUM_PREFIX${it.id}", it.title, it.artist, it.artworkUri, MediaMetadata.MEDIA_TYPE_ALBUM) }
-
-        parentId == CAT_ARTISTS -> music.library.value.artists
-            .sortedBy { it.name.lowercase() }
-            .map { browsableItem("$ARTIST_PREFIX${it.name}", it.name, "${it.albumCount} albums", it.artworkUri, MediaMetadata.MEDIA_TYPE_ARTIST) }
-
-        parentId == CAT_GENRES -> music.library.value.genres
-            .map { browsableItem("$GENRE_PREFIX${it.name}", it.name, "${it.songCount} titres", it.artworkUris.firstOrNull()) }
-
-        parentId == CAT_PLAYLISTS -> playlists.playlists.value
-            .map { browsableItem("$PLAYLIST_PREFIX${it.id}", it.name, "${it.songCount} titres", it.artworkUris.firstOrNull(), MediaMetadata.MEDIA_TYPE_PLAYLIST) }
-
-        parentId.startsWith(ALBUM_PREFIX) ->
-            music.albumById(parentId.removePrefix(ALBUM_PREFIX).toLongOrNull() ?: -1)
-                ?.songs.orEmpty().toMediaItems()
-
-        parentId.startsWith(ARTIST_PREFIX) ->
-            music.artistByName(parentId.removePrefix(ARTIST_PREFIX))?.songs.orEmpty().toMediaItems()
-
-        parentId.startsWith(GENRE_PREFIX) ->
-            music.genreByName(parentId.removePrefix(GENRE_PREFIX))?.songs.orEmpty().toMediaItems()
-
-        parentId.startsWith(PLAYLIST_PREFIX) ->
-            playlists.playlists.value
-                .firstOrNull { it.id.toString() == parentId.removePrefix(PLAYLIST_PREFIX) }
-                ?.songs.orEmpty().toMediaItems()
-
-        else -> emptyList()
+    private val source = object : BrowseSource {
+        override val hasPermission: Boolean get() = hasAudioPermission()
+        override val hasScanned: Boolean get() = music.library.value.hasScanned
+        override val songs: List<Song> get() = music.library.value.songs
+        override val albums: List<Album> get() = music.library.value.albums
+        override val artists: List<Artist> get() = music.library.value.artists
+        override val genres: List<Genre> get() = music.library.value.genres
+        override val playlists: List<Playlist> get() = this@MediaLibraryTree.playlists.playlists.value
+        override val favorites: List<Song> get() = music.favoriteSongs.value
+        override val recentlyPlayed: List<Song> get() = music.recentlyPlayed.value
+        override val mostPlayed: List<Song> get() = music.mostPlayed.value
+        override val recentlyAdded: List<Song> get() = music.recentlyAdded.value
+        override val radios: List<RadioStation> get() = this@MediaLibraryTree.radios.favoriteStationsNow
+        override fun search(query: String, limitPerSection: Int): SearchResults = music.search(query, limitPerSection)
     }
 
-    fun itemById(mediaId: String): MediaItem? = when {
-        mediaId == ROOT -> rootItem
-        mediaId.toLongOrNull() != null -> music.songById(mediaId.toLong())?.toMediaItem()
-        else -> rootCategories().firstOrNull { it.mediaId == mediaId }
-    }
+    val tree = BrowseTree(source)
 
     /**
-     * Résout « Joue les Daft Punk » : on cherche d'abord un artiste, puis un album,
-     * puis on retombe sur les titres.
+     * Signale que ce que voit la voiture a changé : scan terminé, playlist ou favori
+     * modifié, radio ajoutée. Le service relaie aux navigateurs abonnés.
      */
-    fun search(query: String): List<Song> {
-        if (query.isBlank()) return music.library.value.songs.shuffled()
+    val changes: Flow<Unit> = merge(
+        music.library.map { it.hasScanned to it.songs }
+            .distinctUntilChanged { a, b -> a.first == b.first && a.second === b.second },
+        playlists.playlists,
+        music.favoriteIds,
+        music.recentlyPlayed,
+        radios.favoriteStations,
+    ).map { }
 
-        val artist = music.library.value.artists
-            .maxByOrNull { fuzzyScore(it.name, query) }
-            ?.takeIf { fuzzyScore(it.name, query) >= 400 }
-        if (artist != null) return artist.songs
+    val rootItem: MediaItem
+        get() = MediaItem.Builder()
+            .setMediaId(BrowseIds.ROOT)
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle("Synxio")
+                    .setIsBrowsable(true)
+                    .setIsPlayable(false)
+                    .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
+                    .build()
+            )
+            .build()
 
-        val album = music.library.value.albums
-            .maxByOrNull { fuzzyScore(it.title, query) }
-            ?.takeIf { fuzzyScore(it.title, query) >= 400 }
-        if (album != null) return album.songs
-
-        val results = music.search(query, limitPerSection = 50)
-        return results.songs.ifEmpty { results.albums.flatMap { it.songs } }
+    /** Styles par défaut de l'hôte, transmis avec la racine. */
+    fun rootExtras(): Bundle = Bundle().apply {
+        putInt(MediaConstants.EXTRAS_KEY_CONTENT_STYLE_BROWSABLE, MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM)
+        putInt(MediaConstants.EXTRAS_KEY_CONTENT_STYLE_PLAYABLE, MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM)
     }
 
-    private fun rootCategories(): List<MediaItem> = listOf(
-        browsableItem(CAT_SONGS, "Tous les titres"),
-        browsableItem(CAT_ALBUMS, "Albums"),
-        browsableItem(CAT_ARTISTS, "Artistes"),
-        browsableItem(CAT_GENRES, "Genres"),
-        browsableItem(CAT_PLAYLISTS, "Playlists"),
-        browsableItem(CAT_FAVORITES, "Favoris"),
-        browsableItem(CAT_RECENT, "Ajoutés récemment"),
-        browsableItem(CAT_MOST_PLAYED, "Les plus écoutés"),
-        browsableItem(CAT_SHUFFLE, "Lecture aléatoire"),
-    )
+    fun children(parentId: String, page: Int, pageSize: Int): List<MediaItem> {
+        val nodes = tree.children(parentId)
+        val from = (page.toLong() * pageSize).coerceAtMost(nodes.size.toLong()).toInt()
+        val to = (from.toLong() + pageSize).coerceAtMost(nodes.size.toLong()).toInt()
+        return nodes.subList(from, to).map { it.toMediaItem() }
+    }
 
-    companion object {
-        const val ROOT = "synxio://root"
-        const val CAT_SONGS = "synxio://songs"
-        const val CAT_ALBUMS = "synxio://albums"
-        const val CAT_ARTISTS = "synxio://artists"
-        const val CAT_GENRES = "synxio://genres"
-        const val CAT_PLAYLISTS = "synxio://playlists"
-        const val CAT_FAVORITES = "synxio://favorites"
-        const val CAT_RECENT = "synxio://recent"
-        const val CAT_MOST_PLAYED = "synxio://most-played"
-        const val CAT_SHUFFLE = "synxio://shuffle"
+    fun itemById(mediaId: String): MediaItem? {
+        if (mediaId == BrowseIds.ROOT) return rootItem
+        return tree.item(mediaId)?.toMediaItem()
+    }
 
-        const val ALBUM_PREFIX = "synxio://album/"
-        const val ARTIST_PREFIX = "synxio://artist/"
-        const val GENRE_PREFIX = "synxio://genre/"
-        const val PLAYLIST_PREFIX = "synxio://playlist/"
+    fun search(query: String): List<MediaItem> = tree.search(query).map { it.toMediaItem() }
+
+    /** File jouable d'un élément choisi sur l'hôte : titre en contexte ou lecture aléatoire. */
+    fun queueFor(mediaId: String): BrowseQueue? = tree.queueFor(mediaId)
+
+    fun resolveVoice(request: VoiceRequest): BrowseQueue? = tree.resolveVoice(request)
+
+    /** Webradio favorite prête à jouer, avec un logo que l'hôte sait afficher. */
+    fun radioItem(mediaId: String): MediaItem? {
+        val station = tree.radioFor(mediaId) ?: return null
+        val item = station.toMediaItem()
+        if (station.favicon.isBlank()) return item
+        return item.buildUpon()
+            .setMediaMetadata(item.mediaMetadata.buildUpon().setArtworkUri(ArtworkProvider.radioUri(station.stationUuid)).build())
+            .build()
+    }
+
+    private fun hasAudioPermission(): Boolean {
+        val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Manifest.permission.READ_MEDIA_AUDIO
+        else Manifest.permission.READ_EXTERNAL_STORAGE
+        return ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+    }
+
+    // --- Traduction en MediaItem ----------------------------------------------------
+
+    private fun BrowseNode.toMediaItem(): MediaItem {
+        song?.let { return songItem(it) }
+
+        val metadata = MediaMetadata.Builder()
+            .setTitle(title)
+            .setSubtitle(subtitle)
+            .setArtist(if (kind == NodeKind.ALBUM) subtitle else null)
+            .setArtworkUri(artworkFor(art))
+            .setIsBrowsable(kind.browsable)
+            .setIsPlayable(kind.playable)
+            .setMediaType(mediaType())
+            .setExtras(extras())
+            .build()
+        return MediaItem.Builder().setMediaId(id).setMediaMetadata(metadata).build()
+    }
+
+    /** Titre parcouru : le `MediaItem` complet du morceau, sous son identifiant en contexte. */
+    private fun BrowseNode.songItem(song: Song): MediaItem {
+        val base = song.toMediaItem()
+        val extras = Bundle(base.mediaMetadata.extras ?: Bundle.EMPTY).apply { putAll(extras()) }
+        return base.buildUpon()
+            .setMediaId(id)
+            .setMediaMetadata(
+                base.mediaMetadata.buildUpon()
+                    .setTitle(title)
+                    .setSubtitle(subtitle)
+                    .setExtras(extras)
+                    .build()
+            )
+            .build()
+    }
+
+    private fun BrowseNode.extras(): Bundle = Bundle().apply {
+        browsableStyle?.let { putInt(MediaConstants.EXTRAS_KEY_CONTENT_STYLE_BROWSABLE, it.toConstant()) }
+        playableStyle?.let { putInt(MediaConstants.EXTRAS_KEY_CONTENT_STYLE_PLAYABLE, it.toConstant()) }
+        groupTitle?.let { putString(MediaConstants.EXTRAS_KEY_CONTENT_STYLE_GROUP_TITLE, it) }
+    }
+
+    private fun BrowseNode.mediaType(): Int = when (kind) {
+        NodeKind.ALBUM -> MediaMetadata.MEDIA_TYPE_ALBUM
+        NodeKind.ARTIST -> MediaMetadata.MEDIA_TYPE_ARTIST
+        NodeKind.GENRE -> MediaMetadata.MEDIA_TYPE_GENRE
+        NodeKind.PLAYLIST -> MediaMetadata.MEDIA_TYPE_PLAYLIST
+        NodeKind.SONG -> MediaMetadata.MEDIA_TYPE_MUSIC
+        NodeKind.RADIO -> MediaMetadata.MEDIA_TYPE_RADIO_STATION
+        NodeKind.ACTION -> MediaMetadata.MEDIA_TYPE_PLAYLIST
+        NodeKind.FOLDER, NodeKind.INFO -> when (id) {
+            BrowseIds.CAT_ALBUMS -> MediaMetadata.MEDIA_TYPE_FOLDER_ALBUMS
+            BrowseIds.CAT_ARTISTS -> MediaMetadata.MEDIA_TYPE_FOLDER_ARTISTS
+            BrowseIds.CAT_GENRES -> MediaMetadata.MEDIA_TYPE_FOLDER_GENRES
+            BrowseIds.TAB_PLAYLISTS -> MediaMetadata.MEDIA_TYPE_FOLDER_PLAYLISTS
+            BrowseIds.TAB_RADIOS -> MediaMetadata.MEDIA_TYPE_FOLDER_RADIO_STATIONS
+            else -> MediaMetadata.MEDIA_TYPE_FOLDER_MIXED
+        }
+    }
+
+    private fun ChildStyle.toConstant(): Int = when (this) {
+        ChildStyle.LIST -> MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM
+        ChildStyle.GRID -> MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_GRID_ITEM
+        ChildStyle.CATEGORY_LIST -> MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_CATEGORY_LIST_ITEM
+        ChildStyle.CATEGORY_GRID -> MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_CATEGORY_GRID_ITEM
+    }
+
+    private fun artworkFor(art: NodeArt?): Uri? = when (art) {
+        null -> null
+        is NodeArt.Icon -> iconUri(art.icon)
+        is NodeArt.OfSong -> ArtworkProvider.publicUri(art.song.artworkUri)
+        is NodeArt.OfAlbum -> ArtworkProvider.publicUri(art.album.artworkUri)
+        is NodeArt.OfArtist -> ArtworkProvider.publicUri(art.artist.artworkUri) ?: iconUri(BrowseIcon.ARTISTS)
+        is NodeArt.OfRadio ->
+            if (art.station.favicon.isBlank()) iconUri(BrowseIcon.RADIOS)
+            else ArtworkProvider.radioUri(art.station.stationUuid)
+    }
+
+    /** Les hôtes lisent les vecteurs en `android.resource://`, teintés à leurs couleurs. */
+    private fun iconUri(icon: BrowseIcon): Uri {
+        val res = when (icon) {
+            BrowseIcon.HOME -> R.drawable.ic_auto_home
+            BrowseIcon.LIBRARY -> R.drawable.ic_auto_library
+            BrowseIcon.PLAYLISTS -> R.drawable.ic_auto_playlists
+            BrowseIcon.RADIOS -> R.drawable.ic_auto_radio
+            BrowseIcon.ALBUMS -> R.drawable.ic_auto_album
+            BrowseIcon.ARTISTS -> R.drawable.ic_auto_artist
+            BrowseIcon.GENRES -> R.drawable.ic_auto_genre
+            BrowseIcon.SONGS -> R.drawable.ic_auto_songs
+            BrowseIcon.FAVORITES -> R.drawable.ic_auto_favorite
+            BrowseIcon.HISTORY -> R.drawable.ic_auto_history
+            BrowseIcon.MOST_PLAYED -> R.drawable.ic_auto_trending
+            BrowseIcon.NEW -> R.drawable.ic_auto_new
+            BrowseIcon.SHUFFLE -> R.drawable.ic_auto_shuffle
+            BrowseIcon.INFO -> R.drawable.ic_auto_info
+        }
+        return Uri.Builder()
+            .scheme(ContentResolver.SCHEME_ANDROID_RESOURCE)
+            .authority(context.packageName)
+            .appendPath(context.resources.getResourceTypeName(res))
+            .appendPath(context.resources.getResourceEntryName(res))
+            .build()
     }
 }

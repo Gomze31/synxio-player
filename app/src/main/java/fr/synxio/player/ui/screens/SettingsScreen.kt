@@ -79,6 +79,7 @@ import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Loop
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Headphones
 import androidx.compose.material.icons.rounded.PhonelinkSetup
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.Radio
@@ -567,7 +568,7 @@ fun SettingsScreen(
                             )
                         }
 
-                        group(2, "resume", "Reprise") {
+                        group(2, "resume", "Reprise et casque") {
                             val rewindOptions = listOf("Désactivé", "3 s", "5 s")
                             val rewindDescriptions = listOf("Désactivé", "3 secondes", "5 secondes")
                             val rewindValues = listOf(0, 3, 5)
@@ -587,6 +588,14 @@ fun SettingsScreen(
                                 icon = Icons.Rounded.PhonelinkSetup,
                                 checked = settings.resumeOnHeadsetConnect,
                                 onCheckedChange = settingsViewModel::setResumeOnHeadsetConnect
+                            )
+                            GroupDivider()
+                            SwitchSetting(
+                                title = "Gestes du bouton de casque",
+                                subtitle = "Deux appuis : titre suivant · trois appuis : titre précédent. Maintenir suivant ou précédent avance ou recule dans le morceau",
+                                icon = Icons.Rounded.Headphones,
+                                checked = settings.headsetMultiClick,
+                                onCheckedChange = settingsViewModel::setHeadsetMultiClick
                             )
                         }
 

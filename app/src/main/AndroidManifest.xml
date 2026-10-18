@@ -181,6 +181,17 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <!--
+            Pochettes lisibles par Android Auto, l'écran de verrouillage et le Bluetooth.
+            Exporté en lecture seule : il ne sert que les pochettes de la cascade, les images
+            de dossier et les logos des radios favorites (voir ArtworkProvider).
+        -->
+        <provider
+            android:name=".playback.ArtworkProvider"
+            android:authorities="${applicationId}.artwork"
+            android:exported="true"
+            tools:ignore="ExportedContentProvider" />
+
         <!-- Boutons média des casques filaires / Bluetooth -->
         <receiver
             android:name="androidx.media3.session.MediaButtonReceiver"
