@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.ImageSearch
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlaylistRemove
@@ -81,6 +82,7 @@ data class SongActions(
     val onOpenAlbum: (() -> Unit)? = null,
     val onOpenArtist: (() -> Unit)? = null,
     val onEditTags: (() -> Unit)? = null,
+    val onRefetchMetadata: (() -> Unit)? = null,
     val onShare: (() -> Unit)? = null,
     val onStartRadio: (() -> Unit)? = null,
     val onRemoveFromPlaylist: (() -> Unit)? = null,
@@ -186,6 +188,9 @@ fun SongOptionsSheet(
             // Fichier
             actions.onEditTags?.let {
                 SheetAction(Icons.Rounded.Edit, "Modifier les tags") { it(); onDismiss() }
+            }
+            actions.onRefetchMetadata?.let {
+                SheetAction(Icons.Rounded.ImageSearch, "Récupérer les infos et la pochette") { it(); onDismiss() }
             }
             actions.onShare?.let {
                 SheetAction(Icons.Rounded.Share, "Partager le fichier") { it(); onDismiss() }

@@ -4,6 +4,8 @@
 
     <!-- Lecture de la bibliothèque locale -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <!-- Facultative, demandée depuis les réglages : images de pochette posées dans les dossiers -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />

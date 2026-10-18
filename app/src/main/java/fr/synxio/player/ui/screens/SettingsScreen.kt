@@ -71,6 +71,8 @@ import androidx.compose.material.icons.rounded.FormatSize
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.ImageSearch
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.LinearScale
 import androidx.compose.material.icons.rounded.Link
@@ -138,6 +140,7 @@ import fr.synxio.player.BuildConfig
 import fr.synxio.player.core.util.asFileSize
 import fr.synxio.player.core.util.asLongDuration
 import fr.synxio.player.core.util.pluralSongs
+import fr.synxio.player.ui.components.overallFraction
 import fr.synxio.player.data.model.AccentSource
 import fr.synxio.player.data.model.AlbumSort
 import fr.synxio.player.data.model.LibraryTab
@@ -302,6 +305,29 @@ fun SettingsScreen(
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val library by viewModel.library.collectAsStateWithLifecycle()
     val lastFmAvailable = remember { settingsViewModel.lastFmAvailable }
+    val metadataProgress by viewModel.metadataProgress.collectAsStateWithLifecycle()
+    val metadataStats by viewModel.metadataStats.collectAsStateWithLifecycle()
+
+    // Android 13+ cache les images aux applications sans l'autorisation « Photos » : sans
+    // elle, cover.jpg et folder.jpg sont invisibles pour la cascade de pochettes.
+    val context = androidx.compose.ui.platform.LocalContext.current
+    fun imagesDenied() = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
+        context.checkSelfPermission(android.Manifest.permission.READ_MEDIA_IMAGES) !=
+        android.content.pm.PackageManager.PERMISSION_GRANTED
+    var needsImagePermission by remember { mutableStateOf(imagesDenied()) }
+    // L'autorisation peut être accordée ou retirée depuis les paramètres système.
+    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
+        needsImagePermission = imagesDenied()
+        onPauseOrDispose { }
+    }
+    val imagePermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            needsImagePermission = false
+            viewModel.reanalyseMetadata()
+        }
+    }
     var currentSubMenu by rememberSaveable { mutableStateOf<SettingsSubMenu?>(null) }
     val reduce = LocalReduceMotion.current
 
@@ -703,6 +729,34 @@ fun SettingsScreen(
                                 subtitle = "Filtres par artiste, album, genre, durée, etc.",
                                 icon = Icons.Rounded.Search,
                                 onClick = onNavigateToAdvancedSearch
+                            )
+                        }
+
+                        group(2, "metadata", "Métadonnées et pochettes") {
+                            MetadataStatusRow(progress = metadataProgress, stats = metadataStats)
+                            GroupDivider()
+                            SwitchSetting(
+                                title = "Compléter en ligne",
+                                subtitle = "MusicBrainz et Cover Art Archive pour les titres que les tags et le nom de fichier ne suffisent pas à identifier. Wi-Fi uniquement, sauf demande manuelle",
+                                icon = Icons.Rounded.Language,
+                                checked = settings.onlineMetadataEnabled,
+                                onCheckedChange = settingsViewModel::setOnlineMetadata
+                            )
+                            if (needsImagePermission) {
+                                GroupDivider()
+                                ClickableSetting(
+                                    title = "Lire les images des dossiers",
+                                    subtitle = "cover.jpg, folder.jpg, front.png… Android demande l'accès aux photos pour les voir",
+                                    icon = Icons.Rounded.Image,
+                                    onClick = { imagePermissionLauncher.launch(android.Manifest.permission.READ_MEDIA_IMAGES) }
+                                )
+                            }
+                            GroupDivider()
+                            ClickableSetting(
+                                title = "Tout réanalyser",
+                                subtitle = "Relit tags et pochettes de toute la bibliothèque",
+                                icon = Icons.Rounded.Sync,
+                                onClick = viewModel::reanalyseMetadata
                             )
                         }
                     }
@@ -2234,6 +2288,50 @@ private fun FingerprintSetting(
                 subtitle = "« Lancer une radio » est disponible dans le menu d'un titre",
                 icon = Icons.Rounded.Radio,
                 onClick = onReset,
+            )
+        }
+    }
+}
+
+/** État de la cascade de métadonnées : bilan de la bibliothèque, ou avancement en cours. */
+@Composable
+private fun MetadataStatusRow(
+    progress: fr.synxio.player.data.meta.EnrichProgress,
+    stats: fr.synxio.player.data.meta.MetadataStats?,
+) {
+    val title = if (progress.running) {
+        buildString {
+            append(progress.phase.label)
+            if (progress.total > 0) append(" · ${progress.done}/${progress.total}")
+        }
+    } else {
+        "Bibliothèque analysée"
+    }
+    val subtitle = when {
+        stats == null && progress.running -> "Les pochettes et les noms apparaissent au fur et à mesure"
+        stats == null -> "L'analyse démarre au prochain scan"
+        else -> buildList {
+            add(stats.total.pluralSongs())
+            add(if (stats.unknownArtist == 0) "tous les artistes connus" else "${stats.unknownArtist} sans artiste")
+            add(if (stats.noArtwork == 0) "toutes les pochettes trouvées" else "${stats.noArtwork} sans pochette")
+            if (stats.fromOnline > 0) add("${stats.fromOnline} complétés en ligne")
+        }.joinToString(" · ")
+    }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(RowPadding)
+            .semantics(mergeDescendants = true) {}
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SettingIconTile(Icons.Rounded.ImageSearch)
+            SettingTexts(title, subtitle, Modifier.weight(1f))
+        }
+        if (progress.running) {
+            Spacer(Modifier.height(Space.sm))
+            fr.synxio.player.ui.components.BrandProgressBar(
+                progress = progress.overallFraction(),
+                modifier = Modifier.padding(start = IconIndent),
             )
         }
     }

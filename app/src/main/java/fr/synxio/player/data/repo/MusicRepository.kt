@@ -14,6 +14,10 @@ import fr.synxio.player.data.db.PlayStatDao
 import fr.synxio.player.data.db.PlayStatEntity
 import fr.synxio.player.data.media.DeleteOutcome
 import fr.synxio.player.data.media.MediaStoreScanner
+import fr.synxio.player.data.meta.EnrichProgress
+import fr.synxio.player.data.meta.MetadataEnricher
+import fr.synxio.player.data.meta.MetadataStats
+import fr.synxio.player.data.meta.RefetchResult
 import fr.synxio.player.data.model.Album
 import fr.synxio.player.data.model.AlbumSort
 import fr.synxio.player.data.model.Artist
@@ -40,6 +44,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -268,6 +273,7 @@ class MusicRepository @Inject constructor(
     private val playStatDao: PlayStatDao,
     private val excludedFolderDao: ExcludedFolderDao,
     private val audiobookFolderDao: AudiobookFolderDao,
+    private val enricher: MetadataEnricher,
     @ApplicationScope private val scope: CoroutineScope,
 ) {
 
@@ -289,6 +295,9 @@ class MusicRepository @Inject constructor(
     /** Une demande de rafraîchissement attend d'être servie. */
     private val refreshRequested = AtomicBoolean(false)
 
+    /** Dernier scan MediaStore brut, avant la cascade : la base des republications. */
+    @Volatile private var scannedSongs: List<Song> = emptyList()
+
     init {
         // Le service de lecture peut démarrer sans passer par l'UI (Bluetooth, Auto) :
         // si la permission est déjà accordée, on scanne sans attendre l'activité.
@@ -298,6 +307,13 @@ class MusicRepository @Inject constructor(
         scanner.observeChanges()
             .debounce(1_500)
             .onEach { if (permissionGranted) refresh() }
+            .launchIn(scope)
+
+        // La cascade de métadonnées avance par lots en arrière-plan : on republie la
+        // bibliothèque à partir du dernier scan, sans relire MediaStore.
+        enricher.revision
+            .sample(1_200)
+            .onEach { republish() }
             .launchIn(scope)
     }
 
@@ -335,11 +351,31 @@ class MusicRepository @Inject constructor(
             val excluded = excludedFolderDao.paths().toSet()
             val audiobooks = audiobookFolderDao.paths().toSet()
             val songs = scanner.scan(minDurationSec * 1000L, excluded, audiobooks)
-            buildLibrary(songs).also { it.searchIndex }
+            enricher.prepare()
+            scannedSongs = songs
+            buildLibrary(enricher.overlay(songs)).also { it.searchIndex }
         }
+        publish(library)
+        settingsRepository.setLastScan(System.currentTimeMillis())
+        enricher.onLibraryScanned(scannedSongs)
+    }
+
+    /** Réapplique la cascade au dernier scan, quand elle a progressé. */
+    private suspend fun republish() {
+        if (scannedSongs.isEmpty()) return
+        refreshMutex.withLock {
+            val songs = scannedSongs
+            if (songs.isEmpty()) return
+            val library = withContext(Dispatchers.Default) {
+                buildLibrary(enricher.overlay(songs)).also { it.searchIndex }
+            }
+            publish(library)
+        }
+    }
+
+    private fun publish(library: Library) {
         _songsById.value = library.songs.associateBy { it.id }
         _library.value = library
-        settingsRepository.setLastScan(System.currentTimeMillis())
     }
 
     private fun buildLibrary(allSongs: List<Song>): Library {
@@ -361,6 +397,7 @@ class MusicRepository @Inject constructor(
                     songs = albumSongs.sortedWith(
                         compareBy({ it.disc }, { it.track }, { it.title.lowercase() })
                     ),
+                    artworkOverride = albumSongs.firstNotNullOfOrNull { it.artworkOverride },
                 )
             }
 
@@ -445,8 +482,10 @@ class MusicRepository @Inject constructor(
         }
         return withContext(Dispatchers.IO) {
             val minDurationSec = settingsRepository.settings.first().minDurationSec
+            enricher.prepare()
             scanner.scan(minDurationSec * 1000L, excludedFolderDao.paths().toSet())
                 .firstOrNull { it.id == id }
+                ?.let(enricher::overlay)
         }
     }
 
@@ -458,6 +497,28 @@ class MusicRepository @Inject constructor(
     }
 
     fun deleteSongs(songs: List<Song>): DeleteOutcome = scanner.deleteSongs(songs)
+
+    // --- Métadonnées -----------------------------------------------------------------
+
+    val metadataProgress: StateFlow<EnrichProgress> get() = enricher.progress
+    val metadataStats: StateFlow<MetadataStats?> get() = enricher.stats
+
+    /**
+     * Relance la cascade pour ces morceaux, cache ignoré.
+     *
+     * Les morceaux affichés portent déjà les valeurs de la cascade : on repart des
+     * versions MediaStore brutes, sinon le résultat précédent serait pris pour un tag.
+     */
+    suspend fun refetchMetadata(songs: List<Song>, label: String): RefetchResult {
+        val byPath = scannedSongs.associateBy { it.path }
+        val raw = songs.mapNotNull { byPath[it.path] }
+        if (raw.isEmpty()) return RefetchResult(0, 0, 0, 0, onlineSkipped = true)
+        return enricher.refetch(raw, label)
+    }
+
+    fun reanalyseMetadata() {
+        enricher.reanalyseAll()
+    }
 
     fun songsByIds(ids: List<Long>): List<Song> {
         val index = _songsById.value

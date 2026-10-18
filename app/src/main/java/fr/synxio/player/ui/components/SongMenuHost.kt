@@ -50,6 +50,7 @@ fun SongMenuHost(
             onOpenAlbum = onOpenAlbum?.let { { it(song.albumId) } },
             onOpenArtist = onOpenArtist?.let { { it(song.displayArtist) } },
             onEditTags = onEditTags?.let { { it(song.id) } },
+            onRefetchMetadata = { viewModel.refetchMetadata(listOf(song), song.title) },
             onShare = {
                 val share = Intent(Intent.ACTION_SEND).apply {
                     type = song.mimeType.ifBlank { "audio/*" }

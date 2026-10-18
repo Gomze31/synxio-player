@@ -510,6 +510,23 @@ class AppViewModel @Inject constructor(
      */
     fun showMessage(text: String) = emit(text)
 
+    // --- Métadonnées -----------------------------------------------------------------
+
+    val metadataProgress: StateFlow<fr.synxio.player.data.meta.EnrichProgress> = musicRepository.metadataProgress
+    val metadataStats: StateFlow<fr.synxio.player.data.meta.MetadataStats?> = musicRepository.metadataStats
+
+    /** « Récupérer les infos et la pochette » d'un titre ou d'un album. */
+    fun refetchMetadata(songs: List<Song>, label: String) = viewModelScope.launch {
+        if (songs.isEmpty()) return@launch
+        val result = musicRepository.refetchMetadata(songs, label)
+        emit(refetchMessage(label, result))
+    }
+
+    fun reanalyseMetadata() {
+        musicRepository.reanalyseMetadata()
+        emit("Analyse des tags et pochettes relancée")
+    }
+
     /** Morceaux en attente du consentement système pour leur suppression. */
     private var pendingDeletion: List<Song> = emptyList()
 
@@ -594,4 +611,17 @@ class AppViewModel @Inject constructor(
         /** Nombre de cartes des carrousels de l'accueil. */
         const val HOME_SECTION_SIZE = 20
     }
+}
+
+/** Bilan affiché après une récupération manuelle. */
+internal fun refetchMessage(label: String, result: fr.synxio.player.data.meta.RefetchResult): String {
+    if (result.total == 0) return "Titre introuvable dans la bibliothèque"
+    val online = if (result.onlineSkipped) " · recherche en ligne indisponible" else ""
+    if (result.total == 1) {
+        val art = if (result.withArtwork > 0) "pochette trouvée" else "aucune pochette"
+        val artist = if (result.withArtist > 0) "artiste identifié" else "artiste toujours inconnu"
+        return "« $label » : $art, $artist$online"
+    }
+    return "« $label » : ${result.withArtwork}/${result.total} pochettes, " +
+        "${result.withArtist}/${result.total} artistes$online"
 }

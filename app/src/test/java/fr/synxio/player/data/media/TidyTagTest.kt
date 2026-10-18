@@ -33,6 +33,12 @@ class TidyTagTest {
     }
 
     @Test
+    fun `un tag Windows-1252 lu comme du Latin-1 retrouve sa ponctuation`() {
+        assertEquals("C’est la vie", "C\u0092est la vie".tidyTag())
+        assertEquals("Ça va — oui", "Ça va \u0097 oui".tidyTag())
+    }
+
+    @Test
     fun `un tag Latin-1 sain n est jamais modifie`() {
         assertEquals("Café", "Café".tidyTag())
         assertEquals("Noël à Paris", "Noël à Paris".tidyTag())

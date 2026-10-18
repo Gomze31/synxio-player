@@ -41,12 +41,17 @@ data class Song(
      * corriger : la réparation des tags le propose.
      */
     val brokenEncoding: Boolean = false,
+    /**
+     * Pochette retenue par la cascade de métadonnées (intégrée, dossier, en ligne), quand
+     * elle diffère de celle de l'album MediaStore. Voir `MetadataEnricher`.
+     */
+    val artworkOverride: Uri? = null,
 ) {
     val uri: Uri
         get() = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
 
     val artworkUri: Uri
-        get() = ContentUris.withAppendedId(ALBUM_ART_BASE, albumId)
+        get() = artworkOverride ?: ContentUris.withAppendedId(ALBUM_ART_BASE, albumId)
 
     val folderPath: String
         get() = path.substringBeforeLast('/', "")
@@ -115,10 +120,12 @@ data class Album(
     val artistId: Long,
     val year: Int,
     val songs: List<Song>,
+    /** Pochette résolue d'un des titres, prioritaire sur celle de MediaStore. */
+    val artworkOverride: Uri? = null,
 ) {
     val songCount: Int get() = songs.size
     val durationMs: Long get() = songs.sumOf { it.durationMs }
-    val artworkUri: Uri get() = ContentUris.withAppendedId(ALBUM_ART_BASE, id)
+    val artworkUri: Uri get() = artworkOverride ?: ContentUris.withAppendedId(ALBUM_ART_BASE, id)
     /**
      * Ajout le plus récent parmi les morceaux de l'album.
      *

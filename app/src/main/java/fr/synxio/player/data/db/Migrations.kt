@@ -171,7 +171,70 @@ val MIGRATION_10_11 = object : Migration(10, 11) {
     }
 }
 
+/** v11 -> v12 : cache de la cascade de métadonnées et des recherches en ligne. */
+val MIGRATION_11_12 = object : Migration(11, 12) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `track_meta` (
+                `path` TEXT NOT NULL,
+                `mediaId` INTEGER NOT NULL,
+                `sizeBytes` INTEGER NOT NULL,
+                `modifiedSec` INTEGER NOT NULL,
+                `version` INTEGER NOT NULL,
+                `title` TEXT,
+                `artist` TEXT,
+                `album` TEXT,
+                `albumArtist` TEXT,
+                `year` INTEGER,
+                `genre` TEXT,
+                `track` INTEGER,
+                `disc` INTEGER,
+                `durationMs` INTEGER,
+                `sources` TEXT NOT NULL,
+                `artUri` TEXT,
+                `artSource` TEXT NOT NULL,
+                `altTitle` TEXT,
+                `altArtist` TEXT,
+                `onlineKey` TEXT,
+                `onlineCheckedAt` INTEGER NOT NULL,
+                `updatedAt` INTEGER NOT NULL,
+                PRIMARY KEY(`path`)
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `online_lookups` (
+                `key` TEXT NOT NULL,
+                `found` INTEGER NOT NULL,
+                `title` TEXT,
+                `artist` TEXT,
+                `album` TEXT,
+                `albumArtist` TEXT,
+                `year` INTEGER,
+                `genre` TEXT,
+                `track` INTEGER,
+                `disc` INTEGER,
+                `artPath` TEXT,
+                `confidence` INTEGER NOT NULL,
+                `fetchedAt` INTEGER NOT NULL,
+                PRIMARY KEY(`key`)
+            )
+            """.trimIndent()
+        )
+    }
+}
+
+/** v12 -> v13 : sortie MusicBrainz retenue, pour redemander une pochette sans refaire la recherche. */
+val MIGRATION_12_13 = object : Migration(12, 13) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `online_lookups` ADD COLUMN `releaseId` TEXT")
+        db.execSQL("ALTER TABLE `online_lookups` ADD COLUMN `releaseGroupId` TEXT")
+    }
+}
+
 val ALL_MIGRATIONS = arrayOf(
     MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
-    MIGRATION_10_11,
+    MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13,
 )

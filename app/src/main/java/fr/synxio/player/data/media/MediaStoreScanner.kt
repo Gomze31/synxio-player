@@ -299,7 +299,7 @@ class MediaStoreScanner @Inject constructor(
  *    traitaient comme un autre mot. On recompose en NFC.
  */
 internal fun String.tidyTag(): String {
-    val repaired = repairMojibake(trim())
+    val repaired = repairC1Controls(repairMojibake(trim()))
     return if (java.text.Normalizer.isNormalized(repaired, java.text.Normalizer.Form.NFC)) repaired
     else java.text.Normalizer.normalize(repaired, java.text.Normalizer.Form.NFC)
 }
@@ -331,6 +331,23 @@ internal fun repairMojibake(text: String): String {
         .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
     return runCatching { decoder.decode(java.nio.ByteBuffer.wrap(bytes)).toString() }.getOrDefault(text)
 }
+
+/**
+ * Répare un texte Windows-1252 lu comme du Latin-1.
+ *
+ * « C\u0092est » : l'apostrophe typographique de Windows (octet 92) devient, relue en
+ * Latin-1, un caractère de contrôle invisible. Aucun tag sain ne contient de caractère
+ * de la plage 80–9F : on les remplace par leur équivalent Windows-1252.
+ */
+internal fun repairC1Controls(text: String): String {
+    if (text.none { it.code in 0x80..0x9F }) return text
+    return buildString(text.length) {
+        for (c in text) append(if (c.code in 0x80..0x9F) CP1252_CHARS[c.code] ?: c else c)
+    }
+}
+
+/** Octet de la plage 80–9F, et le caractère Windows-1252 qu'il représente. */
+private val CP1252_CHARS: Map<Int, Char> by lazy { CP1252_BYTES.entries.associate { (char, byte) -> byte to char } }
 
 /** Caractères Windows-1252 de la plage 80–9F, et l'octet qu'ils représentent. */
 private val CP1252_BYTES: Map<Char, Int> = mapOf(

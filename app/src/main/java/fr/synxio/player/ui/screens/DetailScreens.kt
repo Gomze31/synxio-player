@@ -36,6 +36,7 @@ import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.ImageSearch
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -56,6 +57,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -635,7 +637,19 @@ fun AlbumDetailScreen(
     onEditTags: (Long) -> Unit,
 ) {
     val library by viewModel.library.collectAsStateWithLifecycle()
-    val album = remember(albumId, library) { albumId?.let { viewModel.albumById(it) } }
+    // Une récupération d'infos peut renommer l'album, donc changer son identifiant : on le
+    // retrouve alors par ses titres, pour ne pas afficher « Album introuvable » à l'écran
+    // même où l'on vient de le corriger.
+    var knownSongIds by remember(albumId) { mutableStateOf<Set<Long>>(emptySet()) }
+    val album = remember(albumId, library) {
+        albumId?.let { viewModel.albumById(it) }
+            ?: knownSongIds.takeIf { it.isNotEmpty() }?.let { ids ->
+                library.albums.maxByOrNull { candidate -> candidate.songs.count { it.id in ids } }
+                    ?.takeIf { candidate -> candidate.songs.any { it.id in ids } }
+            }
+    }
+    LaunchedEffect(album) { album?.let { knownSongIds = it.songs.mapTo(HashSet()) { song -> song.id } } }
+    val metadataProgress by viewModel.metadataProgress.collectAsStateWithLifecycle()
 
     if (album == null) {
         DetailMessageScreen(
@@ -672,6 +686,14 @@ fun AlbumDetailScreen(
         subtitleClickLabel = "Voir l'artiste",
         eyebrow = "Album",
         heroSharedKey = SharedKeys.albumArt(album.id),
+        topBarActions = {
+            IconButton(
+                onClick = { viewModel.refetchMetadata(album.songs, album.title) },
+                enabled = !metadataProgress.manual,
+            ) {
+                Icon(Icons.Rounded.ImageSearch, contentDescription = "Récupérer les infos et les pochettes de l'album")
+            }
+        },
     )
 }
 

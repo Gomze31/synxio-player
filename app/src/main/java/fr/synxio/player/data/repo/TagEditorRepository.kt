@@ -75,21 +75,7 @@ class TagEditorRepository @Inject constructor(
 ) {
 
     init {
-        // Tous les cadres texte en Unicode, y compris ceux déjà présents dans le fichier.
-        //
-        // jaudiotagger écrivait en Latin-1 ce qui y tenait et en UTF-16 le reste. Sur ce
-        // mélange, le scanner média d'Android devine un jeu de caractères pour l'ensemble
-        // du tag et abîme les cadres Unicode : un titre corrigé ressortait « ReÌveiller ».
-        TagOptionSingleton.getInstance().apply {
-            id3v23DefaultTextEncoding = TextEncoding.UTF_16
-            id3v24DefaultTextEncoding = TextEncoding.UTF_8
-            id3v24UnicodeTextEncoding = TextEncoding.UTF_8
-            isResetTextEncodingForExistingFrames = true
-            // « Pop » et non « 13 » : en ID3v2.4, le code numérique ressortait tel quel
-            // dans la bibliothèque.
-            isWriteMp3GenresAsText = true
-            isWriteMp4GenresAsText = true
-        }
+        configureTagWriting()
     }
 
     /**
@@ -323,4 +309,26 @@ class TagEditorRepository @Inject constructor(
         comment = "",
         lyrics = "",
     )
+}
+
+/**
+ * Tous les cadres texte en Unicode, y compris ceux déjà présents dans le fichier.
+ *
+ * jaudiotagger écrivait en Latin-1 ce qui y tenait et en UTF-16 le reste. Sur ce
+ * mélange, le scanner média d'Android devine un jeu de caractères pour l'ensemble
+ * du tag et abîme les cadres Unicode : un titre corrigé ressortait « ReÌveiller ».
+ *
+ * À appeler avant toute écriture de tags, d'où qu'elle vienne.
+ */
+internal fun configureTagWriting() {
+    TagOptionSingleton.getInstance().apply {
+        id3v23DefaultTextEncoding = TextEncoding.UTF_16
+        id3v24DefaultTextEncoding = TextEncoding.UTF_8
+        id3v24UnicodeTextEncoding = TextEncoding.UTF_8
+        isResetTextEncodingForExistingFrames = true
+        // « Pop » et non « 13 » : en ID3v2.4, le code numérique ressortait tel quel
+        // dans la bibliothèque.
+        isWriteMp3GenresAsText = true
+        isWriteMp4GenresAsText = true
+    }
 }

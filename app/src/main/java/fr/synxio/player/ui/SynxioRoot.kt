@@ -260,6 +260,7 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
     val showBottomBar = shouldShowBottomBar(navController)
     val snackbarHost = remember { SnackbarHostState() }
     val playerState by viewModel.playerState.collectAsStateWithLifecycle()
+    val metadataProgress by viewModel.metadataProgress.collectAsStateWithLifecycle()
     var playerExpanded by remember { mutableStateOf(false) }
 
     val updateViewModel: UpdateViewModel = hiltViewModel()
@@ -359,6 +360,15 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
             snackbarHost = { SnackbarHost(snackbarHost) { SynxioSnackbar(it) } },
             bottomBar = {
                 Column {
+                    // Seules les récupérations demandées à la main s'affichent ici : la passe
+                    // automatique de la bibliothèque reste discrète, visible dans les réglages.
+                    AnimatedVisibility(
+                        visible = metadataProgress.manual && !playerExpanded,
+                        enter = slideInVertically(Motion.enter()) { it / 2 } + fadeIn(Motion.enter()),
+                        exit = slideOutVertically(Motion.exit()) { it / 2 } + fadeOut(Motion.exit()),
+                    ) {
+                        fr.synxio.player.ui.components.MetadataProgressPill(metadataProgress)
+                    }
                     AnimatedVisibility(
                         visible = playerState.currentSong != null && !playerExpanded,
                         enter = slideInVertically(Motion.enter()) { it / 2 } + fadeIn(Motion.enter()),

@@ -118,6 +118,11 @@ data class Settings(
     val discordPresenceEnabled: Boolean = false,
 
     val lyricsOnlineEnabled: Boolean = true,
+    /**
+     * Dernier recours de la cascade de métadonnées : MusicBrainz et Cover Art Archive pour
+     * les titres que ni les tags ni le nom de fichier ne suffisent à identifier.
+     */
+    val onlineMetadataEnabled: Boolean = true,
     val autoTranslateLyrics: Boolean = true,
     val scrobbleEnabled: Boolean = false,
     val lastFmSessionKey: String = "",
@@ -228,6 +233,7 @@ class SettingsRepository @Inject constructor(
         val LAST_UPDATE_CHECK = longPreferencesKey("last_update_check")
 
         val LYRICS_ONLINE = booleanPreferencesKey("lyrics_online")
+        val ONLINE_METADATA = booleanPreferencesKey("online_metadata")
         val AUTO_TRANSLATE_LYRICS = booleanPreferencesKey("auto_translate_lyrics")
         val SCROBBLE = booleanPreferencesKey("scrobble")
         val LASTFM_SESSION = stringPreferencesKey("lastfm_session")
@@ -335,6 +341,7 @@ class SettingsRepository @Inject constructor(
                 lastUpdateCheck = p[Keys.LAST_UPDATE_CHECK] ?: 0L,
 
                 lyricsOnlineEnabled = p[Keys.LYRICS_ONLINE] ?: true,
+                onlineMetadataEnabled = p[Keys.ONLINE_METADATA] ?: true,
                 autoTranslateLyrics = p[Keys.AUTO_TRANSLATE_LYRICS] ?: true,
                 scrobbleEnabled = p[Keys.SCROBBLE] ?: false,
                 lastFmSessionKey = p[Keys.LASTFM_SESSION].orEmpty(),
@@ -431,6 +438,7 @@ class SettingsRepository @Inject constructor(
     suspend fun setTextSize(value: String) = put(Keys.TEXT_SIZE, value)
 
     suspend fun setLyricsOnline(value: Boolean) = put(Keys.LYRICS_ONLINE, value)
+    suspend fun setOnlineMetadata(value: Boolean) = put(Keys.ONLINE_METADATA, value)
     suspend fun setAutoTranslateLyrics(value: Boolean) = put(Keys.AUTO_TRANSLATE_LYRICS, value)
     suspend fun setScrobbleEnabled(value: Boolean) = put(Keys.SCROBBLE, value)
     suspend fun setLastFmSession(sessionKey: String, username: String) {

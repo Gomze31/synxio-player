@@ -95,6 +95,7 @@ class DownloadRepository @Inject constructor(
                 ?.maxByOrNull { it.lastModified() }
                 ?: return@withContext Result.failure(Exception("Aucun fichier MP3 produit"))
 
+            retagFromTitle(mp3)
             publishToMusic(mp3)
             musicRepository.refresh()
             Result.success("« ${mp3.nameWithoutExtension} » ajouté à ta bibliothèque")
@@ -104,6 +105,31 @@ class DownloadRepository @Inject constructor(
         } finally {
             workDir.deleteRecursively()
         }
+    }
+
+    /**
+     * Remplace l'artiste « chaîne YouTube » par celui que porte le titre de la vidéo.
+     *
+     * yt-dlp met le nom de la chaîne dans le tag artiste quand YouTube ne fournit pas de
+     * fiche musicale : « Eurovision France », « 7clouds »… alors que le titre dit
+     * « Laura - Plus de problèmes (Clip officiel) ». Le fichier est encore dans le cache
+     * privé : on peut l'écrire sans demander d'autorisation.
+     */
+    private fun retagFromTitle(file: File) {
+        runCatching {
+            configureTagWriting()
+            val audio = org.jaudiotagger.audio.AudioFileIO.read(file)
+            val tag = audio.tagOrCreateAndSetDefault
+            val title = tag.getFirst(org.jaudiotagger.tag.FieldKey.TITLE).orEmpty().ifBlank { file.nameWithoutExtension }
+            val known = musicRepository.library.value.artists.mapTo(HashSet()) { it.name.lowercase() }
+            val parsed = fr.synxio.player.data.meta.FileNameInference.parseArtistTitle(title) { it.lowercase() in known }
+            val artist = parsed.artist ?: return
+            val cleanTitle = parsed.title ?: return
+            tag.setField(org.jaudiotagger.tag.FieldKey.ARTIST, artist)
+            tag.setField(org.jaudiotagger.tag.FieldKey.TITLE, cleanTitle)
+            org.jaudiotagger.audio.AudioFileIO.write(audio)
+            Log.i(TAG, "Tags déduits du titre : $artist — $cleanTitle")
+        }.onFailure { Log.w(TAG, "Tags du téléchargement laissés tels quels", it) }
     }
 
     /**
