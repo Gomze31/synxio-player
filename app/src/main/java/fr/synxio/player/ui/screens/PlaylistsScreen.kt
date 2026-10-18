@@ -139,6 +139,7 @@ fun PlaylistsTab(
             ) {
                 FilledTonalButton(
                     onClick = { creating = true },
+                    contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
                     shape = SynxioShape.pill,
                     modifier = Modifier
                         .weight(1f)
@@ -146,10 +147,12 @@ fun PlaylistsTab(
                 ) {
                     Icon(Icons.Rounded.Add, contentDescription = null, Modifier.size(ButtonDefaults.IconSize))
                     Spacer(Modifier.width(ButtonDefaults.IconSpacing))
-                    Text("Nouvelle playlist", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    // Libellé court : « Nouvelle playlist » était tronqué sur un écran de 6,7".
+                    Text("Créer", maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 OutlinedButton(
                     onClick = { importLauncher.launch(arrayOf("*/*")) },
+                    contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
                     shape = SynxioShape.pill,
                     modifier = Modifier
                         .weight(1f)
@@ -157,7 +160,7 @@ fun PlaylistsTab(
                 ) {
                     Icon(Icons.Rounded.FileUpload, contentDescription = null, Modifier.size(ButtonDefaults.IconSize))
                     Spacer(Modifier.width(ButtonDefaults.IconSpacing))
-                    Text("Importer M3U", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("Importer", maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }

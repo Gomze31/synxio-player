@@ -52,10 +52,12 @@ import fr.synxio.player.ui.theme.LocalReduceMotion
 import fr.synxio.player.ui.theme.Motion
 import fr.synxio.player.ui.theme.Space
 import fr.synxio.player.ui.theme.SynxioShape
+import fr.synxio.player.ui.theme.isDarkSurface
+import fr.synxio.player.ui.theme.placeholderBrush
 
 /**
  * Pochette d'album. MediaStore renvoie souvent `null` : dans ce cas on affiche un
- * aplat tonal avec une note de musique discrète plutôt qu'un carré gris tristounet.
+ * dégradé généré, propre à l'album, avec une note discrète plutôt qu'un carré gris.
  *
  * La requête Coil est mémorisée par modèle : sans ça, chaque recomposition d'une ligne
  * (le titre en cours qui change, par exemple) reconstruisait une requête neuve.
@@ -68,7 +70,6 @@ fun Artwork(
     shape: Shape = SynxioShape.artworkMd,
     contentDescription: String? = null,
 ) {
-    val scheme = MaterialTheme.colorScheme
     val context = LocalContext.current
     val reduceMotion = LocalReduceMotion.current
     val request = remember(model, reduceMotion) {
@@ -79,17 +80,19 @@ fun Artwork(
                 .build()
         }
     }
+    val dark = isDarkSurface
+    val placeholder = remember(model, dark) { placeholderBrush(model, dark) }
     Box(
         modifier = modifier
             .clip(shape)
-            .background(scheme.surfaceContainerHigh),
+            .background(placeholder),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = Icons.Rounded.MusicNote,
             contentDescription = null,
-            tint = scheme.onSurfaceVariant.copy(alpha = 0.45f),
-            modifier = Modifier.fillMaxSize(0.4f),
+            tint = Color.White.copy(alpha = 0.55f),
+            modifier = Modifier.fillMaxSize(0.38f),
         )
         if (request != null) {
             AsyncImage(

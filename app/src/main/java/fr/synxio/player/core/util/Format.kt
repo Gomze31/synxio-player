@@ -100,9 +100,94 @@ fun fuzzyScoreNormalized(h: String, n: String): Int {
         h.startsWith(n) -> 800 - (h.length - n.length).coerceAtMost(200)
         wordStartMatch(h, n) -> 600
         h.contains(n) -> 400
-        subsequenceMatch(h, n) -> 150
-        else -> 0
+        else -> tokenScore(h, n).takeIf { it > 0 }
+            ?: if (subsequenceMatch(h, n)) 150 else 0
     }
+}
+
+/**
+ * Chaque mot de la requête se retrouve dans [h], dans n'importe quel ordre, au besoin
+ * avec une faute de frappe : « season stick », « kendij girac », « stik ».
+ *
+ * 300 si tous les mots sont présents tels quels, moins 40 par mot corrigé ; 0 si un mot
+ * reste introuvable. Les mots courts (moins de 4 lettres) doivent être exacts : tolérer
+ * une faute sur « le » ferait tout correspondre.
+ */
+private fun tokenScore(h: String, n: String): Int {
+    var typos = 0
+    var tokens = 0
+    var start = 0
+    while (start < n.length) {
+        while (start < n.length && n[start] in WORD_SEPARATORS) start++
+        if (start >= n.length) break
+        var end = start
+        while (end < n.length && n[end] !in WORD_SEPARATORS) end++
+        val token = n.substring(start, end)
+        start = end
+        tokens++
+        if (h.contains(token)) continue
+        if (token.length < 4 || !hasWordWithinTypo(h, token)) return 0
+        typos++
+    }
+    if (tokens == 0) return 0
+    return (300 - 40 * typos).coerceAtLeast(160)
+}
+
+/**
+ * Un mot de [h] (ou son début, pour une saisie en cours) est à une ou deux fautes de
+ * [token] : lettre remplacée, ajoutée, oubliée ou deux lettres inversées.
+ */
+private fun hasWordWithinTypo(h: String, token: String): Boolean {
+    val allowed = if (token.length >= 8) 2 else 1
+    var i = 0
+    while (i < h.length) {
+        while (i < h.length && h[i] in WORD_SEPARATORS) i++
+        if (i >= h.length) break
+        var j = i
+        while (j < h.length && h[j] !in WORD_SEPARATORS) j++
+        val wordLength = j - i
+        if (wordLength >= token.length - allowed) {
+            // Mot entier, ou son préfixe de la longueur de la saisie (« kendj » → « kendji »).
+            val full = h.substring(i, j)
+            if (osaDistance(token, full, allowed) <= allowed) return true
+            if (wordLength > token.length &&
+                osaDistance(token, full.substring(0, token.length), allowed) <= allowed
+            ) return true
+        }
+        i = j
+    }
+    return false
+}
+
+/**
+ * Distance d'édition « optimal string alignment » (Damerau restreint), arrêtée dès
+ * qu'elle dépasse [limit] : seule compte la réponse « proche ou pas ».
+ */
+internal fun osaDistance(a: String, b: String, limit: Int): Int {
+    if (kotlin.math.abs(a.length - b.length) > limit) return limit + 1
+    val cols = b.length + 1
+    var prevPrev = IntArray(cols)
+    var prev = IntArray(cols) { it }
+    var cur = IntArray(cols)
+    for (i in 1..a.length) {
+        cur[0] = i
+        var rowMin = cur[0]
+        for (j in 1..b.length) {
+            val cost = if (a[i - 1] == b[j - 1]) 0 else 1
+            var v = minOf(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
+            if (i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1]) {
+                v = minOf(v, prevPrev[j - 2] + 1)
+            }
+            cur[j] = v
+            if (v < rowMin) rowMin = v
+        }
+        if (rowMin > limit) return limit + 1
+        val tmp = prevPrev
+        prevPrev = prev
+        prev = cur
+        cur = tmp
+    }
+    return prev[b.length]
 }
 
 /**
@@ -121,13 +206,29 @@ private fun wordStartMatch(haystack: String, needle: String): Boolean {
     return false
 }
 
-/** Toutes les lettres de [needle] apparaissent dans l'ordre dans [haystack]. */
+/**
+ * Toutes les lettres de [needle] apparaissent dans l'ordre dans [haystack], groupées :
+ * l'écart entre la première et la dernière ne dépasse pas deux fois la saisie.
+ *
+ * Sans cette fenêtre, « kendij » trouvait « Take mE home couNtry roaDs… » : des lettres
+ * éparpillées sur tout le titre ne sont pas une faute de frappe.
+ */
 private fun subsequenceMatch(haystack: String, needle: String): Boolean {
-    var i = 0
-    for (c in haystack) {
-        if (i < needle.length && c == needle[i]) i++
+    if (needle.isEmpty()) return true
+    val window = needle.length * 2 + 1
+    var start = haystack.indexOf(needle[0])
+    while (start >= 0) {
+        var i = 0
+        var pos = start
+        val limit = minOf(haystack.length, start + window)
+        while (pos < limit && i < needle.length) {
+            if (haystack[pos] == needle[i]) i++
+            pos++
+        }
+        if (i == needle.length) return true
+        start = haystack.indexOf(needle[0], start + 1)
     }
-    return i == needle.length
+    return false
 }
 
 /**

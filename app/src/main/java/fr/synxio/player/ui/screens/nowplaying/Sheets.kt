@@ -40,6 +40,9 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.DragHandle
+import fr.synxio.player.ui.components.reorderHandle
+import fr.synxio.player.ui.components.reorderItem
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Refresh
@@ -374,23 +377,50 @@ fun QueueSheet(
                 )
             }
 
+            // Glisser-déposer par la poignée ; Monter/Descendre restent dans le menu pour
+            // le lecteur d'écran, qui ne sait pas faire glisser.
+            // Ouverte sur le titre en cours, pas sur le début d'une file de 300 titres.
+            val listState = rememberLazyListState(
+                initialFirstVisibleItemIndex = (currentIndex - 1).coerceIn(0, (queue.size - 1).coerceAtLeast(0)),
+            )
+            val keyed = remember(queue, keys) { keys.zip(queue) }
+            val reorder = fr.synxio.player.ui.components.rememberReorderState(
+                listState = listState,
+                source = keyed,
+                keyOf = { it.first },
+                onCommit = onMove,
+            )
             LazyColumn(
+                state = listState,
                 modifier = Modifier.heightIn(max = 520.dp),
                 contentPadding = PaddingValues(horizontal = Space.sm, vertical = Space.sm),
             ) {
-                itemsIndexed(queue, key = { index, _ -> keys[index] }) { index, song ->
+                itemsIndexed(reorder.items, key = { _, item -> item.first }) { index, (key, song) ->
                     var menuOpen by remember { mutableStateOf(false) }
+                    val dragged = reorder.draggingKey == key
+                    // L'index affiché suit la copie locale : pendant un glissement, la ligne
+                    // en cours de lecture se repère par sa clé, pas par sa position.
+                    val isCurrentRow = keys.getOrNull(currentIndex) == key
                     SongRow(
                         song = song,
-                        onClick = { onSelect(index) },
-                        isCurrent = index == currentIndex,
+                        onClick = { keys.indexOf(key).takeIf { it >= 0 }?.let(onSelect) },
+                        isCurrent = isCurrentRow,
                         isPlaying = isPlaying,
-                        modifier = if (reduceMotion) {
+                        modifier = (if (reduceMotion || dragged) {
                             Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null)
                         } else {
                             Modifier.animateItem()
-                        },
+                        }).reorderItem(reorder, key),
                         trailing = {
+                            Icon(
+                                Icons.Rounded.DragHandle,
+                                contentDescription = "Déplacer ${song.title}",
+                                tint = if (dragged) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier
+                                    .size(Space.touchTarget)
+                                    .reorderHandle(reorder, key)
+                                    .padding(12.dp),
+                            )
                             Box {
                                 IconButton(
                                     onClick = { menuOpen = true },

@@ -95,6 +95,25 @@ class PlaylistRepository @Inject constructor(
         )
     }
 
+    /**
+     * Déplace le titre visible n° [from] à la place n° [to].
+     *
+     * Les indices sont ceux de la liste affichée, qui masque les titres devenus
+     * indisponibles. Ces derniers restent en base, à leur place relative : un fichier
+     * retrouvé (carte SD remise) réapparaît là où il était.
+     */
+    suspend fun moveSong(playlistId: Long, from: Int, to: Int) {
+        val index = musicRepository.songsById.value
+        val entries = dao.entries(playlistId).sortedBy { it.position }
+        val moved = moveVisible(entries, { it.songId in index }, from, to)
+        if (moved === entries) return
+        dao.replaceEntries(
+            playlistId,
+            moved.mapIndexed { i, e -> e.copy(rowId = 0, position = i) },
+            System.currentTimeMillis(),
+        )
+    }
+
     suspend fun reorder(playlistId: Long, songIds: List<Long>) {
         val index = musicRepository.songsById.value
         dao.replaceEntries(
@@ -175,4 +194,24 @@ class PlaylistRepository @Inject constructor(
     }
 
     val playlistNames: Flow<List<String>> = playlists.map { list -> list.map { it.name } }
+}
+
+/**
+ * Déplace l'élément visible n° [from] à la place visible n° [to], sans toucher à l'ordre
+ * relatif des éléments masqués. Rend [entries] tel quel si le déplacement est impossible.
+ */
+internal fun <E> moveVisible(entries: List<E>, isVisible: (E) -> Boolean, from: Int, to: Int): List<E> {
+    val visible = entries.indices.filter { isVisible(entries[it]) }
+    if (from !in visible.indices || to !in visible.indices || from == to) return entries
+    val result = entries.toMutableList()
+    val item = result.removeAt(visible[from])
+    val visibleAfter = result.indices.filter { isVisible(result[it]) }
+    val insertAt = if (to < visibleAfter.size) {
+        // Vers le bas, on se place juste après l'élément qui occupait la place visée.
+        if (to > from) visibleAfter[to - 1] + 1 else visibleAfter[to]
+    } else {
+        visibleAfter.last() + 1
+    }
+    result.add(insertAt, item)
+    return result
 }

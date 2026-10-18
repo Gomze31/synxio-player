@@ -110,6 +110,43 @@ class PlayerConnection @Inject constructor(
         if (controller != null) block() else pendingCommands += { block() }
     }
 
+    /**
+     * Commandes qui n'ont de sens que sur une file : suivant, précédent, aléatoire,
+     * répétition, favori.
+     *
+     * Au démarrage à froid (appui sur le widget, processus éteint), la file sauvegardée
+     * n'est relue qu'après le scan de la bibliothèque. Une commande arrivée avant agissait
+     * sur un lecteur vide (« suivant » sans effet), ou était écrasée par la restauration
+     * (l'aléatoire repassait à son ancienne valeur). Elle attend donc la file, au plus
+     * [QUEUE_WAIT_MS] : sans file sauvegardée, elle s'exécute quand même.
+     */
+    private val pendingUntilQueue = ArrayList<() -> Unit>()
+    private var queueWaitStarted = false
+
+    private fun whenQueueReady(block: () -> Unit) = whenConnected {
+        val c = controller ?: return@whenConnected
+        if (c.mediaItemCount > 0) {
+            block()
+            return@whenConnected
+        }
+        pendingUntilQueue += block
+        if (!queueWaitStarted) {
+            queueWaitStarted = true
+            scope.launch(Dispatchers.Main) {
+                delay(QUEUE_WAIT_MS)
+                flushQueueCommands()
+            }
+        }
+    }
+
+    private fun flushQueueCommands() {
+        queueWaitStarted = false
+        if (pendingUntilQueue.isEmpty()) return
+        val commands = pendingUntilQueue.toList()
+        pendingUntilQueue.clear()
+        commands.forEach { it() }
+    }
+
     init {
         scope.launch { connect() }
         scope.launch { tickPosition() }
@@ -282,8 +319,11 @@ class PlayerConnection @Inject constructor(
             _errors.tryEmit("Impossible de lire « $title » (${error.errorCodeName})")
         }
 
-        override fun onEvents(player: Player, events: Player.Events) =
+        override fun onEvents(player: Player, events: Player.Events) {
             syncState(rebuildQueue = events.contains(Player.EVENT_TIMELINE_CHANGED))
+            // File restaurée : les commandes du widget en attente peuvent partir.
+            if (player.mediaItemCount > 0 && pendingUntilQueue.isNotEmpty()) flushQueueCommands()
+        }
     }
 
     // --- Commandes ----------------------------------------------------------------------
@@ -402,8 +442,8 @@ class PlayerConnection @Inject constructor(
 
     fun pause() { controller?.pause() }
 
-    fun next() {
-        val c = controller ?: return
+    fun next() = whenQueueReady {
+        val c = controller ?: return@whenQueueReady
         c.seekToNextMediaItem()
         // Après une erreur le lecteur reste IDLE : changer de piste ne relançait rien.
         if (c.playbackState == Player.STATE_IDLE) c.prepare()
@@ -413,8 +453,8 @@ class PlayerConnection @Inject constructor(
      * Retour arrière : redémarre le morceau au-delà de 3 secondes, sinon piste précédente.
      * `seekToPrevious` redémarre aussi le premier morceau, où l'ancien code ne faisait rien.
      */
-    fun previous() {
-        val c = controller ?: return
+    fun previous() = whenQueueReady {
+        val c = controller ?: return@whenQueueReady
         c.seekToPrevious()
         if (c.playbackState == Player.STATE_IDLE) c.prepare()
     }
@@ -437,13 +477,13 @@ class PlayerConnection @Inject constructor(
         if (index in 0 until c.mediaItemCount) c.seekTo(index, 0L)
     }
 
-    fun toggleShuffle() {
-        val c = controller ?: return
+    fun toggleShuffle() = whenQueueReady {
+        val c = controller ?: return@whenQueueReady
         c.shuffleModeEnabled = !c.shuffleModeEnabled
     }
 
-    fun cycleRepeat() {
-        val c = controller ?: return
+    fun cycleRepeat() = whenQueueReady {
+        val c = controller ?: return@whenQueueReady
         c.repeatMode = when (c.repeatMode) {
             Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
             Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
@@ -477,7 +517,7 @@ class PlayerConnection @Inject constructor(
         controller?.playbackParameters = PlaybackParameters(speed, pitch)
     }
 
-    fun toggleFavorite() = sendCommand(PlaybackService.CMD_TOGGLE_FAVORITE)
+    fun toggleFavorite() = whenQueueReady { sendCommand(PlaybackService.CMD_TOGGLE_FAVORITE) }
 
     fun startSleepTimer(durationMs: Long, finishCurrentTrack: Boolean) = sendCommand(
         PlaybackService.CMD_SLEEP_TIMER,
@@ -489,7 +529,9 @@ class PlayerConnection @Inject constructor(
 
     fun cancelSleepTimer() = sendCommand(PlaybackService.CMD_CANCEL_SLEEP_TIMER)
 
-    private fun sendCommand(action: String, args: Bundle = Bundle.EMPTY) {
+    // En attente si le contrôleur se connecte encore : une commande du widget arrive
+    // souvent processus froid, avant la fin de la connexion au service.
+    private fun sendCommand(action: String, args: Bundle = Bundle.EMPTY) = whenConnected {
         controller?.sendCustomCommand(SessionCommand(action, Bundle.EMPTY), args)
     }
 
@@ -497,6 +539,9 @@ class PlayerConnection @Inject constructor(
     val currentMediaItem: MediaItem? get() = controller?.currentMediaItem
 
     private companion object {
+        /** Attente maximale de la file restaurée pour une commande du widget. */
+        const val QUEUE_WAIT_MS = 6_000L
+
         /** Cadence d'échantillonnage quand une boucle A-B est active. */
         const val LOOP_TICK_MS = 60L
         /** En dessous, la boucle ne produirait qu'un hoquet au lieu d'une phrase. */

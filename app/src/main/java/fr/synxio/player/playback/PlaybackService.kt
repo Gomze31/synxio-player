@@ -44,8 +44,8 @@ import fr.synxio.player.data.discord.DiscordPresenceRepository
 import fr.synxio.player.data.repo.DiscordRepository
 import fr.synxio.player.data.repo.LoudnessRepository
 import fr.synxio.player.data.repo.MusicRepository
-import fr.synxio.player.widget.SynxioWidget
-import androidx.glance.appwidget.updateAll
+import fr.synxio.player.widget.WidgetSnapshot
+import fr.synxio.player.widget.WidgetUpdater
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -87,6 +87,7 @@ class PlaybackService : MediaLibraryService() {
     @Inject lateinit var discord: DiscordRepository
     @Inject lateinit var discordPresence: DiscordPresenceRepository
     @Inject lateinit var podcastProgressDao: fr.synxio.player.data.db.PodcastProgressDao
+    @Inject lateinit var widgetUpdater: WidgetUpdater
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -132,6 +133,7 @@ class PlaybackService : MediaLibraryService() {
     private var persistSoonJob: Job? = null
     private var positionSaveJob: Job? = null
     private var widgetJob: Job? = null
+    private var widgetTickJob: Job? = null
 
     /** Vrai quand la composition de la file a changé depuis la dernière écriture. */
     private var queueDirty = true
@@ -175,6 +177,7 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onCreate() {
         super.onCreate()
+        isRunning = true
 
         val httpDataSourceFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
@@ -355,6 +358,12 @@ class PlaybackService : MediaLibraryService() {
         runCatching {
             runBlocking { withTimeoutOrNull(FINAL_WRITE_TIMEOUT_MS) { queueWriter.join() } }
         }
+        // Le widget ne doit pas rester sur « lecture » une fois le service parti.
+        isRunning = false
+        widgetTickJob?.cancel()
+        val (lastSnapshot, lastArt) = widgetSnapshot()
+        val updater = widgetUpdater
+        writeScope.launch { runCatching { updater.publish(lastSnapshot.copy(isPlaying = false), lastArt) } }
         // Fin de service : la piste en cours n'est ni terminée ni passée, juste interrompue.
         finalizeCurrentTrack(skipped = false, finished = false)
         positionSaveJob?.cancel()
@@ -423,6 +432,7 @@ class PlaybackService : MediaLibraryService() {
                     sensorManager?.unregisterListener(shakeDetector)
                 }
 
+                if (previous != null && previous.themeMode != s.themeMode) refreshWidgetSoon()
                 vocalRemover.setEnabled(s.karaokeEnabled)
                 fade.volumeCap = if (s.maxVolumeLimit) s.maxVolumeValue else 1f
 
@@ -447,7 +457,10 @@ class PlaybackService : MediaLibraryService() {
     /** Le bouton « favori » de la notification doit refléter le morceau courant. */
     private fun observeFavoriteForCustomLayout() {
         musicRepository.favoriteIds
-            .onEach { refreshFavoriteButton(it) }
+            .onEach {
+                refreshFavoriteButton(it)
+                refreshWidgetSoon()
+            }
             .launchIn(serviceScope)
     }
 
@@ -611,17 +624,63 @@ class PlaybackService : MediaLibraryService() {
         widgetJob = serviceScope.launch {
             delay(WIDGET_REFRESH_DELAY_MS)
 
-            // L'état de lecture est relu ici, au dernier moment, et non repris de
-            // l'instantané pris par le callback qui a déclenché la persistance. Selon
-            // l'ordre des événements — une transition de piste peut suivre le passage en
-            // lecture — ce dernier écrivait parfois un état transitoire faux, et le
-            // widget affichait « lecture » alors que la musique tournait.
+            // L'état est relu ici, au dernier moment, et non repris de l'instantané pris
+            // par le callback déclencheur : une transition de piste peut suivre le passage
+            // en lecture, et l'on publiait parfois un état transitoire faux.
             val playing = activePlayer.isPlaying
+            val (snapshot, artworkUri) = widgetSnapshot()
             runCatching {
                 queueDao.setPlaying(playing)
-                fr.synxio.player.widget.SynxioWidget().updateAll(this@PlaybackService)
-                fr.synxio.player.widget.SynxioLargeWidget().updateAll(this@PlaybackService)
+                widgetUpdater.publish(snapshot, artworkUri)
             }.onFailure { android.util.Log.d("SynxioWidget", "Widget non rafraichi", it) }
+        }
+    }
+
+    /**
+     * Photo de la lecture pour les widgets, avec l'URI de la pochette à préparer.
+     *
+     * Titre et artiste viennent des métadonnées du lecteur : elles couvrent aussi les
+     * webradios, absentes de la bibliothèque, et leurs titres ICY qui changent en direct.
+     */
+    private fun widgetSnapshot(): Pair<WidgetSnapshot, android.net.Uri?> {
+        val p = activePlayer
+        val item = p.currentMediaItem ?: return WidgetSnapshot() to null
+        val metadata = p.mediaMetadata
+        val song = musicRepository.songById(item.songId)
+        val duration = p.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: song?.durationMs ?: 0L
+        val snapshot = WidgetSnapshot(
+            mediaId = item.mediaId.ifEmpty { item.localConfiguration?.uri?.toString().orEmpty() },
+            title = metadata.title?.toString() ?: song?.title.orEmpty(),
+            artist = metadata.artist?.toString() ?: song?.displayArtist.orEmpty(),
+            album = metadata.albumTitle?.toString() ?: song?.album.orEmpty(),
+            isPlaying = !Util.shouldShowPlayButton(p),
+            positionMs = p.currentPosition.coerceAtLeast(0L),
+            durationMs = duration,
+            capturedAtMs = System.currentTimeMillis(),
+            shuffle = p.shuffleModeEnabled,
+            repeatMode = p.repeatMode,
+            favorite = song != null && song.id in musicRepository.favoriteIds.value,
+            hasNext = p.hasNextMediaItem(),
+            live = p.isCurrentMediaItemLive || (song == null && duration <= 0L),
+        )
+        return snapshot to (metadata.artworkUri ?: song?.artworkUri)
+    }
+
+    /**
+     * Fait avancer la barre de progression des widgets pendant la lecture.
+     *
+     * Seulement écran allumé et si un widget est posé : personne ne regarde un écran
+     * d'accueil éteint, et chaque mise à jour réveille le lanceur.
+     */
+    private fun startWidgetTicker() {
+        if (widgetTickJob?.isActive == true) return
+        widgetTickJob = serviceScope.launch {
+            val power = getSystemService(android.os.PowerManager::class.java)
+            while (isActive) {
+                delay(WIDGET_TICK_MS)
+                if (!activePlayer.isPlaying) break
+                if (power?.isInteractive != false && widgetUpdater.hasWidgets()) refreshWidgetSoon()
+            }
         }
     }
 
@@ -832,6 +891,11 @@ class PlaybackService : MediaLibraryService() {
             persistQueue()
         }
 
+        /** Titre ICY d'une webradio, pochette chargée tard : le widget suit. */
+        override fun onMediaMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) {
+            refreshWidgetSoon()
+        }
+
         override fun onPlaybackStateChanged(playbackState: Int) {
             // « Fin du morceau » sur la dernière piste : aucune transition ne suit, et la
             // minuterie restait active à 0:00 indéfiniment.
@@ -879,6 +943,7 @@ class PlaybackService : MediaLibraryService() {
                 if (trackedSongId < 0) startTracking(activePlayer.currentMediaItem)
                 announceIfPlaying()
                 startPositionSaver()
+                startWidgetTicker()
             } else {
                 accumulate()
                 persistPodcastProgress()
@@ -1295,7 +1360,15 @@ class PlaybackService : MediaLibraryService() {
         const val ARG_FINISH_TRACK = "finish_track"
 
         /** Laisse la persistance écrire, et absorbe les appels groupés. */
-        private const val WIDGET_REFRESH_DELAY_MS = 400L
+        private const val WIDGET_REFRESH_DELAY_MS = 250L
+
+        /** Cadence de la progression des widgets pendant la lecture, écran allumé. */
+        private const val WIDGET_TICK_MS = 20_000L
+
+        /** Vrai tant que le service existe dans ce processus (widgets : état « lecture » périmé). */
+        @Volatile
+        var isRunning: Boolean = false
+            private set
 
         private const val TAG = "PlaybackService"
         private const val POSITION_SAVE_INTERVAL_MS = 10_000L

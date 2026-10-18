@@ -146,16 +146,16 @@ class MediaStoreScanner @Inject constructor(
                         id = cursor.getLong(idCol),
                         // Les tags rippés traînent souvent des espaces parasites
                         // (« <espace>nos souvenirs ») : on nettoie à la source.
-                        title = cursor.getString(titleCol)?.trim()?.takeIf { it.isNotEmpty() }
-                            ?: path.substringAfterLast('/'),
-                        artist = cursor.getString(artistCol).orEmpty().trim(),
+                        title = cursor.getString(titleCol)?.tidyTag()?.takeIf { it.isNotEmpty() }
+                            ?: path.substringAfterLast('/').tidyTag(),
+                        artist = cursor.getString(artistCol).orEmpty().tidyTag(),
                         artistId = cursor.getLong(artistIdCol),
-                        album = cursor.getString(albumCol).orEmpty().trim(),
+                        album = cursor.getString(albumCol).orEmpty().tidyTag(),
                         albumId = cursor.getLong(albumIdCol),
                         albumArtist = albumArtistCol.takeIf { it >= 0 }
-                            ?.let { cursor.getString(it)?.trim() },
+                            ?.let { cursor.getString(it)?.tidyTag() },
                         genre = genreCol.takeIf { it >= 0 }
-                            ?.let { cursor.getString(it)?.trim() },
+                            ?.let { cursor.getString(it)?.tidyTag() },
                         durationMs = cursor.getLong(durationCol),
                         track = track,
                         disc = disc.coerceAtLeast(1),
@@ -278,4 +278,36 @@ class MediaStoreScanner @Inject constructor(
     private companion object {
         const val TAG = "MediaStoreScanner"
     }
+}
+
+/**
+ * Nettoie un tag lu dans MediaStore : espaces parasites, double encodage, Unicode décomposé.
+ *
+ *  - Double encodage : un tag UTF-8 déclaré Latin-1 ressort en « RÃ©veiller » ou, avec un
+ *    accent combinant, en « ReÌ\u0081veiller ». On le répare quand, et seulement quand,
+ *    ses caractères relus comme des octets forment un UTF-8 valide (voir [repairMojibake]).
+ *  - Unicode décomposé : certains fichiers stockent « é » en « e » + accent combinant. Les
+ *    lanceurs l'affichaient « Reì veiller » dans le widget, et la recherche ou le tri le
+ *    traitaient comme un autre mot. On recompose en NFC.
+ */
+internal fun String.tidyTag(): String {
+    val repaired = repairMojibake(trim())
+    return if (java.text.Normalizer.isNormalized(repaired, java.text.Normalizer.Form.NFC)) repaired
+    else java.text.Normalizer.normalize(repaired, java.text.Normalizer.Form.NFC)
+}
+
+/**
+ * Répare un texte UTF-8 qui a été lu comme du Latin-1.
+ *
+ * Sans risque pour un texte sain : « Café » en Latin-1 donne l'octet E9 seul, qui n'est
+ * pas de l'UTF-8 valide, et le texte est rendu tel quel. Seules les suites d'octets qui
+ * forment un UTF-8 correct — signature du double encodage — sont reconverties.
+ */
+internal fun repairMojibake(text: String): String {
+    if (text.none { it.code in 0x80..0xFF } || text.any { it.code > 0xFF }) return text
+    val bytes = text.toByteArray(Charsets.ISO_8859_1)
+    val decoder = Charsets.UTF_8.newDecoder()
+        .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+        .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+    return runCatching { decoder.decode(java.nio.ByteBuffer.wrap(bytes)).toString() }.getOrDefault(text)
 }

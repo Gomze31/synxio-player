@@ -1,5 +1,6 @@
 package fr.synxio.player.ui.screens
 
+import fr.synxio.player.ui.theme.synxioTopBarColors
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
@@ -113,6 +114,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -405,6 +407,7 @@ fun SettingsScreen(
     ) {
         // Top App Bar
         TopAppBar(
+            colors = synxioTopBarColors(),
             title = {
                 Text(
                     text = currentSubMenu?.title ?: "Paramètres",
@@ -566,6 +569,35 @@ fun SettingsScreen(
                                 icon = Icons.Rounded.DataSaverOn,
                                 checked = settings.reduceAnimations,
                                 onCheckedChange = settingsViewModel::setReduceAnimations
+                            )
+                        }
+
+                        // Le lanceur doit accepter l'épinglage : sinon, on explique le
+                        // geste manuel plutôt que de proposer un bouton sans effet.
+                        item {
+                            val context = LocalContext.current
+                            ClickableSetting(
+                                title = "Ajouter le widget compact",
+                                subtitle = "Pochette, titre et commandes sur l'écran d'accueil",
+                                icon = Icons.Rounded.Widgets,
+                                onClick = {
+                                    if (!fr.synxio.player.widget.requestPinWidget(context, large = false)) {
+                                        viewModel.showMessage("Ajoute-le par un appui long sur l'écran d'accueil › Widgets › Synxio")
+                                    }
+                                },
+                            )
+                        }
+                        item {
+                            val context = LocalContext.current
+                            ClickableSetting(
+                                title = "Ajouter le grand widget",
+                                subtitle = "Grande pochette, progression et toutes les commandes",
+                                icon = Icons.Rounded.Widgets,
+                                onClick = {
+                                    if (!fr.synxio.player.widget.requestPinWidget(context, large = true)) {
+                                        viewModel.showMessage("Ajoute-le par un appui long sur l'écran d'accueil › Widgets › Synxio")
+                                    }
+                                },
                             )
                         }
                     }

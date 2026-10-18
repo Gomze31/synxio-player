@@ -159,7 +159,7 @@
         <receiver
             android:name=".widget.SynxioLargeWidgetReceiver"
             android:exported="true"
-            android:label="Grand Widget Synxio">
+            android:label="@string/widget_large_label">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>

@@ -1,5 +1,7 @@
 package fr.synxio.player.ui.screens
 
+import fr.synxio.player.ui.theme.synxioTopBarColors
+import androidx.compose.ui.graphics.Color
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -82,9 +84,11 @@ fun AudiobooksScreen(
     }
 
     Scaffold(
+        containerColor = Color.Transparent,
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             TopAppBar(
+                colors = synxioTopBarColors(),
                 title = { Text("Livres audio") },
                 navigationIcon = {
                     if (onBack != null) {

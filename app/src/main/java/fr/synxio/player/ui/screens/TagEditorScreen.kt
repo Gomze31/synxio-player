@@ -1,5 +1,7 @@
 package fr.synxio.player.ui.screens
 
+import fr.synxio.player.ui.theme.synxioTopBarColors
+import androidx.compose.ui.graphics.Color
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -140,10 +142,12 @@ fun TagEditorScreen(
     val formValid = yearError == null && trackError == null && discError == null
 
     Scaffold(
+        containerColor = Color.Transparent,
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         snackbarHost = { SnackbarHost(snackbarHost) },
         topBar = {
             TopAppBar(
+                colors = synxioTopBarColors(),
                 title = { Text("Modifier les tags") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {

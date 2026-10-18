@@ -1,5 +1,7 @@
 package fr.synxio.player.ui.screens
 
+import fr.synxio.player.ui.theme.synxioTopBarColors
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -72,9 +74,11 @@ fun DriveModeScreen(
     val swipeThreshold = with(LocalDensity.current) { 80.dp.toPx() }
 
     Scaffold(
+        containerColor = Color.Transparent,
         modifier = Modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
+                colors = synxioTopBarColors(),
                 title = { Text("Mode voiture") },
                 navigationIcon = {
                     FilledTonalIconButton(

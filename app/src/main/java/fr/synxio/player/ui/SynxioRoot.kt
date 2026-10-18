@@ -20,6 +20,26 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
+import fr.synxio.player.ui.theme.AmbientBackdrop
+import fr.synxio.player.ui.theme.Space
+import fr.synxio.player.ui.theme.SynxioShape
+import fr.synxio.player.ui.theme.glass
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -182,7 +202,9 @@ fun SynxioRoot(viewModel: AppViewModel, openPlayerRequest: Long) {
         if (permission.status.isGranted) viewModel.onPermissionGranted()
     }
 
-    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+    // Fond ambiant commun à tout l'app : les écrans sont transparents par-dessus.
+    Box(Modifier.fillMaxSize()) {
+        AmbientBackdrop()
         if (permission.status.isGranted) {
             MainScaffold(viewModel, openPlayerRequest)
         } else {
@@ -293,6 +315,7 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
 
     Box(Modifier.fillMaxSize()) {
         Scaffold(
+            containerColor = Color.Transparent,
             snackbarHost = { SnackbarHost(snackbarHost) },
             bottomBar = {
                 Column {
@@ -422,27 +445,97 @@ private fun shouldShowBottomBar(navController: NavHostController): Boolean {
     return !fullScreen
 }
 
+/**
+ * Barre de navigation flottante en verre.
+ *
+ * Une pilule translucide posée au-dessus du fond ambiant, au lieu de la barre opaque
+ * pleine largeur de Material : l'onglet actif porte une capsule d'accent animée.
+ */
 @Composable
 private fun BottomBar(navController: NavHostController) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
 
-    NavigationBar {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(start = Space.md, end = Space.md, top = Space.xs, bottom = Space.sm)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(68.dp)
+                .clip(SynxioShape.pill)
+                .glass(SynxioShape.pill, strength = 1f)
+                .selectableGroup()
+                .padding(horizontal = Space.xs),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             TopLevel.entries.forEach { destination ->
-                NavigationBarItem(
+                NavItem(
+                    destination = destination,
                     selected = currentRoute == destination.route,
                     onClick = { navController.navigateToTopLevel(destination.route) },
-                    icon = { Icon(destination.icon, contentDescription = destination.label) },
-                    label = {
-                        Text(
-                            text = destination.label,
-                            maxLines = 1,
-                            softWrap = false,
-                            style = MaterialTheme.typography.labelSmall,
-                        )
-                    },
+                    modifier = Modifier.weight(1f),
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun NavItem(
+    destination: TopLevel,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val scheme = MaterialTheme.colorScheme
+    val reduceMotion = LocalReduceMotion.current
+    val indicator by animateColorAsState(
+        if (selected) scheme.primary.copy(alpha = 0.20f) else Color.Transparent,
+        Motion.standardOrSnap(reduceMotion),
+        label = "navIndicator",
+    )
+    val tint by animateColorAsState(
+        if (selected) scheme.primary else scheme.onSurfaceVariant,
+        Motion.standardOrSnap(reduceMotion),
+        label = "navTint",
+    )
+    val indicatorWidth by animateDpAsState(
+        if (selected) 56.dp else 36.dp,
+        Motion.standardOrSnap(reduceMotion),
+        label = "navWidth",
+    )
+    Column(
+        modifier = modifier
+            .fillMaxHeight()
+            .clip(SynxioShape.pill)
+            .selectable(selected = selected, role = Role.Tab, onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Box(
+            Modifier
+                .width(indicatorWidth)
+                .height(30.dp)
+                .clip(SynxioShape.pill)
+                .background(indicator),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(destination.icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
+        }
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = destination.label,
+            maxLines = 1,
+            softWrap = false,
+            color = tint,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            ),
+        )
     }
 }
 

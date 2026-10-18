@@ -1,5 +1,6 @@
 package fr.synxio.player.ui.screens
 
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -67,6 +68,7 @@ fun RecentsScreen(
     val ordered = remember(buckets) { buckets.flatMap { it.second } }
 
     Scaffold(
+        containerColor = Color.Transparent,
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             LargeTopAppBar(

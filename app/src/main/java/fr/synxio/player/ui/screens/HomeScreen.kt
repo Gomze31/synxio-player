@@ -203,7 +203,8 @@ fun HomeScreen(
                                 .clickable(
                                     onClickLabel = "Ouvrir l'artiste",
                                     role = Role.Button,
-                                ) { onOpenArtist(artist.name) },
+                                ) { onOpenArtist(artist.name) }
+                                .padding(bottom = Space.sm),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
                             Artwork(
@@ -351,7 +352,9 @@ private fun SongCarousel(songs: List<Song>, currentSongId: Long?, onClick: (Song
                     .clickable(onClickLabel = "Lire", role = Role.Button) { onClick(song) }
                     .semantics {
                         if (isCurrent) stateDescription = "En cours de lecture"
-                    },
+                    }
+                    // Sans cette marge, l'arrondi du clip rognait le bas du nom de l'artiste.
+                    .padding(bottom = Space.sm),
             ) {
                 Artwork(
                     model = song.artworkUri,

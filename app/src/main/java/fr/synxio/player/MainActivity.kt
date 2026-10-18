@@ -89,6 +89,12 @@ class MainActivity : AppCompatActivity() {
         // Le splash statique du thème laisse place à l'UI Compose dès le premier frame.
         setTheme(R.style.Theme_Synxio)
         enableEdgeToEdge()
+        // Navigation à trois boutons : Android pose sinon un voile gris opaque sous la barre
+        // système, qui coupait le fond ambiant. Les boutons restent lisibles : leur couleur
+        // suit le thème clair/sombre de la fenêtre.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+        }
         super.onCreate(savedInstanceState)
         if (savedInstanceState == null) pendingIntent.value = intent
 
