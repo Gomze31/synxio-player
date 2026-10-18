@@ -7,6 +7,12 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.ui.graphics.Brush
+import fr.synxio.player.ui.theme.EyebrowTextStyle
+import fr.synxio.player.ui.theme.LocalGlowEffects
+import fr.synxio.player.ui.theme.SynxioTheme
+import fr.synxio.player.ui.theme.glass
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,7 +29,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.MusicNote
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -138,6 +143,7 @@ fun SectionHeader(
     modifier: Modifier = Modifier,
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null,
+    eyebrow: String? = null,
 ) {
     val hasAction = actionLabel != null && onAction != null
     Row(
@@ -150,20 +156,31 @@ fun SectionHeader(
                 top = Space.xl,
                 bottom = Space.sm,
             ),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.Bottom,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleLarge,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .weight(1f, fill = false)
-                .semantics { heading() },
-        )
+        Column(Modifier.weight(1f, fill = false)) {
+            if (eyebrow != null) {
+                Text(
+                    text = eyebrow.uppercase(),
+                    style = EyebrowTextStyle,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                )
+                Spacer(Modifier.height(Space.xxs))
+            }
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.semantics { heading() },
+            )
+        }
         if (hasAction) {
-            TextButton(onClick = onAction!!) { Text(actionLabel!!) }
+            TextButton(onClick = onAction!!, shape = SynxioShape.pill) {
+                Text(actionLabel!!, style = MaterialTheme.typography.labelLarge)
+            }
         }
     }
 }
@@ -193,9 +210,10 @@ fun MarqueeText(
 }
 
 /**
- * État vide (ou introuvable, ou erreur) commun à tous les écrans : icône dans un rond
- * `primaryContainer`, titre, explication et action optionnelle. Un seul composant pour
- * que tous les « rien ici » de l'app se ressemblent.
+ * État vide (ou introuvable, ou erreur) commun à tous les écrans : icône dans un disque
+ * de verre cerclé de la signature Lumen, posé sur un halo, titre, explication et action
+ * optionnelle. L'ensemble se pose en douceur à l'apparition. Un seul composant pour que
+ * tous les « rien ici » de l'app se ressemblent.
  */
 @Composable
 fun EmptyState(
@@ -207,31 +225,48 @@ fun EmptyState(
     onAction: (() -> Unit)? = null,
 ) {
     val scheme = MaterialTheme.colorScheme
+    val colors = SynxioTheme.colors
+    val glow = LocalGlowEffects.current
     Column(
         modifier = modifier
             .fillMaxSize()
+            .enterCascade(0, key = title)
             .padding(horizontal = Space.xxl, vertical = Space.xl),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Box(
-            modifier = Modifier
-                .size(88.dp)
-                .clip(CircleShape)
-                .background(scheme.primaryContainer),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                modifier = Modifier.size(48.dp),
-                tint = scheme.onPrimaryContainer,
-            )
+        Box(contentAlignment = Alignment.Center) {
+            if (glow) {
+                Box(
+                    Modifier
+                        .size(150.dp)
+                        .background(
+                            Brush.radialGradient(
+                                listOf(colors.brandEnd.copy(alpha = 0.28f), Color.Transparent)
+                            )
+                        )
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .size(96.dp)
+                    .clip(CircleShape)
+                    .glass(CircleShape, strength = 1f, border = false)
+                    .border(1.5.dp, colors.brandBrush, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(42.dp),
+                    tint = scheme.primary,
+                )
+            }
         }
-        Spacer(Modifier.height(Space.xl))
+        Spacer(Modifier.height(Space.lg))
         Text(
             text = title,
-            style = MaterialTheme.typography.titleMedium,
+            style = MaterialTheme.typography.headlineSmall,
             color = scheme.onSurface,
             textAlign = TextAlign.Center,
             modifier = Modifier.semantics { heading() },
@@ -245,7 +280,7 @@ fun EmptyState(
         )
         if (actionLabel != null && onAction != null) {
             Spacer(Modifier.height(Space.xl))
-            FilledTonalButton(onClick = onAction, shape = SynxioShape.pill) { Text(actionLabel) }
+            BrandButton(text = actionLabel, onClick = onAction)
         }
     }
 }

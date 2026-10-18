@@ -191,6 +191,7 @@ class SettingsViewModel @Inject constructor(
 
     /** Réduire les animations */
     fun setReduceAnimations(value: Boolean) = update { settings.setReduceAnimations(value) }
+    fun setGlowEffects(value: Boolean) = update { settings.setGlowEffects(value) }
 
     // ========================================================================
     // LECTURE & AFFICHAGE AVANCÉS

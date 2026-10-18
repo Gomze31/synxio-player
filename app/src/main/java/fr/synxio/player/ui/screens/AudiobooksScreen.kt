@@ -1,10 +1,13 @@
 package fr.synxio.player.ui.screens
 
-import fr.synxio.player.ui.theme.synxioTopBarColors
-import androidx.compose.ui.graphics.Color
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -15,16 +18,20 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.rounded.CreateNewFolder
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -35,6 +42,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,18 +50,38 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import fr.synxio.player.core.util.asLongDuration
 import fr.synxio.player.data.model.Folder
+import fr.synxio.player.ui.components.Artwork
 import fr.synxio.player.ui.components.EmptyState
-import fr.synxio.player.ui.components.FolderRow
+import fr.synxio.player.ui.components.GlassButton
+import fr.synxio.player.ui.components.ScreenHeader
+import fr.synxio.player.ui.components.SkeletonSongRow
+import fr.synxio.player.ui.components.enterCascade
+import fr.synxio.player.ui.components.pressBounce
+import fr.synxio.player.ui.theme.LocalReduceMotion
+import fr.synxio.player.ui.theme.Motion
 import fr.synxio.player.ui.theme.Space
+import fr.synxio.player.ui.theme.SynxioShape
+import fr.synxio.player.ui.theme.TabularNumbers
+import fr.synxio.player.ui.theme.glass
+import fr.synxio.player.ui.theme.synxioTopBarColors
 import fr.synxio.player.ui.viewmodel.AppViewModel
 
 /** Hauteur maximale de la liste des dossiers dans la boîte de dialogue. */
-private val FolderListMaxHeight = 200.dp
+private val FolderListMaxHeight = 220.dp
+
+/** Couverture d'un livre dans la liste : plus grande qu'une vignette de titre. */
+private val BookCoverSize = 64.dp
 
 /**
  * Livres audio : les morceaux rangés dans les dossiers déclarés comme tels, regroupés
@@ -73,15 +101,27 @@ fun AudiobooksScreen(
     val library by viewModel.library.collectAsStateWithLifecycle()
     val audiobooks by viewModel.audiobooks.collectAsStateWithLifecycle()
     val audiobookFolders by viewModel.audiobookFolders.collectAsStateWithLifecycle()
+    val reduce = LocalReduceMotion.current
 
     var showManageFolders by rememberSaveable { mutableStateOf(false) }
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    val listState = rememberLazyListState()
 
     val books = remember(audiobooks) {
         audiobooks.groupBy { it.folderPath }
             .map { (path, songs) -> Folder(path, songs.sortedBy { it.track }) }
             .sortedBy { it.name }
     }
+    val summary = remember(books) {
+        val total = books.sumOf { book -> book.songs.sumOf { it.durationMs } }
+        val count = if (books.size <= 1) "${books.size} livre" else "${books.size} livres"
+        if (books.isEmpty()) null else "$count · ${total.asLongDuration()}"
+    }
+    // Le grand titre vit dans la liste ; la barre ne le reprend qu'une fois passé dessous.
+    val showBarTitle by remember {
+        derivedStateOf { listState.firstVisibleItemIndex > 0 }
+    }
+    val hasList = !(library.isLoading && books.isEmpty()) && books.isNotEmpty()
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -89,7 +129,15 @@ fun AudiobooksScreen(
         topBar = {
             TopAppBar(
                 colors = synxioTopBarColors(),
-                title = { Text("Livres audio") },
+                title = {
+                    AnimatedVisibility(
+                        visible = !hasList || showBarTitle,
+                        enter = fadeIn(Motion.standardOrSnap(reduce, Motion.SHORT)),
+                        exit = fadeOut(Motion.standardOrSnap(reduce, Motion.XS)),
+                    ) {
+                        Text("Livres audio", style = MaterialTheme.typography.titleLarge)
+                    }
+                },
                 navigationIcon = {
                     if (onBack != null) {
                         IconButton(onClick = onBack) {
@@ -107,12 +155,13 @@ fun AudiobooksScreen(
         },
     ) { padding ->
         when {
-            library.isLoading && books.isEmpty() -> Box(
+            library.isLoading && books.isEmpty() -> Column(
                 Modifier
                     .fillMaxSize()
-                    .padding(padding),
-                contentAlignment = Alignment.Center,
-            ) { CircularProgressIndicator() }
+                    .padding(padding)
+                    .padding(horizontal = Space.sm, vertical = Space.sm)
+                    .semantics { contentDescription = "Chargement des livres audio" },
+            ) { repeat(6) { SkeletonSongRow() } }
 
             // Deux vides différents, deux remèdes différents : sans dossier déclaré, il
             // faut en choisir un ; avec des dossiers mais rien dedans, il faut vérifier
@@ -136,20 +185,33 @@ fun AudiobooksScreen(
             )
 
             else -> LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),
                 contentPadding = PaddingValues(
                     start = Space.sm,
                     end = Space.sm,
-                    top = Space.xs,
-                    bottom = Space.xl,
+                    bottom = Space.bottomInset,
                 ),
+                verticalArrangement = Arrangement.spacedBy(Space.xs),
             ) {
-                items(books, key = { it.path }, contentType = { "book" }) { folder ->
-                    FolderRow(
-                        folder = folder,
+                item(key = "header", contentType = "header") {
+                    ScreenHeader(
+                        title = "Livres audio",
+                        eyebrow = "À écouter",
+                        subtitle = summary,
+                        // La liste est en retrait de Space.sm : on ramène le titre sur la gouttière.
+                        modifier = Modifier.offset(x = -Space.sm),
+                    )
+                }
+                itemsIndexed(books, key = { _, it -> it.path }, contentType = { _, _ -> "book" }) { index, folder ->
+                    BookRow(
+                        book = folder,
                         onClick = { onOpenFolder(folder.path) },
+                        modifier = Modifier
+                            .animateItem()
+                            .enterCascade(index, "book-${folder.path}"),
                     )
                 }
             }
@@ -162,6 +224,55 @@ fun AudiobooksScreen(
             onAdd = viewModel::addAudiobookFolder,
             onRemove = viewModel::removeAudiobookFolder,
             onDismiss = { showManageFolders = false },
+        )
+    }
+}
+
+/**
+ * Un livre : carte de verre avec la couverture du premier chapitre, le titre (nom du
+ * dossier), le nombre de chapitres et la durée totale en chiffres tabulaires.
+ */
+@Composable
+private fun BookRow(book: Folder, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val scheme = MaterialTheme.colorScheme
+    val chapters = book.songCount
+    val duration = remember(book) { book.songs.sumOf { it.durationMs }.asLongDuration() }
+    Row(
+        modifier
+            .pressBounce(0.98f)
+            .fillMaxWidth()
+            .clip(SynxioShape.card)
+            .glass(SynxioShape.card, strength = 0.45f)
+            .clickable(onClickLabel = "Ouvrir le livre", role = Role.Button, onClick = onClick)
+            .padding(Space.md),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Space.lg),
+    ) {
+        Artwork(
+            model = book.songs.firstOrNull()?.artworkUri,
+            modifier = Modifier.size(BookCoverSize),
+            shape = SynxioShape.artworkSm,
+        )
+        Column(Modifier.weight(1f)) {
+            Text(
+                book.name,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(Space.xxs))
+            Text(
+                "${if (chapters <= 1) "$chapters chapitre" else "$chapters chapitres"} · $duration",
+                style = MaterialTheme.typography.bodyMedium.merge(TabularNumbers),
+                color = scheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Icon(
+            Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+            contentDescription = null,
+            tint = scheme.onSurfaceVariant,
         )
     }
 }
@@ -193,17 +304,19 @@ fun ManageAudiobookFoldersDialog(
             }
         }
     }
+    val scheme = MaterialTheme.colorScheme
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        icon = { Icon(Icons.AutoMirrored.Rounded.MenuBook, contentDescription = null) },
-        title = { Text("Dossiers de livres audio") },
+        containerColor = scheme.surfaceContainerHigh,
+        icon = { Icon(Icons.AutoMirrored.Rounded.MenuBook, contentDescription = null, tint = scheme.primary) },
+        title = { Text("Dossiers de livres audio", style = MaterialTheme.typography.headlineSmall) },
         text = {
             Column {
                 Text(
                     "Les fichiers de ces dossiers n'apparaissent plus dans ta bibliothèque musicale : ils sont rangés ici.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = scheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(Space.lg))
 
@@ -211,32 +324,40 @@ fun ManageAudiobookFoldersDialog(
                     Text(
                         "Aucun dossier pour l'instant.",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = scheme.onSurfaceVariant,
                     )
                 } else {
-                    LazyColumn(modifier = Modifier.heightIn(max = FolderListMaxHeight)) {
+                    LazyColumn(
+                        modifier = Modifier.heightIn(max = FolderListMaxHeight),
+                        verticalArrangement = Arrangement.spacedBy(Space.xs),
+                    ) {
                         items(folders, key = { it }) { folder ->
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .animateItem()
+                                    .fillMaxWidth()
+                                    .clip(SynxioShape.cardSm)
+                                    .glass(SynxioShape.cardSm, strength = 0.5f)
+                                    .padding(start = Space.md),
                             ) {
                                 Icon(
                                     Icons.Rounded.Folder,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
+                                    tint = scheme.primary,
                                 )
                                 Text(
                                     text = folder,
                                     modifier = Modifier
                                         .weight(1f)
-                                        .padding(horizontal = Space.sm),
+                                        .padding(horizontal = Space.sm, vertical = Space.sm),
                                     style = MaterialTheme.typography.bodyMedium,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
                                 )
                                 // Retirer un dossier ne supprime aucun fichier : ils
                                 // retournent simplement dans la bibliothèque musicale.
-                                TextButton(onClick = { onRemove(folder) }) {
+                                TextButton(onClick = { onRemove(folder) }, shape = SynxioShape.pill) {
                                     Text("Retirer")
                                 }
                             }
@@ -245,18 +366,18 @@ fun ManageAudiobookFoldersDialog(
                 }
 
                 Spacer(Modifier.height(Space.lg))
-                TextButton(
-                    onClick = { launcher.launch(null) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(Icons.Rounded.FolderOpen, contentDescription = null)
-                    Spacer(Modifier.width(Space.sm))
-                    Text("Ajouter un dossier…")
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    GlassButton(
+                        text = "Ajouter un dossier…",
+                        onClick = { launcher.launch(null) },
+                        icon = Icons.Rounded.CreateNewFolder,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Fermer") }
+            TextButton(onClick = onDismiss, shape = SynxioShape.pill) { Text("Fermer") }
         },
     )
 }

@@ -38,6 +38,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
@@ -172,6 +173,7 @@ class MainActivity : AppCompatActivity() {
                 themePreset = ThemePreset.fromName(settings.themePreset),
                 customAccent = settings.primaryColor,
                 reduceAnimations = settings.reduceAnimations,
+                glowEffects = settings.glowEffects,
                 textScale = TextSize.entries.firstOrNull { it.name == settings.textSize }?.scale ?: 1f,
             ) {
                 val stage = when {
@@ -251,15 +253,32 @@ fun SplashScreenContent() {
         title.animateTo(1f, Motion.enter(Motion.LONG))
     }
 
+    val colors = fr.synxio.player.ui.theme.SynxioTheme.colors
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+        modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
     ) {
+        // Même scène que l'app : l'aurore Lumen, puis un halo de signature qui s'ouvre
+        // derrière le logo comme une lumière qu'on allume.
+        fr.synxio.player.ui.theme.AmbientBackdrop()
+        Box(
+            Modifier
+                .size(320.dp)
+                .graphicsLayer {
+                    val s = 0.6f + 0.4f * logo.value
+                    scaleX = s
+                    scaleY = s
+                    alpha = logo.value
+                }
+                .background(
+                    androidx.compose.ui.graphics.Brush.radialGradient(
+                        listOf(colors.brandEnd.copy(alpha = 0.32f), androidx.compose.ui.graphics.Color.Transparent)
+                    )
+                )
+        )
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(Space.lg),
+            verticalArrangement = Arrangement.spacedBy(Space.md),
         ) {
             Image(
                 painter = painterResource(R.drawable.ic_launcher_foreground),
@@ -271,17 +290,27 @@ fun SplashScreenContent() {
                         scaleX = s
                         scaleY = s
                         alpha = logo.value
+                        // Calque séparé : le dégradé ne colore que les pixels du logo.
+                        compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
+                    }
+                    .drawWithContent {
+                        drawContent()
+                        drawRect(colors.brandBrush, blendMode = androidx.compose.ui.graphics.BlendMode.SrcIn)
                     },
-                colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.primary),
             )
             Text(
                 text = "Synxio",
-                style = MaterialTheme.typography.displaySmall,
-                color = MaterialTheme.colorScheme.onBackground,
+                style = MaterialTheme.typography.displayMedium.copy(brush = colors.brandBrushHorizontal),
                 modifier = Modifier.graphicsLayer {
                     alpha = title.value
-                    translationY = (1f - title.value) * 12.dp.toPx()
+                    translationY = (1f - title.value) * 14.dp.toPx()
                 },
+            )
+            Text(
+                text = "MUSIC",
+                style = fr.synxio.player.ui.theme.EyebrowTextStyle,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                modifier = Modifier.graphicsLayer { alpha = title.value },
             )
         }
     }

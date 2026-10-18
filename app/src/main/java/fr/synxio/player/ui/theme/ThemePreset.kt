@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.Color
  * @param accentLight accent utilisé sur fond clair (plus saturé/foncé)
  * @param baseDark tonalité de fond en mode sombre
  * @param flat surfaces quasi indifférenciées : look minimal, sans empilement de cartes
+ * @param baseLight tonalité de fond en mode clair (papier chaud, blanc pur…)
  */
 enum class ThemePreset(
     val label: String,
@@ -24,13 +25,15 @@ enum class ThemePreset(
     val accentLight: Color,
     val baseDark: Color,
     val flat: Boolean = false,
+    val baseLight: Color = Color(0xFFFBF8FF),
 ) {
     SYNXIO(
-        label = "Synxio",
-        description = "Violet électrique sur gris froid",
-        accentDark = Color(0xFF9B6BFF),
-        accentLight = Color(0xFF6A3CD1),
-        baseDark = Color(0xFF0B0B0F),
+        label = "Lumen",
+        description = "Braise et magenta sur encre profonde — la signature Synxio",
+        accentDark = Color(0xFFFF8A4C),
+        accentLight = Color(0xFFC2410C),
+        baseDark = Color(0xFF0C0A10),
+        baseLight = Color(0xFFFAF6F1),
     ),
     NOIR(
         label = "Noir",
@@ -82,6 +85,13 @@ enum class ThemePreset(
         accentDark = Color(0xFFE3C46B),
         accentLight = Color(0xFF7A5C00),
         baseDark = Color(0xFF0F0D08),
+    ),
+    IRIS(
+        label = "Iris",
+        description = "Violet électrique sur gris froid — l'ancien Synxio",
+        accentDark = Color(0xFF9B6BFF),
+        accentLight = Color(0xFF6A3CD1),
+        baseDark = Color(0xFF0B0B0F),
     );
 
     /**
@@ -135,7 +145,7 @@ enum class ThemePreset(
     }
 
     private fun lightScheme(): ColorScheme {
-        val base = if (flat) Color(0xFFFFFFFF) else Color(0xFFFBF8FF)
+        val base = if (flat) Color(0xFFFFFFFF) else baseLight
         val step = if (flat) 0.018f else 0.035f
         fun surface(level: Int) = lerpColor(base, Color.Black, step * level)
         val accent = accentLight.ensureContrast(base, 4.5f)

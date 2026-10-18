@@ -49,7 +49,7 @@ enum class ThemeMode(val label: String) {
 enum class AccentSource(val label: String) {
     ARTWORK("Couleurs de la pochette"),
     WALLPAPER("Fond d'écran (Material You)"),
-    SYNXIO("Violet Synxio"),
+    SYNXIO("Accent du thème Synxio"),
     CUSTOM("Personnalisé");
 }
 

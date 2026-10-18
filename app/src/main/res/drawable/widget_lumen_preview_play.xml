@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Bouton lecture de l'aperçu : disque braise → magenta, icône à l'encre. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@drawable/widget_play_disc" />
+    <item
+        android:width="24dp"
+        android:height="24dp"
+        android:drawable="@drawable/ic_widget_preview_play"
+        android:gravity="center" />
+</layer-list>

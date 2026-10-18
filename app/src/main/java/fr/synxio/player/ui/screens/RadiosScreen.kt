@@ -1,6 +1,5 @@
 package fr.synxio.player.ui.screens
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -10,6 +9,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -17,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -29,14 +31,12 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.SearchOff
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -49,6 +49,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
@@ -62,12 +67,20 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import fr.synxio.player.data.model.RadioStation
 import fr.synxio.player.ui.components.EmptyState
+import fr.synxio.player.ui.components.LumenChip
 import fr.synxio.player.ui.components.PlayingIndicator
+import fr.synxio.player.ui.components.ScreenHeader
+import fr.synxio.player.ui.components.SkeletonSongRow
+import fr.synxio.player.ui.components.ToggleIconButton
+import fr.synxio.player.ui.components.enterCascade
+import fr.synxio.player.ui.components.pressBounce
 import fr.synxio.player.ui.theme.LocalReduceMotion
 import fr.synxio.player.ui.theme.Motion
 import fr.synxio.player.ui.theme.Space
 import fr.synxio.player.ui.theme.SynxioShape
 import fr.synxio.player.ui.theme.SynxioTheme
+import fr.synxio.player.ui.theme.TabularNumbers
+import fr.synxio.player.ui.theme.glass
 import fr.synxio.player.ui.viewmodel.AppViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -179,84 +192,64 @@ fun RadiosScreen(viewModel: AppViewModel, modifier: Modifier = Modifier) {
         focusManager.clearFocus()
     }
 
-    Column(modifier = modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = Space.gutter, end = Space.sm, top = Space.lg),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "Webradios",
-                style = MaterialTheme.typography.headlineMedium,
-                modifier = Modifier.weight(1f),
-            )
-            IconButton(
-                onClick = { reloadKey++ },
-                enabled = !showFavorites && !isLoading,
-            ) {
-                Icon(Icons.Rounded.Refresh, contentDescription = "Actualiser les stations")
-            }
-        }
+    val subtitle = when {
+        trimmedQuery.isNotEmpty() -> "Recherche dans tout l'annuaire"
+        isLoading && displayed.isEmpty() -> "Réglage des fréquences…"
+        displayed.isEmpty() -> selectedCategory.label
+        else -> "${selectedCategory.label} · ${displayed.size} station${if (displayed.size > 1) "s" else ""}"
+    }
 
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = { searchQuery = it },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = Space.lg, vertical = Space.sm),
-            placeholder = { Text("Rechercher une station (NRJ, BBC, Jazz…)") },
-            leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
-            trailingIcon = {
-                if (searchQuery.isNotEmpty()) {
-                    IconButton(onClick = { searchQuery = "" }) {
-                        Icon(Icons.Rounded.Close, contentDescription = "Effacer la recherche")
-                    }
+    Column(modifier = modifier.fillMaxSize()) {
+        ScreenHeader(
+            title = "Webradios",
+            eyebrow = "En direct",
+            subtitle = subtitle,
+            actions = {
+                IconButton(
+                    onClick = { reloadKey++ },
+                    enabled = !showFavorites && !isLoading,
+                ) {
+                    Icon(Icons.Rounded.Refresh, contentDescription = "Actualiser les stations")
                 }
             },
-            singleLine = true,
-            shape = SynxioShape.pill,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = {
+        )
+
+        RadioSearchField(
+            query = searchQuery,
+            onQueryChange = { searchQuery = it },
+            onSearch = {
                 keyboard?.hide()
                 focusManager.clearFocus()
-            }),
+            },
         )
 
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = Space.gutter, vertical = Space.xs),
+            contentPadding = PaddingValues(horizontal = Space.gutter, vertical = Space.sm),
             horizontalArrangement = Arrangement.spacedBy(Space.sm),
         ) {
             items(RadioCategory.entries, key = { it.name }) { category ->
                 // Pendant une recherche, aucune catégorie n'est active : la recherche
                 // porte sur tout l'annuaire.
-                FilterChip(
+                LumenChip(
+                    label = category.label,
                     selected = selectedCategory == category && trimmedQuery.isEmpty(),
                     onClick = { selectCategory(category) },
-                    label = { Text(category.label) },
-                    shape = SynxioShape.pill,
-                    leadingIcon = if (category == RadioCategory.FAVORITES) {
-                        {
-                            Icon(
-                                Icons.Rounded.Star,
-                                contentDescription = null,
-                                modifier = Modifier.size(FilterChipDefaults.IconSize),
-                            )
-                        }
-                    } else null,
+                    icon = if (category == RadioCategory.FAVORITES) Icons.Rounded.Star else null,
                 )
             }
         }
 
         Box(modifier = Modifier.fillMaxSize()) {
             when {
-                isLoading && displayed.isEmpty() -> Box(
+                // Squelettes au gabarit des lignes de station : la liste ne saute pas
+                // quand les vrais résultats arrivent.
+                isLoading && displayed.isEmpty() -> Column(
                     Modifier
                         .fillMaxSize()
+                        .padding(horizontal = Space.sm, vertical = Space.xs)
                         .semantics { contentDescription = "Chargement des stations" },
-                    contentAlignment = Alignment.Center,
-                ) { CircularProgressIndicator() }
+                ) { repeat(8) { SkeletonSongRow() } }
 
                 hasError && displayed.isEmpty() -> EmptyState(
                     title = "Impossible de joindre les serveurs radio",
@@ -290,10 +283,14 @@ fun RadiosScreen(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                             start = Space.sm,
                             end = Space.sm,
                             top = Space.xs,
-                            bottom = Space.xl,
+                            bottom = Space.bottomInset,
                         ),
                     ) {
-                        items(displayed, key = { it.stationUuid }, contentType = { "station" }) { station ->
+                        itemsIndexed(
+                            displayed,
+                            key = { _, it -> it.stationUuid },
+                            contentType = { _, _ -> "station" },
+                        ) { index, station ->
                             val isCurrent = currentSongTitle == station.name
                             StationRow(
                                 station = station,
@@ -302,23 +299,70 @@ fun RadiosScreen(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                                 isFavorite = station.stationUuid in favoriteIds,
                                 onPlay = { viewModel.playRadio(station) },
                                 onToggleFavorite = { viewModel.toggleRadioFavorite(station) },
-                                modifier = itemMotion(reduceMotion),
+                                modifier = itemMotion(reduceMotion)
+                                    .enterCascade(index, "station-${station.stationUuid}"),
                             )
                         }
                     }
-                    // Rechargement avec une liste déjà affichée : un fil discret en haut
-                    // plutôt que d'effacer ce qu'on lisait.
+                    // Rechargement avec une liste déjà affichée : un fil discret à la
+                    // signature en haut plutôt que d'effacer ce qu'on lisait.
                     if (isLoading) {
                         LinearProgressIndicator(
+                            color = SynxioTheme.colors.brandEnd,
+                            trackColor = Color.Transparent,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .align(Alignment.TopCenter),
+                                .padding(horizontal = Space.gutter)
+                                .clip(SynxioShape.pill)
+                                .align(Alignment.TopCenter)
+                                .semantics { contentDescription = "Actualisation des stations" },
                         )
                     }
                 }
             }
         }
     }
+}
+
+/**
+ * Champ de recherche Lumen : pilule de verre, sans cadre Material au repos ; le liseré
+ * prend l'accent au focus.
+ */
+@Composable
+private fun RadioSearchField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onSearch: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Space.gutter, vertical = Space.xs)
+            .clip(SynxioShape.pill)
+            .glass(SynxioShape.pill, strength = 0.6f, border = false),
+        placeholder = { Text("Rechercher une station (NRJ, BBC, Jazz…)", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
+        trailingIcon = {
+            if (query.isNotEmpty()) {
+                IconButton(onClick = { onQueryChange("") }) {
+                    Icon(Icons.Rounded.Close, contentDescription = "Effacer la recherche")
+                }
+            }
+        },
+        singleLine = true,
+        shape = SynxioShape.pill,
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedContainerColor = Color.Transparent,
+            unfocusedContainerColor = Color.Transparent,
+            unfocusedBorderColor = scheme.onSurface.copy(alpha = 0.10f),
+            focusedBorderColor = scheme.primary,
+        ),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+    )
 }
 
 @Composable
@@ -332,11 +376,28 @@ private fun StationRow(
     modifier: Modifier = Modifier,
 ) {
     val scheme = MaterialTheme.colorScheme
+    val brand = SynxioTheme.colors.brandBrush
     Row(
         modifier = modifier
+            .pressBounce(0.98f)
             .fillMaxWidth()
+            .heightIn(min = 72.dp)
             .clip(SynxioShape.artworkMd)
-            .then(if (isCurrent) Modifier.background(scheme.primary.copy(alpha = 0.12f)) else Modifier)
+            .then(
+                // Station à l'antenne : verre et filet de signature, comme le titre en cours.
+                if (isCurrent) Modifier
+                    .glass(SynxioShape.artworkMd, strength = 0.7f, border = false)
+                    .drawBehind {
+                        val bar = 3.dp.toPx()
+                        drawRoundRect(
+                            brush = brand,
+                            topLeft = Offset(0f, size.height * 0.22f),
+                            size = Size(bar, size.height * 0.56f),
+                            cornerRadius = CornerRadius(bar, bar),
+                        )
+                    }
+                else Modifier
+            )
             .clickable(onClickLabel = "Écouter la station", role = Role.Button, onClick = onPlay)
             .semantics { if (isCurrent) stateDescription = "En cours de lecture" }
             .padding(start = Space.md, top = Space.sm, bottom = Space.sm),
@@ -346,7 +407,7 @@ private fun StationRow(
             modifier = Modifier
                 .size(StationLogoSize)
                 .clip(SynxioShape.artworkSm)
-                .background(scheme.surfaceContainerHigh),
+                .glass(SynxioShape.artworkSm, strength = 0.9f),
             contentAlignment = Alignment.Center,
         ) {
             // L'icône reste dessous : si le logo distant échoue, la vignette n'est pas vide.
@@ -354,7 +415,7 @@ private fun StationRow(
                 imageVector = Icons.Rounded.Radio,
                 contentDescription = null,
                 modifier = Modifier.size(28.dp),
-                tint = scheme.onSurfaceVariant,
+                tint = scheme.primary,
             )
             if (station.favicon.isNotBlank()) {
                 AsyncImage(
@@ -382,6 +443,7 @@ private fun StationRow(
                     PlayingIndicator(isPlaying = isPlaying)
                 }
             }
+            Spacer(Modifier.height(Space.xxs))
 
             val subtitle = buildString {
                 if (station.codec.isNotBlank()) append(station.codec.uppercase())
@@ -397,20 +459,21 @@ private fun StationRow(
 
             Text(
                 text = subtitle,
-                style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
+                style = MaterialTheme.typography.bodySmall.merge(TabularNumbers),
                 color = scheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
 
-        IconButton(onClick = onToggleFavorite) {
-            Icon(
-                imageVector = if (isFavorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
-                contentDescription = if (isFavorite) "Retirer des favoris" else "Ajouter aux favoris",
-                tint = if (isFavorite) SynxioTheme.colors.favorite else scheme.onSurfaceVariant,
-            )
-        }
+        // Bascule à rebond : l'étoile s'allume et un point d'état apparaît dessous.
+        ToggleIconButton(
+            icon = if (isFavorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+            contentDescription = if (isFavorite) "Retirer des favoris" else "Ajouter aux favoris",
+            active = isFavorite,
+            onClick = onToggleFavorite,
+            stateLabel = if (isFavorite) "dans les favoris" else "pas dans les favoris",
+        )
     }
 }
 
@@ -424,7 +487,7 @@ private fun LazyItemScope.itemMotion(reduceMotion: Boolean): Modifier =
     } else {
         Modifier.animateItem(
             fadeInSpec = Motion.enter(Motion.SHORT),
-            placementSpec = Motion.standard(),
+            placementSpec = Motion.spatial(),
             fadeOutSpec = Motion.exit(),
         )
     }

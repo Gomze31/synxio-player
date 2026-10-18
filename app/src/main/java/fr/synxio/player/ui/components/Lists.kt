@@ -29,6 +29,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import fr.synxio.player.ui.theme.glass
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -75,6 +80,7 @@ fun SongRow(
     trailing: (@Composable () -> Unit)? = null,
 ) {
     val scheme = MaterialTheme.colorScheme
+    val brand = SynxioTheme.colors.brandBrush
     Row(
         modifier = modifier
             .pressBounce(0.98f)
@@ -82,7 +88,19 @@ fun SongRow(
             .heightIn(min = RowMinHeight)
             .clip(SynxioShape.artworkMd)
             .then(
-                if (isCurrent) Modifier.background(scheme.secondaryContainer.copy(alpha = 0.45f))
+                // Titre en cours : verre teinté et filet de signature à gauche, comme une
+                // piste éclairée sur une console.
+                if (isCurrent) Modifier
+                    .glass(SynxioShape.artworkMd, strength = 0.7f, border = false)
+                    .drawBehind {
+                        val bar = 3.dp.toPx()
+                        drawRoundRect(
+                            brush = brand,
+                            topLeft = Offset(0f, size.height * 0.22f),
+                            size = Size(bar, size.height * 0.56f),
+                            cornerRadius = CornerRadius(bar, bar),
+                        )
+                    }
                 else Modifier
             )
             .combinedClickable(
@@ -199,7 +217,8 @@ fun AlbumCard(
             model = album.artworkUri,
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(1f),
+                .aspectRatio(1f)
+                .sharedNavElement(SharedKeys.albumArt(album.id), SynxioShape.artworkMd),
             shape = SynxioShape.artworkMd,
         )
         Spacer(Modifier.height(Space.sm))
@@ -228,6 +247,7 @@ fun ArtistCard(
 ) {
     Column(
         modifier = modifier
+            .pressBounce()
             .clip(SynxioShape.artworkMd)
             .clickable(onClickLabel = "Ouvrir l'artiste", role = Role.Button, onClick = onClick)
             .padding(Space.sm),
@@ -237,7 +257,8 @@ fun ArtistCard(
             model = artist.artworkUri,
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(1f),
+                .aspectRatio(1f)
+                .sharedNavElement(SharedKeys.artistArt(artist.name), CircleShape),
             shape = CircleShape,
         )
         Spacer(Modifier.height(Space.sm))
@@ -292,7 +313,9 @@ fun PlaylistRow(
     ) {
         ArtworkMosaic(
             models = playlist.artworkUris,
-            modifier = Modifier.size(RowThumbSize),
+            modifier = Modifier
+                .size(RowThumbSize)
+                .sharedNavElement(SharedKeys.playlistArt(playlist.id), SynxioShape.artworkSm),
             shape = SynxioShape.artworkSm,
         )
     }
@@ -311,7 +334,7 @@ fun FolderRow(folder: Folder, onClick: () -> Unit, modifier: Modifier = Modifier
             modifier = Modifier
                 .size(RowThumbSize)
                 .clip(SynxioShape.artworkSm)
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                .glass(SynxioShape.artworkSm, strength = 0.8f),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
@@ -336,6 +359,7 @@ private fun SimpleRow(
 ) {
     Row(
         modifier = modifier
+            .pressBounce(0.98f)
             .fillMaxWidth()
             .heightIn(min = RowMinHeight)
             .clip(SynxioShape.artworkMd)

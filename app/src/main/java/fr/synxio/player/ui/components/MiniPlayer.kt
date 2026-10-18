@@ -1,16 +1,17 @@
 package fr.synxio.player.ui.components
 
-import androidx.compose.animation.togetherWith
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.fadeIn
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
@@ -22,42 +23,58 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Pause
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import fr.synxio.player.playback.PlayerUiState
+import fr.synxio.player.ui.theme.LocalArtworkColors
 import fr.synxio.player.ui.theme.LocalReduceMotion
 import fr.synxio.player.ui.theme.Motion
 import fr.synxio.player.ui.theme.Space
 import fr.synxio.player.ui.theme.SynxioShape
+import fr.synxio.player.ui.theme.SynxioTheme
 import fr.synxio.player.ui.theme.glass
-import androidx.compose.ui.draw.clip
+import fr.synxio.player.ui.theme.glowShadow
+import kotlinx.coroutines.launch
+import kotlin.math.abs
 
-/** Épaisseur de la barre de progression : un repère, pas un contrôle. */
-private val ProgressHeight = 3.dp
+/** Distance de balayage qui déclenche un changement de piste. */
+private val SwipeThreshold = 72.dp
 
 /**
  * Barre de lecture compacte posée au-dessus de la navigation.
  *
- * Elle affiche la progression sous forme de fine barre pleine largeur : plus lisible
- * qu'un texte de position, et ça donne un repère permanent sans encombrer.
- * C'est un élément flottant : seul cas, avec le FAB, où une ombre portée est légitime.
+ * Un verre teinté par la pochette en cours, qui flotte avec une lueur de la même
+ * couleur : on reconnaît le morceau avant même d'avoir lu son titre. La pochette est un
+ * élément partagé avec le lecteur plein écran : elle grandit jusqu'à sa place quand on
+ * l'ouvre.
+ *
+ * Gestes : toucher ou balayer vers le haut ouvre le lecteur ; balayer vers la gauche
+ * passe au titre suivant, vers la droite revient au précédent. La carte suit le doigt et
+ * revient en place par un ressort. Les mêmes commandes existent en boutons et en
+ * actions d'accessibilité : aucun geste n'est le seul chemin.
  */
 @Composable
 fun MiniPlayer(
@@ -66,10 +83,14 @@ fun MiniPlayer(
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     modifier: Modifier = Modifier,
+    onPrevious: (() -> Unit)? = null,
 ) {
     val song = state.currentSong ?: return
     val reduceMotion = LocalReduceMotion.current
     val scheme = MaterialTheme.colorScheme
+    val colors = SynxioTheme.colors
+    val art = LocalArtworkColors.current
+    val tint = art.vibrant ?: art.seed
 
     // La position arrive par paliers (~4×/s) : on lisse entre deux, sauf animations réduites.
     val progress by animateFloatAsState(
@@ -87,7 +108,15 @@ fun MiniPlayer(
         label = "miniPress",
     )
 
-    // Verre flottant : laisse deviner le fond ambiant teinté par la pochette.
+    val density = LocalDensity.current
+    val threshold = with(density) { SwipeThreshold.toPx() }
+    val dragX = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val latestNext by rememberUpdatedState(onNext)
+    val latestPrevious by rememberUpdatedState(onPrevious)
+    val latestExpand by rememberUpdatedState(onExpand)
+    val hasNext by rememberUpdatedState(state.hasNext)
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -95,9 +124,42 @@ fun MiniPlayer(
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
+                translationX = dragX.value
+                // La carte s'estompe un peu en s'éloignant : on sent qu'on la « jette ».
+                alpha = 1f - (abs(dragX.value) / (threshold * 4f)).coerceIn(0f, 0.35f)
             }
+            .glowShadow(SynxioShape.card, (tint ?: colors.brandEnd).copy(alpha = 0.7f), elevation = 16.dp)
             .clip(SynxioShape.card)
-            .glass(SynxioShape.card, strength = 1f),
+            .glass(SynxioShape.card, strength = 1f, tint = tint)
+            .pointerInput(threshold) {
+                var totalY = 0f
+                detectDragGestures(
+                    onDragStart = { totalY = 0f },
+                    onDragEnd = {
+                        val x = dragX.value
+                        when {
+                            totalY < -threshold * 0.7f -> latestExpand()
+                            x < -threshold && hasNext -> latestNext()
+                            x > threshold && latestPrevious != null -> latestPrevious?.invoke()
+                        }
+                        scope.launch { dragX.animateTo(0f, Motion.spatial()) }
+                    },
+                    onDragCancel = { scope.launch { dragX.animateTo(0f, Motion.spatial()) } },
+                ) { change, amount ->
+                    change.consume()
+                    totalY += amount.y
+                    // Résistance : au-delà du seuil, la carte suit de moins en moins.
+                    val next = dragX.value + amount.x
+                    val resisted = if (abs(next) > threshold) dragX.value + amount.x * 0.35f else next
+                    scope.launch { dragX.snapTo(resisted) }
+                }
+            }
+            .semantics {
+                customActions = buildList {
+                    add(CustomAccessibilityAction("Titre suivant") { latestNext(); true })
+                    latestPrevious?.let { prev -> add(CustomAccessibilityAction("Titre précédent") { prev(); true }) }
+                }
+            },
     ) {
         Column(
             Modifier.clickable(
@@ -109,16 +171,12 @@ fun MiniPlayer(
             )
         ) {
             Row(
-                modifier = Modifier.padding(
-                    start = Space.sm,
-                    end = Space.xs,
-                    top = Space.sm,
-                    bottom = Space.sm,
-                ),
+                modifier = Modifier.padding(start = Space.sm, end = Space.xs, top = Space.sm, bottom = Space.sm),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // Changement de piste : la pochette et le titre glissent vers la gauche,
-                // le suivant arrive de la droite, comme une page qu'on tourne.
+                // Changement de piste : pochette et titre glissent comme une page qu'on
+                // tourne. La clé partagée porte l'id du morceau : l'ancienne et la nouvelle
+                // pochette, présentes ensemble le temps du glissement, ne se confondent pas.
                 AnimatedContent(
                     targetState = song,
                     contentKey = { it.id },
@@ -126,8 +184,8 @@ fun MiniPlayer(
                         if (reduceMotion) {
                             fadeIn(Motion.enter(Motion.SHORT)) togetherWith fadeOut(Motion.exit())
                         } else {
-                            (slideInHorizontally(Motion.enter()) { it / 3 } + fadeIn(Motion.enter())) togetherWith
-                                (slideOutHorizontally(Motion.exit(Motion.MEDIUM)) { -it / 3 } + fadeOut(Motion.exit()))
+                            (slideInHorizontally(Motion.spatial()) { it / 3 } + fadeIn(Motion.enter())) togetherWith
+                                (slideOutHorizontally(Motion.spatial()) { -it / 3 } + fadeOut(Motion.exit()))
                         }
                     },
                     modifier = Modifier.weight(1f),
@@ -136,7 +194,9 @@ fun MiniPlayer(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Artwork(
                             model = current.artworkUri,
-                            modifier = Modifier.size(48.dp),
+                            modifier = Modifier
+                                .size(50.dp)
+                                .sharedPlayerElement(SharedKeys.playerArt(current.id), SynxioShape.artworkSm),
                             shape = SynxioShape.artworkSm,
                         )
                         Spacer(Modifier.width(Space.md))
@@ -148,7 +208,7 @@ fun MiniPlayer(
                             )
                             Text(
                                 text = current.displayArtist,
-                                style = MaterialTheme.typography.bodyMedium,
+                                style = MaterialTheme.typography.bodySmall,
                                 color = scheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -156,21 +216,23 @@ fun MiniPlayer(
                         }
                     }
                 }
-                androidx.compose.material3.FilledIconButton(
-                    onClick = onPlayPause,
-                    modifier = Modifier.size(44.dp),
-                    shape = androidx.compose.foundation.shape.CircleShape,
+                Box(
+                    Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(colors.brandBrush)
+                        .clickable(
+                            role = Role.Button,
+                            onClickLabel = if (state.isPlaying) "Mettre en pause" else "Lire",
+                            onClick = onPlayPause,
+                        ),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Crossfade(
-                        targetState = state.isPlaying,
-                        animationSpec = Motion.standardOrSnap(reduceMotion, Motion.SHORT),
-                        label = "miniPlayPause",
-                    ) { playing ->
-                        Icon(
-                            imageVector = if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                            contentDescription = if (playing) "Pause" else "Lecture",
-                        )
-                    }
+                    PlayPauseIcon(
+                        isPlaying = state.isPlaying,
+                        color = colors.onBrand,
+                        modifier = Modifier.size(22.dp),
+                    )
                 }
                 IconButton(
                     onClick = onNext,
@@ -181,25 +243,12 @@ fun MiniPlayer(
                 }
             }
 
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = Space.lg)
-                    .height(ProgressHeight)
-                    .clip(SynxioShape.pill)
-                    .background(scheme.onSurface.copy(alpha = 0.12f))
-            ) {
-                if (progress > 0f) {
-                    Box(
-                        Modifier
-                            .fillMaxWidth(progress)
-                            .height(ProgressHeight)
-                            .clip(SynxioShape.pill)
-                            .background(scheme.primary)
-                    )
-                }
-            }
-            Spacer(Modifier.height(Space.xs))
+            BrandProgressBar(
+                progress = progress,
+                height = 3.dp,
+                modifier = Modifier.padding(horizontal = Space.lg),
+            )
+            Spacer(Modifier.height(Space.sm))
         }
     }
 }

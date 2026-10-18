@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Aperçu statique du widget compact pour les sélecteurs d'avant Android 12, qui
+     n'affichent qu'une image (previewLayout est ignoré) : pochette, lignes de texte
+     esquissées, progression et commandes, sur la scène Lumen. 250 × 110 dp. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:width="250dp"
+        android:height="110dp"
+        android:drawable="@drawable/widget_lumen_preview_bg" />
+    <item
+        android:width="82dp"
+        android:height="82dp"
+        android:left="14dp"
+        android:top="14dp"
+        android:drawable="@drawable/widget_lumen_preview_art"
+        android:gravity="top|left" />
+    <!-- Titre puis artiste, esquissés. -->
+    <item
+        android:width="104dp"
+        android:height="10dp"
+        android:left="110dp"
+        android:top="22dp"
+        android:gravity="top|left">
+        <shape android:shape="rectangle">
+            <solid android:color="#FFF6F1EC" />
+            <corners android:radius="5dp" />
+        </shape>
+    </item>
+    <item
+        android:width="64dp"
+        android:height="8dp"
+        android:left="110dp"
+        android:top="39dp"
+        android:gravity="top|left">
+        <shape android:shape="rectangle">
+            <solid android:color="#FFBDB4AF" />
+            <corners android:radius="4dp" />
+        </shape>
+    </item>
+    <!-- Progression : piste puis portion lue. -->
+    <item
+        android:width="124dp"
+        android:height="3dp"
+        android:left="110dp"
+        android:top="56dp"
+        android:gravity="top|left">
+        <shape android:shape="rectangle">
+            <solid android:color="#29FFFFFF" />
+            <corners android:radius="2dp" />
+        </shape>
+    </item>
+    <item
+        android:width="50dp"
+        android:height="3dp"
+        android:left="110dp"
+        android:top="56dp"
+        android:gravity="top|left">
+        <shape android:shape="rectangle">
+            <solid android:color="#FFFF8A4C" />
+            <corners android:radius="2dp" />
+        </shape>
+    </item>
+    <!-- Précédent, lecture, suivant. -->
+    <item
+        android:width="22dp"
+        android:height="22dp"
+        android:left="118dp"
+        android:top="75dp"
+        android:drawable="@drawable/ic_widget_previous"
+        android:gravity="top|left" />
+    <item
+        android:width="34dp"
+        android:height="34dp"
+        android:left="155dp"
+        android:top="69dp"
+        android:drawable="@drawable/widget_lumen_preview_play"
+        android:gravity="top|left" />
+    <item
+        android:width="22dp"
+        android:height="22dp"
+        android:left="204dp"
+        android:top="75dp"
+        android:drawable="@drawable/ic_widget_next"
+        android:gravity="top|left" />
+</layer-list>

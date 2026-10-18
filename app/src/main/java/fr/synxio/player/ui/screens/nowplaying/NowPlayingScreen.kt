@@ -1,22 +1,27 @@
 package fr.synxio.player.ui.screens.nowplaying
 
-import androidx.compose.animation.togetherWith
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.fadeIn
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseInOut
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,8 +33,8 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
@@ -44,23 +49,15 @@ import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Lyrics
-import fr.synxio.player.ui.theme.glass
-import androidx.compose.material.icons.rounded.Favorite
-import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.MoreVert
-import androidx.compose.material.icons.rounded.Pause
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -69,34 +66,29 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.text.font.FontWeight
-import fr.synxio.player.data.model.RepeatMode
-import fr.synxio.player.ui.theme.LocalReduceMotion
-import fr.synxio.player.ui.theme.Motion
-import fr.synxio.player.ui.theme.SynxioTheme
-import fr.synxio.player.ui.theme.Radius
-import fr.synxio.player.ui.theme.SynxioShape
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
@@ -104,13 +96,44 @@ import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import fr.synxio.player.core.util.asDuration
 import fr.synxio.player.data.model.NowPlayingSkin
+import fr.synxio.player.data.model.RepeatMode
+import fr.synxio.player.data.model.Song
 import fr.synxio.player.ui.components.Artwork
 import fr.synxio.player.ui.components.AudioVisualizer
+import fr.synxio.player.ui.components.BrandPlayButton
+import fr.synxio.player.ui.components.HeartButton
 import fr.synxio.player.ui.components.MarqueeText
+import fr.synxio.player.ui.components.SharedKeys
+import fr.synxio.player.ui.components.ToggleIconButton
+import fr.synxio.player.ui.components.pressBounce
+import fr.synxio.player.ui.components.sharedPlayerElement
+import fr.synxio.player.ui.theme.EyebrowTextStyle
 import fr.synxio.player.ui.theme.LocalArtworkColors
+import fr.synxio.player.ui.theme.LocalGlowEffects
+import fr.synxio.player.ui.theme.LocalReduceMotion
+import fr.synxio.player.ui.theme.Motion
+import fr.synxio.player.ui.theme.Radius
+import fr.synxio.player.ui.theme.Space
+import fr.synxio.player.ui.theme.SynxioShape
+import fr.synxio.player.ui.theme.SynxioTheme
+import fr.synxio.player.ui.theme.TabularNumbers
+import fr.synxio.player.ui.theme.glass
+import fr.synxio.player.ui.theme.glowShadow
+import fr.synxio.player.ui.theme.isDarkSurface
+import fr.synxio.player.ui.theme.placeholderBrush
 import fr.synxio.player.ui.viewmodel.AppViewModel
 import fr.synxio.player.ui.viewmodel.LyricsViewModel
+import kotlinx.coroutines.launch
+import kotlin.math.abs
 
+/**
+ * Lecteur plein écran « Lumen ».
+ *
+ * Une scène : la pochette floutée éclaire tout l'écran, la pochette nette flotte au
+ * centre avec une lueur de sa propre couleur, et les commandes se posent dessous sur
+ * l'aurore. Changer de morceau fait pivoter les pochettes comme des disques dans un bac ;
+ * la palette de toute l'app glisse vers celle du nouveau morceau.
+ */
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun NowPlayingScreen(
@@ -122,14 +145,13 @@ fun NowPlayingScreen(
     onOpenEqualizer: () -> Unit,
     onOpenDriveMode: () -> Unit,
     onOpenPartyMode: () -> Unit,
-    onTrim: (fr.synxio.player.data.model.Song) -> Unit,
+    onTrim: (Song) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.playerState.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val favorites by viewModel.favoriteIds.collectAsStateWithLifecycle()
     val sleepTimer by viewModel.sleepTimerState.collectAsStateWithLifecycle()
-    val artworkColors = LocalArtworkColors.current
 
     val lyricsViewModel: LyricsViewModel = hiltViewModel()
     val lyricsState by lyricsViewModel.state.collectAsStateWithLifecycle()
@@ -147,12 +169,16 @@ fun NowPlayingScreen(
     }
 
     val recordAudioPermission = rememberPermissionState(android.Manifest.permission.RECORD_AUDIO)
+    // Une seule demande par ouverture de l'app : relancer la demande à chaque changement
+    // de statut faisait réapparaître la fenêtre système juste après un refus.
+    var visualizerAsked by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(settings.showVisualizer, recordAudioPermission.status) {
         if (settings.showVisualizer) {
             if (recordAudioPermission.status.isGranted) {
                 viewModel.setVisualizerEnabled(true)
-            } else {
+            } else if (!visualizerAsked) {
+                visualizerAsked = true
                 recordAudioPermission.launchPermissionRequest()
             }
         } else {
@@ -169,18 +195,21 @@ fun NowPlayingScreen(
         onDispose { view.keepScreenOn = false }
     }
     val reduceMotion = LocalReduceMotion.current
+    val glow = LocalGlowEffects.current
 
-    val background = MaterialTheme.colorScheme.background
     val scheme = MaterialTheme.colorScheme
+    val background = scheme.background
+    val art = LocalArtworkColors.current
+    val colors = SynxioTheme.colors
+    val paletteSpec = tween<Color>(if (reduceMotion) 0 else Motion.PALETTE, easing = Motion.Standard)
+    val halo by animateColorAsState(art.vibrant ?: art.seed ?: scheme.primary, paletteSpec, label = "npHalo")
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(background)
     ) {
-        // Fond : la pochette, très floutée et agrandie pour couvrir tout l'écran, sous un
-        // voile qui assure la lisibilité. Immobile : un fond animé coûtait une image par
-        // trame et laissait voir ses coins en tournant.
+        // Fond : la pochette, très floutée et agrandie pour couvrir tout l'écran.
         if (song != null) {
             BlurredArtworkBackdrop(
                 model = song.artworkUri,
@@ -189,25 +218,38 @@ fun NowPlayingScreen(
                 drifting = state.isPlaying && !reduceMotion,
             )
         }
+        // Voile de lisibilité, puis un projecteur de la couleur du morceau derrière la
+        // pochette : c'est lui qui donne la profondeur de la scène.
         Box(
             Modifier
                 .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        0f to background.copy(alpha = 0.35f),
-                        0.45f to background.copy(alpha = 0.55f),
-                        1f to background.copy(alpha = 0.92f),
+                .drawBehind {
+                    drawRect(
+                        Brush.verticalGradient(
+                            0f to background.copy(alpha = 0.30f),
+                            0.5f to background.copy(alpha = 0.58f),
+                            1f to background.copy(alpha = 0.94f),
+                        )
                     )
-                )
+                    if (glow) {
+                        drawRect(
+                            Brush.radialGradient(
+                                colors = listOf(halo.copy(alpha = 0.34f), Color.Transparent),
+                                center = Offset(size.width / 2f, size.height * 0.36f),
+                                radius = size.width * 0.9f,
+                            )
+                        )
+                    }
+                }
         )
 
         if (settings.showVisualizer && recordAudioPermission.status.isGranted) {
             AudioVisualizer(
                 fft = fft,
-                barColor = scheme.primary.copy(alpha = 0.5f),
+                barColor = colors.brandEnd.copy(alpha = 0.42f),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .fillMaxHeight(0.35f)
+                    .fillMaxHeight(0.32f)
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
             )
@@ -224,27 +266,42 @@ fun NowPlayingScreen(
             Modifier
                 .fillMaxSize()
                 .systemBarsPadding()
-                .padding(bottom = 8.dp),
+                .padding(bottom = Space.sm),
         ) {
             TopRow(
                 context = song.displayAlbum,
+                position = if (state.queue.size > 1 && state.queueIndex >= 0) {
+                    "${state.queueIndex + 1} / ${state.queue.size}"
+                } else null,
                 onCollapse = onCollapse,
                 onMenu = { showMenu = true },
             )
 
-            Box(
+            // Pochette ou paroles : l'une cède la place à l'autre par un fondu avec un
+            // léger recul, au lieu d'un remplacement sec.
+            AnimatedContent(
+                targetState = showLyrics,
+                transitionSpec = {
+                    if (reduceMotion) {
+                        fadeIn(Motion.enter(Motion.SHORT)) togetherWith fadeOut(Motion.exit())
+                    } else {
+                        (fadeIn(Motion.enter()) + scaleIn(Motion.enter(), initialScale = 0.94f)) togetherWith
+                            (fadeOut(Motion.exit()) + scaleOut(Motion.exit(), targetScale = 0.96f))
+                    }
+                },
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
                 contentAlignment = Alignment.Center,
-            ) {
-                if (showLyrics) {
+                label = "npStage",
+            ) { lyrics ->
+                if (lyrics) {
                     LyricsPane(
                         lyrics = lyricsState.lyrics,
                         loading = lyricsState.loading,
                         positionMs = state.positionMs,
                         onSeek = viewModel::seekTo,
-                        modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
+                        modifier = Modifier.fillMaxSize().padding(horizontal = Space.xl),
                         offsetMs = lyricsState.offsetMs,
                         offsetLabel = lyricsState.offsetLabel,
                         emptyMessage = lyricsState.emptyMessage,
@@ -269,62 +326,61 @@ fun NowPlayingScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 28.dp),
+                    .padding(horizontal = 26.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(Space.lg))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    // Changement de piste : le nouveau titre monte, l'ancien s'efface vers
+                    // le haut — le même sens que le défilement d'une file.
                     AnimatedContent(
                         targetState = song,
                         contentKey = { it.id },
                         transitionSpec = {
                             if (reduceMotion) {
-                                fadeIn(Motion.enter(Motion.SHORT)) togetherWith
-                                    fadeOut(Motion.exit())
+                                fadeIn(Motion.enter(Motion.SHORT)) togetherWith fadeOut(Motion.exit())
                             } else {
-                                (slideInVertically(Motion.enter()) { it / 2 } +
-                                    fadeIn(Motion.enter())) togetherWith
-                                    (slideOutVertically(Motion.exit()) { -it / 2 } +
-                                        fadeOut(Motion.exit()))
+                                (slideInVertically(Motion.spatial()) { it / 2 } + fadeIn(Motion.enter())) togetherWith
+                                    (slideOutVertically(Motion.spatial()) { -it / 2 } + fadeOut(Motion.exit()))
                             }
                         },
                         modifier = Modifier.weight(1f),
                         label = "npTitle",
-                    ) { song ->
-                    Column {
-                        // Titre : album, artiste : page artiste.
-                        MarqueeText(
-                            text = song.title,
-                            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                            animate = state.isPlaying,
-                            modifier = Modifier.clickable(onClickLabel = "Ouvrir l'album") {
-                                onCollapse(); onOpenAlbum(song.albumId)
-                            },
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = song.displayArtist,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = scheme.onSurface.copy(alpha = 0.72f),
-                            maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                            modifier = Modifier.clickable(onClickLabel = "Ouvrir l'artiste") {
-                                onCollapse(); onOpenArtist(song.displayArtist)
-                            },
-                        )
-                    }
+                    ) { current ->
+                        Column {
+                            // Titre : album, artiste : page artiste.
+                            MarqueeText(
+                                text = current.title,
+                                style = MaterialTheme.typography.headlineMedium,
+                                animate = state.isPlaying,
+                                modifier = Modifier.clickable(onClickLabel = "Ouvrir l'album") {
+                                    onCollapse(); onOpenAlbum(current.albumId)
+                                },
+                            )
+                            Spacer(modifier = Modifier.height(Space.xxs))
+                            Text(
+                                text = current.displayArtist,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = scheme.onSurface.copy(alpha = 0.72f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.clickable(onClickLabel = "Ouvrir l'artiste") {
+                                    onCollapse(); onOpenArtist(current.displayArtist)
+                                },
+                            )
+                        }
                     }
 
-                    FavoriteButton(
+                    HeartButton(
                         isFavorite = song.id in favorites,
                         onToggle = { viewModel.toggleFavorite(song) },
                     )
                 }
 
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(Space.lg))
 
                 SeekBar(
                     positionMs = state.positionMs,
@@ -332,13 +388,14 @@ fun NowPlayingScreen(
                     onSeek = viewModel::seekTo,
                 )
 
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(Space.sm))
 
                 MainControls(
                     isPlaying = state.isPlaying,
                     isBuffering = state.isBuffering,
                     shuffle = state.shuffleEnabled,
                     repeatMode = state.repeatMode,
+                    hasNext = state.hasNext,
                     onShuffle = viewModel::toggleShuffle,
                     onRepeat = viewModel::cycleRepeat,
                     onPrevious = viewModel::previous,
@@ -346,7 +403,7 @@ fun NowPlayingScreen(
                     onNext = viewModel::next,
                 )
 
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(Space.lg))
 
                 ActionBar(
                     lyricsShown = showLyrics,
@@ -417,38 +474,61 @@ fun NowPlayingScreen(
     }
 }
 
+/** Bouton rond en verre de la barre du haut (réduire, menu). */
 @Composable
-private fun TopRow(context: String, onCollapse: () -> Unit, onMenu: () -> Unit) {
+private fun GlassIconButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    iconSize: Dp = 26.dp,
+) {
+    Box(
+        Modifier
+            .pressBounce(0.9f)
+            .size(44.dp)
+            .clip(CircleShape)
+            .glass(CircleShape, strength = 0.6f)
+            .clickable(role = Role.Button, onClickLabel = contentDescription, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = contentDescription, modifier = Modifier.size(iconSize))
+    }
+}
+
+@Composable
+private fun TopRow(context: String, position: String?, onCollapse: () -> Unit, onMenu: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(top = 8.dp, start = 12.dp, end = 12.dp),
+            .padding(top = Space.sm, start = Space.lg, end = Space.lg),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = onCollapse) {
-            Icon(Icons.Rounded.ExpandMore, contentDescription = "Réduire le lecteur", modifier = Modifier.size(32.dp))
-        }
+        GlassIconButton(Icons.Rounded.ExpandMore, "Réduire le lecteur", onCollapse, iconSize = 30.dp)
         Column(
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = Space.sm),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                text = "EN LECTURE",
-                style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.6.sp, fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                text = if (position != null) "EN LECTURE · $position" else "EN LECTURE",
+                style = EyebrowTextStyle.merge(TabularNumbers),
+                // Neutre et non accent : posé sur la pochette floutée, l'accent tiré de la
+                // même pochette se fondait dans le fond (contraste mesuré bien sous 4,5:1).
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f),
+                maxLines = 1,
             )
             if (context.isNotBlank()) {
+                Spacer(Modifier.height(Space.xxs))
                 Text(
                     text = context,
                     style = MaterialTheme.typography.labelLarge,
                     maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
-        IconButton(onClick = onMenu) {
-            Icon(Icons.Rounded.MoreVert, contentDescription = "Plus d'options", modifier = Modifier.size(26.dp))
-        }
+        GlassIconButton(Icons.Rounded.MoreVert, "Plus d'options", onMenu)
     }
 }
 
@@ -477,11 +557,11 @@ private fun BlurredArtworkBackdrop(model: Any?, placeholderSeed: Any?, enabled: 
             .crossfade(Motion.LONG)
             .build()
     }
-    val dark = fr.synxio.player.ui.theme.isDarkSurface
+    val dark = isDarkSurface
     Box(
         Modifier
             .fillMaxSize()
-            .background(fr.synxio.player.ui.theme.placeholderBrush(placeholderSeed, dark), alpha = 0.6f)
+            .background(placeholderBrush(placeholderSeed, dark), alpha = 0.6f)
     ) {
         coil.compose.AsyncImage(
             model = request,
@@ -504,7 +584,6 @@ private fun BlurredArtworkBackdrop(model: Any?, placeholderSeed: Any?, enabled: 
 /**
  * Accès directs : paroles, file d'attente, minuterie, égaliseur.
  *
- * Ces fonctions vivaient dans le menu « ⋮ » : trois gestes pour afficher les paroles.
  * Un panneau de verre les garde à portée de pouce, avec leur état visible (minuterie
  * en cours, nombre de titres à venir).
  */
@@ -523,17 +602,12 @@ private fun ActionBar(
         modifier = Modifier
             .fillMaxWidth()
             .clip(SynxioShape.pill)
-            .glass(SynxioShape.pill, strength = 0.5f)
-            .padding(horizontal = 4.dp, vertical = 2.dp),
+            .glass(SynxioShape.pill, strength = 0.55f)
+            .padding(horizontal = Space.xs, vertical = Space.xxs),
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ActionChip(
-            icon = Icons.Rounded.Lyrics,
-            label = "Paroles",
-            active = lyricsShown,
-            onClick = onLyrics,
-        )
+        ActionChip(Icons.Rounded.Lyrics, "Paroles", active = lyricsShown, onClick = onLyrics)
         ActionChip(
             icon = Icons.AutoMirrored.Rounded.QueueMusic,
             label = if (queueCount > 0) "File · $queueCount" else "File",
@@ -546,39 +620,51 @@ private fun ActionBar(
             active = sleepTimerActive,
             onClick = onSleepTimer,
         )
-        ActionChip(
-            icon = Icons.Rounded.GraphicEq,
-            label = "Égaliseur",
-            active = false,
-            onClick = onEqualizer,
-        )
+        ActionChip(Icons.Rounded.GraphicEq, "Égaliseur", active = false, onClick = onEqualizer)
     }
 }
 
 @Composable
 private fun ActionChip(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     label: String,
     active: Boolean,
     onClick: () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
-    val tint = if (active) scheme.primary else scheme.onSurface.copy(alpha = 0.78f)
+    val reduce = LocalReduceMotion.current
+    val tint by animateColorAsState(
+        if (active) scheme.primary else scheme.onSurface.copy(alpha = 0.78f),
+        Motion.standardOrSnap(reduce, Motion.SHORT),
+        label = "actionChipTint",
+    )
+    val underline by animateFloatAsState(if (active) 1f else 0f, Motion.spatialOrSnap(reduce), label = "actionChipLine")
+    val brand = SynxioTheme.colors.brandBrushHorizontal
     Column(
         modifier = Modifier
+            .pressBounce(0.92f)
             .clip(SynxioShape.pill)
-            .clickable(onClickLabel = label, role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
+            .clickable(onClickLabel = label, role = Role.Button, onClick = onClick)
             .semantics { if (active) stateDescription = "actif" }
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = Space.md, vertical = Space.sm),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
-        Spacer(Modifier.height(2.dp))
+        Spacer(Modifier.height(Space.xxs))
         Text(
             text = label,
-            style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+            style = MaterialTheme.typography.labelSmall.merge(TabularNumbers),
             color = tint,
             maxLines = 1,
+        )
+        // Filet de signature sous l'action active.
+        Box(
+            Modifier
+                .padding(top = 3.dp)
+                .height(2.dp)
+                .width(18.dp * underline)
+                .clip(SynxioShape.pill)
+                .background(brand)
         )
     }
 }
@@ -586,7 +672,7 @@ private fun ActionChip(
 @Composable
 private fun ArtworkStage(
     skin: NowPlayingSkin,
-    queue: List<fr.synxio.player.data.model.Song>,
+    queue: List<Song>,
     queueIndex: Int,
     isPlaying: Boolean,
     onPageChanged: (Int) -> Unit,
@@ -607,73 +693,93 @@ private fun ArtworkStage(
         if (pagerState.settledPage != queueIndex) onPageChanged(pagerState.settledPage)
     }
 
+    val reduce = LocalReduceMotion.current
+    val art = LocalArtworkColors.current
+    val glowColor = art.vibrant ?: art.seed ?: SynxioTheme.colors.brandEnd
+    // En pause, la pochette recule un peu ; elle revient au premier plan à la reprise.
+    val pauseScale by animateFloatAsState(
+        targetValue = if (isPlaying) 1f else 0.88f,
+        animationSpec = if (reduce) androidx.compose.animation.core.snap() else spring(dampingRatio = 0.6f, stiffness = 220f),
+        label = "artScale",
+    )
+    val density = LocalDensity.current
+
     HorizontalPager(
         state = pagerState,
         modifier = Modifier.fillMaxSize(),
-        pageSpacing = 24.dp,
+        pageSpacing = Space.xl,
         contentPadding = PaddingValues(horizontal = 32.dp),
+        key = { queue.getOrNull(it)?.id ?: it.toLong() },
     ) { page ->
         val song = queue[page]
         val isCurrent = page == pagerState.currentPage
-        // En pause, la pochette recule un peu ; elle revient au premier plan à la reprise.
-        val scale by animateFloatAsState(
-            targetValue = when {
-                !isCurrent -> 0.82f
-                isPlaying -> 1f
-                else -> 0.88f
-            },
-            animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.6f, stiffness = 220f),
-            label = "artScale",
-        )
+        // Transition entre deux morceaux : les pochettes pivotent légèrement sur leur axe
+        // et reculent en s'éloignant du centre, comme des disques feuilletés dans un bac.
+        // Tout est lu dans graphicsLayer : glisser ne recompose rien.
+        val stageModifier = Modifier.graphicsLayer {
+            val offset = (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
+            val distance = abs(offset).coerceIn(0f, 1f)
+            val s = (1f - 0.18f * distance) * (if (isCurrent) pauseScale else 0.88f)
+            scaleX = s
+            scaleY = s
+            alpha = 1f - 0.45f * distance
+            if (!reduce) {
+                rotationY = offset * 16f
+                cameraDistance = 14f * density.density
+            }
+        }
+        val glowFor: Modifier.(Shape) -> Modifier = { shape ->
+            if (isCurrent) this.glowShadow(shape, glowColor, elevation = 34.dp) else this
+        }
 
         Box(Modifier.fillMaxSize(), Alignment.Center) {
             when (skin) {
                 NowPlayingSkin.VINYL -> VinylArtwork(
                     model = song.artworkUri,
-                    spinning = isPlaying && isCurrent && !LocalReduceMotion.current,
-                    modifier = Modifier
+                    songId = song.id,
+                    spinning = isPlaying && isCurrent && !reduce,
+                    modifier = stageModifier
                         .fillMaxWidth(0.95f)
-                        .aspectRatio(1f)
-                        .scale(scale),
+                        .aspectRatio(1f),
                 )
 
-                NowPlayingSkin.CARD -> Surface(
-                    modifier = Modifier
-                        .fillMaxWidth(1f)
+                NowPlayingSkin.CARD -> Box(
+                    modifier = stageModifier
+                        .fillMaxWidth()
                         .aspectRatio(0.9f)
-                        .scale(scale),
-                    shape = RoundedCornerShape(Radius.xl),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
-                    tonalElevation = 12.dp,
-                    shadowElevation = 24.dp,
+                        .glowFor(RoundedCornerShape(Radius.xl))
+                        .clip(RoundedCornerShape(Radius.xl))
+                        .glass(RoundedCornerShape(Radius.xl), strength = 0.9f)
+                        .padding(Space.lg),
                 ) {
-                    Column(Modifier.padding(16.dp)) {
-                        Artwork(
-                            model = song.artworkUri,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(1f),
-                            shape = RoundedCornerShape(Radius.lg),
-                        )
-                    }
+                    Artwork(
+                        model = song.artworkUri,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(1f)
+                            .then(if (isCurrent) Modifier.sharedPlayerElement(SharedKeys.playerArt(song.id), RoundedCornerShape(Radius.lg)) else Modifier),
+                        shape = RoundedCornerShape(Radius.lg),
+                    )
                 }
 
                 NowPlayingSkin.MINIMAL -> Artwork(
                     model = song.artworkUri,
-                    modifier = Modifier
+                    modifier = stageModifier
                         .fillMaxWidth(0.7f)
                         .aspectRatio(1f)
-                        .scale(scale),
+                        .then(if (isCurrent) Modifier.sharedPlayerElement(SharedKeys.playerArt(song.id), SynxioShape.artworkMd) else Modifier)
+                        .glowFor(SynxioShape.artworkMd),
                     shape = SynxioShape.artworkMd,
                 )
 
                 NowPlayingSkin.IMMERSIVE -> Artwork(
                     model = song.artworkUri,
-                    modifier = Modifier
-                        .fillMaxWidth(1f)
+                    modifier = stageModifier
+                        .fillMaxWidth()
                         .aspectRatio(1f)
-                        .scale(scale),
-                    shape = RoundedCornerShape(Radius.xl),
+                        .then(if (isCurrent) Modifier.sharedPlayerElement(SharedKeys.playerArt(song.id), SynxioShape.artworkLg) else Modifier)
+                        .glowFor(SynxioShape.artworkLg),
+                    shape = SynxioShape.artworkLg,
                 )
             }
         }
@@ -681,7 +787,7 @@ private fun ArtworkStage(
 }
 
 @Composable
-private fun VinylArtwork(model: Any?, spinning: Boolean, modifier: Modifier = Modifier) {
+private fun VinylArtwork(model: Any?, songId: Long, spinning: Boolean, modifier: Modifier = Modifier) {
     val transition = rememberInfiniteTransition(label = "vinyl")
     val angle by transition.animateFloat(
         initialValue = 0f,
@@ -690,6 +796,7 @@ private fun VinylArtwork(model: Any?, spinning: Boolean, modifier: Modifier = Mo
         label = "vinylAngle",
     )
     val rotation by animateFloatAsState(if (spinning) angle else 0f, label = "vinylRotation")
+    val brand = SynxioTheme.colors.brandBrush
 
     Box(modifier, Alignment.Center) {
         Box(
@@ -704,15 +811,18 @@ private fun VinylArtwork(model: Any?, spinning: Boolean, modifier: Modifier = Mo
             Modifier
                 .fillMaxSize()
                 .clip(CircleShape)
-                .background(Brush.sweepGradient(
-                    listOf(
-                        SynxioTheme.colors.vinyl,
-                        SynxioTheme.colors.vinylGroove,
-                        SynxioTheme.colors.vinyl,
-                        SynxioTheme.colors.vinylGroove,
-                        SynxioTheme.colors.vinyl
+                .background(
+                    Brush.sweepGradient(
+                        listOf(
+                            SynxioTheme.colors.vinyl,
+                            SynxioTheme.colors.vinylGroove,
+                            SynxioTheme.colors.vinyl,
+                            SynxioTheme.colors.vinylGroove,
+                            SynxioTheme.colors.vinyl,
+                        )
                     )
-                ))
+                )
+                .border(1.dp, brand, CircleShape)
                 .rotate(if (spinning) angle else rotation)
         ) {
             for (i in 1..7) {
@@ -728,6 +838,7 @@ private fun VinylArtwork(model: Any?, spinning: Boolean, modifier: Modifier = Mo
             model = model,
             modifier = Modifier
                 .fillMaxSize(0.42f)
+                .sharedPlayerElement(SharedKeys.playerArt(songId), CircleShape)
                 .rotate(if (spinning) angle else rotation),
             shape = CircleShape,
         )
@@ -740,17 +851,32 @@ private fun VinylArtwork(model: Any?, spinning: Boolean, modifier: Modifier = Mo
     }
 }
 
+/**
+ * Barre de position : piste fine remplie de la signature, poignée blanche qui s'éclaire
+ * et grossit sous le doigt. Pendant le glisser, le temps écoulé passe à l'accent pour
+ * montrer qu'on vise une position, pas qu'on la lit.
+ */
 @Composable
 private fun SeekBar(positionMs: Long, durationMs: Long, onSeek: (Long) -> Unit) {
     var dragging by remember { mutableStateOf(false) }
     var dragValue by remember { mutableFloatStateOf(0f) }
     // Toucher la durée bascule entre « durée totale » et « temps restant ».
     var showRemaining by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(true) }
+    val reduce = LocalReduceMotion.current
 
     val progress = if (durationMs > 0) positionMs.toFloat() / durationMs else 0f
     val value = if (dragging) dragValue else progress.coerceIn(0f, 1f)
     val scheme = MaterialTheme.colorScheme
+    val colors = SynxioTheme.colors
     val elapsed = (durationMs * value).toLong()
+
+    val thumbSize by animateDpAsState(if (dragging) 20.dp else 13.dp, Motion.spatialOrSnap(reduce), label = "seekThumb")
+    val trackHeight by animateDpAsState(if (dragging) 8.dp else 5.dp, Motion.spatialOrSnap(reduce), label = "seekTrack")
+    val elapsedTint by animateColorAsState(
+        if (dragging) scheme.primary else scheme.onSurface.copy(alpha = 0.7f),
+        Motion.standardOrSnap(reduce, Motion.SHORT),
+        label = "seekTime",
+    )
 
     Column {
         Slider(
@@ -761,45 +887,44 @@ private fun SeekBar(positionMs: Long, durationMs: Long, onSeek: (Long) -> Unit) 
                 dragging = false
             },
             thumb = {
-                Box(
-                    Modifier
-                        .size(if (dragging) 18.dp else 12.dp)
-                        .clip(CircleShape)
-                        .background(scheme.onSurface)
-                )
+                Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                    Box(
+                        Modifier
+                            .size(thumbSize)
+                            .glowShadow(CircleShape, colors.brandEnd, elevation = if (dragging) 14.dp else 6.dp)
+                            .clip(CircleShape)
+                            .background(Color.White)
+                    )
+                }
             },
             track = { sliderState ->
                 val fraction = sliderState.value.coerceIn(0f, 1f)
                 Box(
                     Modifier
                         .fillMaxWidth()
-                        .height(if (dragging) 6.dp else 4.dp)
+                        .height(trackHeight)
                         .clip(SynxioShape.pill)
-                        .background(scheme.onSurface.copy(alpha = 0.22f))
+                        .background(scheme.onSurface.copy(alpha = 0.18f))
                 ) {
                     Box(
                         Modifier
                             .fillMaxWidth(fraction)
                             .fillMaxHeight()
                             .clip(SynxioShape.pill)
-                            .background(scheme.onSurface)
+                            .background(colors.brandBrushHorizontal)
                     )
                 }
             },
             modifier = Modifier
-                .height(28.dp)
+                .height(30.dp)
                 .semantics {
                     contentDescription = "Position dans le titre"
                     stateDescription = "${elapsed.asDuration()} sur ${durationMs.asDuration()}"
                 },
         )
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
-            val timeStyle = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium, fontFeatureSettings = "tnum")
-            Text(
-                text = elapsed.asDuration(),
-                style = timeStyle,
-                color = scheme.onSurface.copy(alpha = 0.7f),
-            )
+            val timeStyle = MaterialTheme.typography.labelMedium.merge(TabularNumbers)
+            Text(text = elapsed.asDuration(), style = timeStyle, color = elapsedTint)
             Text(
                 text = if (showRemaining) "-" + (durationMs - elapsed).coerceAtLeast(0).asDuration() else durationMs.asDuration(),
                 style = timeStyle,
@@ -809,7 +934,7 @@ private fun SeekBar(positionMs: Long, durationMs: Long, onSeek: (Long) -> Unit) 
                     .clickable(onClickLabel = if (showRemaining) "Afficher la durée totale" else "Afficher le temps restant") {
                         showRemaining = !showRemaining
                     }
-                    .padding(horizontal = 4.dp),
+                    .padding(horizontal = Space.xs),
             )
         }
     }
@@ -818,10 +943,10 @@ private fun SeekBar(positionMs: Long, durationMs: Long, onSeek: (Long) -> Unit) 
 /**
  * Aléatoire · précédent · lecture · suivant · répétition.
  *
- * Aléatoire et répétition existaient côté lecteur mais n'avaient aucun bouton.
- * Le bouton lecture change de forme selon l'état (rond en pause, carré arrondi en
- * lecture) et s'enfonce sous le doigt : un retour immédiat, avant même que l'audio
- * réponde. Un anneau signale la mise en mémoire tampon.
+ * Le bouton lecture signature se métamorphose (triangle ⇄ barres) ; précédent et suivant
+ * donnent un petit coup dans leur direction au toucher ; aléatoire et répétition
+ * rebondissent et allument un point quand ils s'activent. Un anneau signale la mise en
+ * mémoire tampon.
  */
 @Composable
 private fun MainControls(
@@ -829,127 +954,88 @@ private fun MainControls(
     isBuffering: Boolean,
     shuffle: Boolean,
     repeatMode: RepeatMode,
+    hasNext: Boolean,
     onShuffle: () -> Unit,
     onRepeat: () -> Unit,
     onPrevious: () -> Unit,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
 ) {
-    val scheme = MaterialTheme.colorScheme
-    val reduceMotion = LocalReduceMotion.current
-    val active = scheme.primary
-    val idle = scheme.onSurface.copy(alpha = 0.7f)
-
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(
+        ToggleIconButton(
+            icon = Icons.Rounded.Shuffle,
+            contentDescription = "Lecture aléatoire",
+            active = shuffle,
             onClick = onShuffle,
-            modifier = Modifier.semantics { stateDescription = if (shuffle) "activée" else "désactivée" },
-        ) {
-            Icon(Icons.Rounded.Shuffle, "Lecture aléatoire", tint = if (shuffle) active else idle)
-        }
-
-        IconButton(onClick = onPrevious, modifier = Modifier.size(56.dp)) {
-            Icon(Icons.Rounded.SkipPrevious, "Titre précédent", modifier = Modifier.size(36.dp), tint = scheme.onSurface)
-        }
-
-        val interaction = remember { MutableInteractionSource() }
-        val pressed by interaction.collectIsPressedAsState()
-        val pressScale by animateFloatAsState(
-            targetValue = if (pressed && !reduceMotion) 0.92f else 1f,
-            animationSpec = Motion.press(),
-            label = "playPress",
+            stateLabel = if (shuffle) "activée" else "désactivée",
         )
-        val corner by animateDpAsState(
-            targetValue = if (isPlaying) 26.dp else 40.dp,
-            animationSpec = Motion.standardOrSnap(reduceMotion),
-            label = "playShape",
+
+        SkipButton(Icons.Rounded.SkipPrevious, "Titre précédent", direction = -1, onClick = onPrevious)
+
+        BrandPlayButton(
+            isPlaying = isPlaying,
+            onClick = onPlayPause,
+            size = 80.dp,
+            isBuffering = isBuffering,
         )
-        Box(contentAlignment = Alignment.Center) {
-            if (isBuffering) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(88.dp),
-                    strokeWidth = 2.dp,
-                    color = scheme.primary,
-                )
-            }
-            Surface(
-                onClick = onPlayPause,
-                interactionSource = interaction,
-                modifier = Modifier
-                    .size(76.dp)
-                    .graphicsLayer {
-                        scaleX = pressScale
-                        scaleY = pressScale
-                    },
-                shape = RoundedCornerShape(corner),
-                color = scheme.primary,
-                shadowElevation = 8.dp,
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Crossfade(isPlaying, animationSpec = Motion.standardOrSnap(reduceMotion, Motion.SHORT), label = "playIcon") { playing ->
-                        Icon(
-                            imageVector = if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                            contentDescription = if (playing) "Pause" else "Lecture",
-                            tint = scheme.onPrimary,
-                            modifier = Modifier.size(40.dp),
-                        )
-                    }
-                }
-            }
-        }
 
-        IconButton(onClick = onNext, modifier = Modifier.size(56.dp)) {
-            Icon(Icons.Rounded.SkipNext, "Titre suivant", modifier = Modifier.size(36.dp), tint = scheme.onSurface)
-        }
+        SkipButton(Icons.Rounded.SkipNext, "Titre suivant", direction = 1, enabled = hasNext, onClick = onNext)
 
-        IconButton(
+        ToggleIconButton(
+            icon = if (repeatMode == RepeatMode.ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
+            contentDescription = "Répétition",
+            active = repeatMode != RepeatMode.OFF,
             onClick = onRepeat,
-            modifier = Modifier.semantics {
-                stateDescription = when (repeatMode) {
-                    RepeatMode.OFF -> "désactivée"
-                    RepeatMode.ALL -> "toute la file"
-                    RepeatMode.ONE -> "titre en cours"
-                }
+            stateLabel = when (repeatMode) {
+                RepeatMode.OFF -> "désactivée"
+                RepeatMode.ALL -> "toute la file"
+                RepeatMode.ONE -> "titre en cours"
             },
-        ) {
-            Icon(
-                imageVector = if (repeatMode == RepeatMode.ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
-                contentDescription = "Répétition",
-                tint = if (repeatMode == RepeatMode.OFF) idle else active,
-            )
-        }
+        )
     }
 }
 
-/** Cœur favori : petit rebond à l'activation, état annoncé aux lecteurs d'écran. */
+/** Précédent / suivant : l'icône part d'un coup dans sa direction puis revient. */
 @Composable
-private fun FavoriteButton(isFavorite: Boolean, onToggle: () -> Unit) {
-    val reduceMotion = LocalReduceMotion.current
-    val pop = remember { androidx.compose.animation.core.Animatable(1f) }
-    LaunchedEffect(isFavorite) {
-        if (isFavorite && !reduceMotion) {
-            pop.snapTo(0.7f)
-            pop.animateTo(1f, Motion.press())
-        }
-    }
-    IconButton(
-        onClick = onToggle,
-        modifier = Modifier.semantics { stateDescription = if (isFavorite) "dans les favoris" else "pas dans les favoris" },
+private fun SkipButton(
+    icon: ImageVector,
+    contentDescription: String,
+    direction: Int,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+) {
+    val reduce = LocalReduceMotion.current
+    val nudge = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val scheme = MaterialTheme.colorScheme
+    Box(
+        Modifier
+            .pressBounce(0.88f)
+            .size(60.dp)
+            .clip(CircleShape)
+            .clickable(enabled = enabled, role = Role.Button, onClickLabel = contentDescription) {
+                onClick()
+                if (!reduce) {
+                    scope.launch {
+                        nudge.snapTo(direction * 1f)
+                        nudge.animateTo(0f, spring(dampingRatio = 0.45f, stiffness = 500f))
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center,
     ) {
         Icon(
-            imageVector = if (isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-            contentDescription = if (isFavorite) "Retirer des favoris" else "Ajouter aux favoris",
-            tint = if (isFavorite) SynxioTheme.colors.favorite else MaterialTheme.colorScheme.onSurface,
+            icon,
+            contentDescription = contentDescription,
+            tint = if (enabled) scheme.onSurface else scheme.onSurface.copy(alpha = 0.35f),
             modifier = Modifier
-                .size(28.dp)
-                .graphicsLayer {
-                    scaleX = pop.value
-                    scaleY = pop.value
-                },
+                .size(38.dp)
+                .graphicsLayer { translationX = nudge.value * with(density) { 9.dp.toPx() } },
         )
     }
 }

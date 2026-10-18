@@ -3,31 +3,31 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Onde sonore stylisée « S » de Synxio -->
+    <!-- Onde sonore stylisée « S » de Synxio, du braise au magenta (signature Lumen) -->
     <group android:translateX="27" android:translateY="27">
         <path
             android:pathData="M6,20 L6,34"
-            android:strokeColor="#7C5CFF"
+            android:strokeColor="#FFB05C"
             android:strokeWidth="5"
             android:strokeLineCap="round" />
         <path
             android:pathData="M17,12 L17,42"
-            android:strokeColor="#9B6BFF"
+            android:strokeColor="#FF8A4C"
             android:strokeWidth="5"
             android:strokeLineCap="round" />
         <path
             android:pathData="M28,4 L28,50"
-            android:strokeColor="#C56BFF"
+            android:strokeColor="#FF6A5E"
             android:strokeWidth="5"
             android:strokeLineCap="round" />
         <path
             android:pathData="M39,12 L39,42"
-            android:strokeColor="#FF6BB8"
+            android:strokeColor="#FF5873"
             android:strokeWidth="5"
             android:strokeLineCap="round" />
         <path
             android:pathData="M50,20 L50,34"
-            android:strokeColor="#FF8A5C"
+            android:strokeColor="#FF4F8B"
             android:strokeWidth="5"
             android:strokeLineCap="round" />
     </group>

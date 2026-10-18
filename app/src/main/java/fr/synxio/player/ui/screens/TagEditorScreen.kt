@@ -1,14 +1,21 @@
 package fr.synxio.player.ui.screens
 
-import fr.synxio.player.ui.theme.synxioTopBarColors
-import androidx.compose.ui.graphics.Color
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,7 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
@@ -27,24 +34,23 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CloudDownload
+import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -57,22 +63,46 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.synxio.player.data.repo.MetadataMatch
 import fr.synxio.player.ui.components.Artwork
+import fr.synxio.player.ui.components.BrandButton
+import fr.synxio.player.ui.components.BrandProgressBar
+import fr.synxio.player.ui.components.GlassButton
+import fr.synxio.player.ui.components.GlassCard
+import fr.synxio.player.ui.components.SynxioSnackbar
+import fr.synxio.player.ui.components.enterCascade
+import fr.synxio.player.ui.components.pressBounce
+import fr.synxio.player.ui.components.shimmer
+import fr.synxio.player.ui.theme.EyebrowTextStyle
+import fr.synxio.player.ui.theme.LocalGlowEffects
+import fr.synxio.player.ui.theme.LocalReduceMotion
+import fr.synxio.player.ui.theme.Motion
 import fr.synxio.player.ui.theme.Space
 import fr.synxio.player.ui.theme.SynxioShape
+import fr.synxio.player.ui.theme.SynxioTheme
+import fr.synxio.player.ui.theme.TabularNumbers
+import fr.synxio.player.ui.theme.glass
+import fr.synxio.player.ui.theme.glowShadow
+import fr.synxio.player.ui.theme.synxioTopBarColors
 import fr.synxio.player.ui.viewmodel.TagEditorViewModel
 
-private val HeaderArtworkSize = 72.dp
+private val HeaderArtworkSize = 168.dp
 private val MatchArtworkSize = 56.dp
 private val ButtonProgressSize = 18.dp
 private val ButtonProgressStroke = 2.dp
@@ -98,6 +128,7 @@ private fun numberError(value: String?, allowSlash: Boolean): String? {
  * remonter au scaffold racine — utile pour « Tags enregistrés », émis juste avant que
  * l'écran ne se ferme.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TagEditorScreen(
     songId: Long,
@@ -109,6 +140,7 @@ fun TagEditorScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbarHost = remember { SnackbarHostState() }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+    val reduceMotion = LocalReduceMotion.current
 
     LaunchedEffect(songId) { viewModel.load(songId) }
 
@@ -144,11 +176,11 @@ fun TagEditorScreen(
     Scaffold(
         containerColor = Color.Transparent,
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        snackbarHost = { SnackbarHost(snackbarHost) },
+        snackbarHost = { SnackbarHost(snackbarHost) { SynxioSnackbar(it) } },
         topBar = {
             TopAppBar(
                 colors = synxioTopBarColors(),
-                title = { Text("Modifier les tags") },
+                title = { Text("Modifier les tags", style = MaterialTheme.typography.headlineSmall) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Retour")
@@ -158,8 +190,20 @@ fun TagEditorScreen(
             )
         },
         floatingActionButton = {
-            if (state.song != null) {
-                ExtendedFloatingActionButton(
+            AnimatedVisibility(
+                visible = state.song != null,
+                enter = fadeIn(Motion.enter()),
+                exit = fadeOut(Motion.exit()),
+            ) {
+                // Pendant l'écriture, le bouton reste en place mais s'éteint : un second
+                // toucher ne relance rien, et le libellé dit ce qui se passe.
+                BrandButton(
+                    text = if (state.saving) "Enregistrement…" else "Enregistrer",
+                    icon = Icons.Rounded.Save,
+                    enabled = !state.saving,
+                    modifier = Modifier
+                        .heightIn(min = 56.dp)
+                        .semantics { liveRegion = LiveRegionMode.Polite },
                     onClick = {
                         when {
                             state.saving -> Unit
@@ -167,80 +211,56 @@ fun TagEditorScreen(
                             else -> triedInvalid = true
                         }
                     },
-                    icon = {
-                        if (state.saving) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(ButtonProgressSize),
-                                strokeWidth = ButtonProgressStroke,
-                            )
-                        } else {
-                            Icon(Icons.Rounded.Save, contentDescription = null)
-                        }
-                    },
-                    text = { Text(if (state.saving) "Enregistrement…" else "Enregistrer") },
                 )
             }
         },
     ) { padding ->
         val song = state.song
-        if (state.loading || song == null) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                Alignment.Center,
-            ) { CircularProgressIndicator(Modifier.semantics { contentDescription = "Chargement" }) }
-            return@Scaffold
-        }
-
-        Column(
-            Modifier
+        AnimatedContent(
+            targetState = state.loading || song == null,
+            transitionSpec = {
+                fadeIn(Motion.enter(if (reduceMotion) Motion.XS else Motion.MEDIUM)) togetherWith
+                    fadeOut(Motion.exit(Motion.XS))
+            },
+            label = "tagEditorLoading",
+            modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = Space.gutter),
-        ) {
-            Row(
-                Modifier.padding(vertical = Space.lg),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Artwork(song.artworkUri, Modifier.size(HeaderArtworkSize), SynxioShape.artworkSm)
-                Spacer(Modifier.width(Space.lg))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        song.fileName,
-                        style = MaterialTheme.typography.titleSmall,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = song.folderPath,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+                .padding(padding),
+        ) { loading ->
+            if (loading || song == null) {
+                LoadingSkeleton()
+                return@AnimatedContent
             }
 
-            // Prévenir avant la saisie, pas après : les tags ne restent pas dans Synxio,
-            // ils modifient le fichier lui-même (visible par les autres lecteurs, copié
-            // avec lui).
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                shape = SynxioShape.card,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = Space.md),
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = Space.gutter),
+                verticalArrangement = Arrangement.spacedBy(Space.md),
             ) {
+                ArtworkHeader(
+                    artwork = song.artworkUri,
+                    fileName = song.fileName,
+                    folder = song.folderPath,
+                )
+
+                // Prévenir avant la saisie, pas après : les tags ne restent pas dans Synxio,
+                // ils modifient le fichier lui-même (visible par les autres lecteurs, copié
+                // avec lui).
                 Row(
-                    Modifier.padding(Space.md),
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(SynxioShape.cardSm)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
+                        .padding(Space.md),
                     verticalAlignment = Alignment.Top,
                 ) {
                     Icon(
                         Icons.Rounded.Info,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp),
                     )
                     Spacer(Modifier.width(Space.md))
                     Text(
@@ -250,80 +270,120 @@ fun TagEditorScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-            }
 
-            // Les fichiers rippés ont des tags approximatifs : plutôt que de tout
-            // ressaisir à la main, on va chercher la fiche officielle.
-            val busy = state.searching || state.fetchingArtwork
-            OutlinedButton(
-                onClick = { viewModel.searchOnline() },
-                enabled = !busy,
-                shape = SynxioShape.pill,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = Space.touchTarget)
-                    .padding(bottom = Space.sm),
-            ) {
-                if (busy) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(ButtonProgressSize),
-                        strokeWidth = ButtonProgressStroke,
-                    )
-                    Spacer(Modifier.width(ButtonDefaults.IconSpacing))
-                    Text(if (state.fetchingArtwork) "Téléchargement…" else "Recherche…")
-                } else {
-                    Icon(Icons.Rounded.CloudDownload, contentDescription = null, Modifier.size(ButtonDefaults.IconSize))
-                    Spacer(Modifier.width(ButtonDefaults.IconSpacing))
-                    Text("Rechercher les infos et la pochette")
+                // Les fichiers rippés ont des tags approximatifs : plutôt que de tout
+                // ressaisir à la main, on va chercher la fiche officielle.
+                val busy = state.searching || state.fetchingArtwork
+                AnimatedContent(
+                    targetState = busy,
+                    transitionSpec = { fadeIn(Motion.enter(Motion.SHORT)) togetherWith fadeOut(Motion.exit(Motion.XS)) },
+                    label = "searchOnline",
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center,
+                ) { isBusy ->
+                    if (isBusy) {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = Space.touchTarget)
+                                .clip(SynxioShape.pill)
+                                .glass(SynxioShape.pill, strength = 0.8f)
+                                .padding(horizontal = Space.xl, vertical = Space.md)
+                                .semantics { liveRegion = LiveRegionMode.Polite },
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(ButtonProgressSize),
+                                strokeWidth = ButtonProgressStroke,
+                                color = SynxioTheme.colors.brandEnd,
+                            )
+                            Spacer(Modifier.width(Space.sm))
+                            Text(
+                                if (state.fetchingArtwork) "Téléchargement…" else "Recherche…",
+                                style = MaterialTheme.typography.labelLarge,
+                            )
+                        }
+                    } else {
+                        GlassButton(
+                            text = "Rechercher les infos et la pochette",
+                            onClick = { viewModel.searchOnline() },
+                            icon = Icons.Rounded.CloudDownload,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                 }
-            }
 
-            TagField("Titre", state.edit.title) { v -> viewModel.update { it.copy(title = v) } }
-            TagField("Artiste", state.edit.artist) { v -> viewModel.update { it.copy(artist = v) } }
-            TagField("Album", state.edit.album) { v -> viewModel.update { it.copy(album = v) } }
-            TagField("Artiste de l'album", state.edit.albumArtist) { v ->
-                viewModel.update { it.copy(albumArtist = v) }
-            }
-            TagField("Genre", state.edit.genre) { v -> viewModel.update { it.copy(genre = v) } }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(Space.md)) {
-                Box(Modifier.weight(1f)) {
-                    TagField(
-                        "Année", state.edit.year, KeyboardType.Number,
-                        error = yearError,
-                    ) { v -> viewModel.update { it.copy(year = v) } }
+                FieldGroup("Morceau", index = 0) {
+                    TagField("Titre", state.edit.title) { v -> viewModel.update { it.copy(title = v) } }
+                    TagField("Artiste", state.edit.artist) { v -> viewModel.update { it.copy(artist = v) } }
+                    TagField("Genre", state.edit.genre) { v -> viewModel.update { it.copy(genre = v) } }
                 }
-                Box(Modifier.weight(1f)) {
-                    TagField(
-                        "Piste", state.edit.track, KeyboardType.Number,
-                        error = trackError,
-                    ) { v -> viewModel.update { it.copy(track = v) } }
-                }
-                Box(Modifier.weight(1f)) {
-                    TagField(
-                        "Disque", state.edit.disc, KeyboardType.Number,
-                        error = discError,
-                    ) { v -> viewModel.update { it.copy(disc = v) } }
-                }
-            }
-            if (triedInvalid && !formValid) {
-                Text(
-                    "Corrige les champs en rouge avant d'enregistrer.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(bottom = Space.sm),
-                )
-            }
 
-            TagField("Commentaire", state.edit.comment) { v ->
-                viewModel.update { it.copy(comment = v) }
-            }
-            TagField("Paroles", state.edit.lyrics, singleLine = false) { v ->
-                viewModel.update { it.copy(lyrics = v) }
-            }
+                FieldGroup("Album", index = 1) {
+                    TagField("Album", state.edit.album) { v -> viewModel.update { it.copy(album = v) } }
+                    TagField("Artiste de l'album", state.edit.albumArtist) { v ->
+                        viewModel.update { it.copy(albumArtist = v) }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+                        Box(Modifier.weight(1f)) {
+                            TagField(
+                                "Année", state.edit.year, KeyboardType.Number,
+                                error = yearError,
+                            ) { v -> viewModel.update { it.copy(year = v) } }
+                        }
+                        Box(Modifier.weight(1f)) {
+                            TagField(
+                                "Piste", state.edit.track, KeyboardType.Number,
+                                error = trackError,
+                            ) { v -> viewModel.update { it.copy(track = v) } }
+                        }
+                        Box(Modifier.weight(1f)) {
+                            TagField(
+                                "Disque", state.edit.disc, KeyboardType.Number,
+                                error = discError,
+                            ) { v -> viewModel.update { it.copy(disc = v) } }
+                        }
+                    }
+                    AnimatedVisibility(
+                        visible = triedInvalid && !formValid,
+                        enter = fadeIn(Motion.enter(Motion.SHORT)) + expandVertically(Motion.spatialOrSnap(reduceMotion)),
+                        exit = fadeOut(Motion.exit()) + shrinkVertically(Motion.spatialOrSnap(reduceMotion)),
+                    ) {
+                        Row(
+                            Modifier
+                                .padding(top = Space.xs)
+                                .semantics { liveRegion = LiveRegionMode.Assertive },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Rounded.ErrorOutline,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(Space.sm))
+                            Text(
+                                "Corrige les champs en rouge avant d'enregistrer.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                }
 
-            // Laisse le bouton flottant au-dessus du dernier champ.
-            Spacer(Modifier.height(Space.xxxl + Space.xxxl))
+                FieldGroup("Notes", index = 2) {
+                    TagField("Commentaire", state.edit.comment) { v ->
+                        viewModel.update { it.copy(comment = v) }
+                    }
+                    TagField("Paroles", state.edit.lyrics, singleLine = false) { v ->
+                        viewModel.update { it.copy(lyrics = v) }
+                    }
+                }
+
+                // Laisse le bouton flottant au-dessus du dernier champ.
+                Spacer(Modifier.height(Space.xxxl + Space.xxxl))
+            }
         }
     }
 
@@ -337,7 +397,122 @@ fun TagEditorScreen(
     }
 }
 
+/**
+ * En-tête : la pochette du fichier mise en scène, posée sur sa propre lueur, puis le nom
+ * du fichier et son dossier. On sait d'emblée quel fichier on est en train de réécrire.
+ */
+@Composable
+private fun ArtworkHeader(artwork: Any?, fileName: String, folder: String) {
+    // Pas les couleurs de LocalArtworkColors : elles décrivent le titre en lecture, qui
+    // n'est pas forcément celui qu'on édite. La signature reste neutre et toujours juste.
+    val glowColor = SynxioTheme.colors.brandEnd
+    val glow = LocalGlowEffects.current
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = Space.md, bottom = Space.sm)
+            .enterCascade(0, key = "tag-header"),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            if (glow) {
+                Box(
+                    Modifier
+                        .size(HeaderArtworkSize + 80.dp)
+                        .background(
+                            Brush.radialGradient(listOf(glowColor.copy(alpha = 0.30f), Color.Transparent))
+                        )
+                )
+            }
+            Artwork(
+                model = artwork,
+                modifier = Modifier
+                    .size(HeaderArtworkSize)
+                    .glowShadow(SynxioShape.artworkLg, glowColor, elevation = 28.dp),
+                shape = SynxioShape.artworkLg,
+                contentDescription = "Pochette du fichier",
+            )
+        }
+        Spacer(Modifier.height(Space.md))
+        Text(
+            fileName,
+            style = MaterialTheme.typography.titleLarge,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.semantics { heading() },
+        )
+        Spacer(Modifier.height(Space.xxs))
+        Text(
+            text = folder,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+/** Groupe de champs : une carte de verre coiffée d'un surtitre. */
+@Composable
+private fun FieldGroup(title: String, index: Int, content: @Composable () -> Unit) {
+    GlassCard(
+        Modifier
+            .fillMaxWidth()
+            .enterCascade(index + 1, key = "tag-group-$title"),
+        contentPadding = Space.md,
+    ) {
+        Column {
+            Text(
+                title.uppercase(),
+                style = EyebrowTextStyle,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .padding(start = Space.xs, bottom = Space.xs)
+                    .semantics { heading() },
+            )
+            content()
+        }
+    }
+}
+
+/** Chargement : la silhouette de l'écran (pochette, champs) qui scintille doucement. */
+@Composable
+private fun LoadingSkeleton() {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(horizontal = Space.gutter, vertical = Space.md)
+            .semantics { contentDescription = "Chargement" },
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(Modifier.size(HeaderArtworkSize).clip(SynxioShape.artworkLg).shimmer())
+        Spacer(Modifier.height(Space.md))
+        Box(Modifier.fillMaxWidth(0.6f).height(18.dp).clip(SynxioShape.pill).shimmer())
+        Spacer(Modifier.height(Space.sm))
+        Box(Modifier.fillMaxWidth(0.4f).height(12.dp).clip(SynxioShape.pill).shimmer())
+        Spacer(Modifier.height(Space.xl))
+        repeat(2) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = Space.md)
+                    .clip(SynxioShape.card)
+                    .glass(SynxioShape.card, strength = 0.35f)
+                    .padding(Space.md),
+                verticalArrangement = Arrangement.spacedBy(Space.sm),
+            ) {
+                repeat(3) {
+                    Box(Modifier.fillMaxWidth().height(52.dp).clip(SynxioShape.cardSm).shimmer())
+                }
+            }
+        }
+    }
+}
+
 /** Liste des correspondances trouvées en ligne, avec pochette et indice de confiance. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MetadataMatchSheet(
     matches: List<MetadataMatch>,
@@ -347,14 +522,22 @@ private fun MetadataMatchSheet(
 ) {
     var withArtwork by remember { mutableStateOf(true) }
     var query by remember { mutableStateOf("") }
+    val scheme = MaterialTheme.colorScheme
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = scheme.surfaceContainerLow,
+        shape = SynxioShape.sheet,
+    ) {
         Column(Modifier.padding(bottom = Space.xl)) {
-            Text(
-                text = "Correspondances trouvées",
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.padding(horizontal = Space.xl, vertical = Space.sm),
-            )
+            Column(Modifier.padding(horizontal = Space.xl, vertical = Space.sm)) {
+                Text("EN LIGNE", style = EyebrowTextStyle, color = scheme.primary)
+                Text(
+                    text = "Correspondances trouvées",
+                    style = MaterialTheme.typography.headlineSmall,
+                    modifier = Modifier.semantics { heading() },
+                )
+            }
 
             Row(
                 Modifier
@@ -364,8 +547,12 @@ private fun MetadataMatchSheet(
                     .padding(horizontal = Space.xl),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("Importer aussi la pochette", Modifier.weight(1f))
-                Switch(checked = withArtwork, onCheckedChange = null)
+                Text("Importer aussi la pochette", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+                Switch(
+                    checked = withArtwork,
+                    onCheckedChange = null,
+                    colors = SwitchDefaults.colors(checkedTrackColor = scheme.primary),
+                )
             }
 
             OutlinedTextField(
@@ -373,6 +560,8 @@ private fun MetadataMatchSheet(
                 onValueChange = { query = it },
                 label = { Text("Affiner la recherche") },
                 singleLine = true,
+                shape = SynxioShape.cardSm,
+                colors = glassFieldColors(),
                 trailingIcon = {
                     IconButton(onClick = { if (query.isNotBlank()) onSearch(query) }) {
                         Icon(Icons.Rounded.Search, contentDescription = "Chercher")
@@ -383,17 +572,22 @@ private fun MetadataMatchSheet(
                     .padding(horizontal = Space.xl, vertical = Space.sm),
             )
 
-            HorizontalDivider(Modifier.padding(vertical = Space.xs))
-
-            LazyColumn(Modifier.heightIn(max = MatchListMaxHeight)) {
-                items(matches) { match ->
+            LazyColumn(
+                Modifier.heightIn(max = MatchListMaxHeight),
+                contentPadding = PaddingValues(horizontal = Space.md, vertical = Space.xs),
+                verticalArrangement = Arrangement.spacedBy(Space.xs),
+            ) {
+                itemsIndexed(matches) { index, match ->
                     Row(
                         Modifier
                             .fillMaxWidth()
+                            .enterCascade(index, key = "match-$index-${match.title}")
+                            .pressBounce(0.98f)
+                            .clip(SynxioShape.cardSm)
                             .clickable(onClickLabel = "Appliquer cette fiche", role = Role.Button) {
                                 onSelect(match, withArtwork)
                             }
-                            .padding(horizontal = Space.xl, vertical = Space.sm),
+                            .padding(horizontal = Space.md, vertical = Space.sm),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Artwork(
@@ -412,20 +606,27 @@ private fun MetadataMatchSheet(
                             Text(
                                 text = "${match.artist} · ${match.album}",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = scheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            Text(
-                                text = "${match.durationSec / 60}:${"%02d".format(match.durationSec % 60)}" +
-                                    " · fiabilité ${match.confidence} %",
-                                style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
-                                color = if (match.confidence >= 80) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                            )
+                            Spacer(Modifier.height(Space.xs))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                // Jauge de fiabilité à la signature : l'œil compare les fiches
+                                // sans lire les pourcentages.
+                                BrandProgressBar(
+                                    progress = match.confidence / 100f,
+                                    height = 4.dp,
+                                    modifier = Modifier.width(36.dp),
+                                )
+                                Spacer(Modifier.width(Space.sm))
+                                Text(
+                                    text = "${match.durationSec / 60}:${"%02d".format(match.durationSec % 60)}" +
+                                        " · fiabilité ${match.confidence} %",
+                                    style = MaterialTheme.typography.labelSmall.merge(TabularNumbers),
+                                    color = if (match.confidence >= 80) scheme.primary else scheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                 }
@@ -452,8 +653,24 @@ private fun TagField(
         isError = error != null,
         supportingText = error?.let { { Text(it) } },
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+        shape = SynxioShape.cardSm,
+        colors = glassFieldColors(),
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = Space.xs),
+    )
+}
+
+/** Champ de saisie en verre : fond translucide, liseré discret, accent au focus. */
+@Composable
+private fun glassFieldColors() = MaterialTheme.colorScheme.let { scheme ->
+    OutlinedTextFieldDefaults.colors(
+        focusedContainerColor = scheme.surfaceContainerHighest.copy(alpha = 0.55f),
+        unfocusedContainerColor = scheme.surfaceContainerHighest.copy(alpha = 0.32f),
+        errorContainerColor = scheme.errorContainer.copy(alpha = 0.25f),
+        focusedBorderColor = scheme.primary,
+        unfocusedBorderColor = scheme.outlineVariant.copy(alpha = 0.6f),
+        focusedLabelColor = scheme.primary,
+        cursorColor = scheme.primary,
     )
 }

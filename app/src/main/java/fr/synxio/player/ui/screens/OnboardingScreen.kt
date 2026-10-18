@@ -1,8 +1,12 @@
 package fr.synxio.player.ui.screens
 
-import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,153 +19,359 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.LockOpen
-import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.util.lerp
 import fr.synxio.player.R
+import fr.synxio.player.ui.components.BrandButton
+import fr.synxio.player.ui.theme.AmbientBackdrop
+import fr.synxio.player.ui.theme.EyebrowTextStyle
+import fr.synxio.player.ui.theme.LocalGlowEffects
 import fr.synxio.player.ui.theme.LocalReduceMotion
 import fr.synxio.player.ui.theme.Motion
+import fr.synxio.player.ui.theme.Radius
 import fr.synxio.player.ui.theme.Space
-import fr.synxio.player.ui.theme.SynxioShape
-import kotlinx.coroutines.delay
+import fr.synxio.player.ui.theme.SynxioTheme
+import fr.synxio.player.ui.theme.glass
+import fr.synxio.player.ui.theme.glowShadow
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 /**
- * Premier lancement : ce que fait Synxio, en trois points, et une seule action.
+ * Premier lancement : quatre plans, comme le générique d'un album. L'aurore dérive en
+ * fond, chaque plan pose un visuel, un grand titre et une phrase ; la pagination à la
+ * signature s'étire vers le plan courant en suivant le doigt.
  *
  * Pas de bouton retour : il n'y a nulle part où revenir, et l'ancien retour masquait
- * l'écran sans le marquer comme vu — il réapparaissait au lancement suivant.
+ * l'écran sans le marquer comme vu — il réapparaissait au lancement suivant. « Passer »
+ * et « Commencer » terminent tous deux l'accueil (et le marquent comme vu).
+ *
+ * Cet écran est affiché hors de la racine de l'app : il dessine donc lui-même l'aurore.
  */
 @Composable
 fun OnboardingScreen(onFinish: () -> Unit) {
+    val pages = remember { onboardingPages() }
+    val pager = rememberPagerState { pages.size }
+    val scope = rememberCoroutineScope()
     val reduce = LocalReduceMotion.current
-    val reveal = remember { List(4) { Animatable(if (reduce) 1f else 0f) } }
-    LaunchedEffect(Unit) {
-        if (reduce) return@LaunchedEffect
-        // Apparitions décalées : chaque bloc part 70 ms après le précédent.
-        reveal.forEach { anim ->
-            launch { anim.animateTo(1f, Motion.enter(Motion.LONG)) }
-            delay(70)
-        }
-    }
-    fun Modifier.revealed(index: Int) = graphicsLayer {
-        val v = reveal[index].value
-        alpha = v
-        translationY = (1f - v) * 16.dp.toPx()
-    }
+    val isLast by remember { derivedStateOf { pager.currentPage == pages.lastIndex } }
 
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .safeDrawingPadding()
-    ) {
+    Box(Modifier.fillMaxSize()) {
+        // L'aurore dérive seulement ici, écran visible : elle s'arrête d'elle-même avec
+        // « Réduire les animations » ou sans effets lumineux.
+        AmbientBackdrop(drifting = true)
+
         Column(
             Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = Space.xl, vertical = Space.xxl),
+                .safeDrawingPadding()
         ) {
-            Image(
-                painter = painterResource(R.drawable.ic_launcher_foreground),
-                contentDescription = null,
-                colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.primary),
-                modifier = Modifier
-                    .size(96.dp)
-                    .revealed(0),
-            )
-            Spacer(Modifier.height(Space.lg))
-            Text(
-                "Ta musique,\nrien qu'à toi.",
-                style = MaterialTheme.typography.displaySmall,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier
-                    .semantics { heading() }
-                    .revealed(0),
-            )
-            Spacer(Modifier.height(Space.md))
-            Text(
-                "Synxio lit les fichiers audio de ton téléphone. Aucun compte, aucune publicité. Les services en ligne (paroles, Last.fm, Discord) sont optionnels.",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.revealed(1),
-            )
-
-            Spacer(Modifier.height(Space.xxl))
-
-            Column(
-                verticalArrangement = Arrangement.spacedBy(Space.lg),
-                modifier = Modifier.revealed(2),
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = Space.touchTarget)
+                    .padding(horizontal = Space.sm),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Feature(
-                    icon = Icons.Rounded.GraphicEq,
-                    title = "Un son à ton goût",
-                    body = "Égaliseur, normalisation du volume, fondu enchaîné et mode karaoké.",
+                Text(
+                    "SYNXIO",
+                    style = EyebrowTextStyle,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .padding(start = Space.md)
+                        .weight(1f),
                 )
-                Feature(
-                    icon = Icons.Rounded.AutoAwesome,
-                    title = "Une app qui prend la couleur de ta musique",
-                    body = "L'interface se teinte selon la pochette du titre en cours.",
-                )
-                Feature(
-                    icon = Icons.Rounded.LockOpen,
-                    title = "Tes données restent ici",
-                    body = "Favoris, playlists et statistiques sont stockés sur l'appareil.",
+                AnimatedVisibility(
+                    visible = !isLast,
+                    enter = fadeIn(Motion.enter(Motion.SHORT)),
+                    exit = fadeOut(Motion.exit()),
+                ) {
+                    TextButton(onClick = onFinish, modifier = Modifier.heightIn(min = Space.touchTarget)) {
+                        Text("Passer", style = MaterialTheme.typography.labelLarge)
+                    }
+                }
+            }
+
+            HorizontalPager(
+                state = pager,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+            ) { index ->
+                OnboardingPageContent(
+                    page = pages[index],
+                    index = index,
+                    count = pages.size,
+                    pager = pager,
                 )
             }
 
-            Spacer(Modifier.height(Space.xxxl))
+            PagerIndicator(
+                pager = pager,
+                count = pages.size,
+                modifier = Modifier
+                    .align(Alignment.CenterHorizontally)
+                    .padding(vertical = Space.lg),
+            )
 
-            Button(
-                onClick = onFinish,
-                shape = SynxioShape.pill,
+            BrandButton(
+                text = if (isLast) "Commencer" else "Suivant",
+                icon = if (isLast) null else Icons.AutoMirrored.Rounded.ArrowForward,
+                onClick = {
+                    if (isLast) {
+                        onFinish()
+                    } else {
+                        scope.launch {
+                            val target = pager.currentPage + 1
+                            if (reduce) pager.animateScrollToPage(target, animationSpec = snap())
+                            else pager.animateScrollToPage(target)
+                        }
+                    }
+                },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 56.dp)
-                    .revealed(3),
+                    .padding(horizontal = Space.xl)
+                    .padding(bottom = Space.xl)
+                    .heightIn(min = 56.dp),
+            )
+        }
+    }
+}
+
+private data class OnboardingPage(
+    val eyebrow: String,
+    val title: String,
+    val body: String,
+    /** `null` : logo de l'app sur la signature (premier plan). */
+    val icon: ImageVector?,
+)
+
+private fun onboardingPages() = listOf(
+    OnboardingPage(
+        eyebrow = "Bienvenue",
+        title = "Ta musique,\nrien qu'à toi.",
+        body = "Synxio lit les fichiers audio de ton téléphone. Aucun compte, aucune publicité. " +
+            "Les services en ligne (paroles, Last.fm, Discord) sont optionnels.",
+        icon = null,
+    ),
+    OnboardingPage(
+        eyebrow = "Le son",
+        title = "Un son\nà ton goût.",
+        body = "Égaliseur, normalisation du volume, fondu enchaîné et mode karaoké.",
+        icon = Icons.Rounded.GraphicEq,
+    ),
+    OnboardingPage(
+        eyebrow = "La lumière",
+        title = "L'app prend\nla couleur\nde ta musique.",
+        body = "L'interface se teinte selon la pochette du titre en cours, comme éclairée par elle.",
+        icon = Icons.Rounded.AutoAwesome,
+    ),
+    OnboardingPage(
+        eyebrow = "Tes données",
+        title = "Tout reste\nici.",
+        body = "Favoris, playlists et statistiques sont stockés sur l'appareil. Rien ne part sans toi.",
+        icon = Icons.Rounded.LockOpen,
+    ),
+)
+
+/**
+ * Un plan : le contenu glisse un peu moins vite que la page et s'estompe en la quittant,
+ * ce qui donne de la profondeur (parallaxe) sans aucune animation propre. Animations
+ * réduites : la page défile simplement, sans parallaxe.
+ */
+@Composable
+private fun OnboardingPageContent(
+    page: OnboardingPage,
+    index: Int,
+    count: Int,
+    pager: PagerState,
+) {
+    val reduce = LocalReduceMotion.current
+    fun offset(): Float = (pager.currentPage - index) + pager.currentPageOffsetFraction
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = Space.xl),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .graphicsLayer {
+                    if (reduce) return@graphicsLayer
+                    val o = offset()
+                    // Le visuel recule et rétrécit en quittant le plan.
+                    translationX = o * size.width * 0.35f
+                    val s = lerp(1f, 0.78f, abs(o).coerceIn(0f, 1f))
+                    scaleX = s
+                    scaleY = s
+                    alpha = 1f - abs(o).coerceIn(0f, 1f) * 0.8f
+                },
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            OnboardingVisual(page.icon)
+        }
+
+        Spacer(Modifier.height(Space.xxl))
+
+        Column(
+            Modifier.graphicsLayer {
+                if (reduce) return@graphicsLayer
+                val o = offset()
+                translationX = o * size.width * 0.15f
+                alpha = 1f - abs(o).coerceIn(0f, 1f)
+            }
+        ) {
+            Text(
+                "${(index + 1).toString().padStart(2, '0')} / ${count.toString().padStart(2, '0')} · ${page.eyebrow.uppercase()}",
+                style = EyebrowTextStyle,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.height(Space.sm))
+            Text(
+                page.title,
+                style = MaterialTheme.typography.displayMedium,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.semantics { heading() },
+            )
+            Spacer(Modifier.height(Space.lg))
+            Text(
+                page.body,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/**
+ * Visuel d'un plan. Le premier porte le logo sur la signature (le geste le plus
+ * important : on fait connaissance) ; les suivants un disque de verre cerclé de la
+ * signature, posé sur un halo.
+ */
+@Composable
+private fun OnboardingVisual(icon: ImageVector?) {
+    val colors = SynxioTheme.colors
+    val glow = LocalGlowEffects.current
+    Box(contentAlignment = Alignment.Center) {
+        if (glow) {
+            Box(
+                Modifier
+                    .size(200.dp)
+                    .background(Brush.radialGradient(listOf(colors.brandEnd.copy(alpha = 0.32f), Color.Transparent)))
+            )
+        }
+        if (icon == null) {
+            val shape = RoundedCornerShape(Radius.xl)
+            Box(
+                Modifier
+                    .size(120.dp)
+                    .glowShadow(shape, colors.brandEnd, elevation = 32.dp)
+                    .clip(shape)
+                    .background(colors.brandBrush),
+                contentAlignment = Alignment.Center,
             ) {
-                Text("Commencer", style = MaterialTheme.typography.titleMedium)
+                Image(
+                    painter = painterResource(R.drawable.ic_launcher_foreground),
+                    contentDescription = null,
+                    colorFilter = ColorFilter.tint(colors.onBrand),
+                    modifier = Modifier.size(120.dp),
+                )
+            }
+        } else {
+            Box(
+                Modifier
+                    .size(120.dp)
+                    .clip(CircleShape)
+                    .glass(CircleShape, strength = 1f, border = false)
+                    .border(2.dp, colors.brandBrush, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(54.dp))
             }
         }
     }
 }
 
+/**
+ * Pagination : des points discrets, et le point courant qui s'étire en pilule remplie de
+ * la signature. La largeur suit la position réelle du pager (pas un état discret), donc
+ * la pilule glisse d'un point à l'autre au rythme du doigt.
+ */
 @Composable
-private fun Feature(icon: ImageVector, title: String, body: String) {
-    Row(horizontalArrangement = Arrangement.spacedBy(Space.lg)) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .size(44.dp)
-                .clip(SynxioShape.pill)
-                .background(MaterialTheme.colorScheme.primaryContainer),
-        ) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
-        }
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-            Spacer(Modifier.height(Space.xxs))
-            Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
+private fun PagerIndicator(pager: PagerState, count: Int, modifier: Modifier = Modifier) {
+    val brand = SynxioTheme.colors.brandBrushHorizontal
+    val idle = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.22f)
+    val dot = 8.dp
+    val active = 28.dp
+    val gap = 8.dp
+    Box(
+        modifier
+            .width(active + (dot + gap) * (count - 1))
+            .height(dot)
+            .semantics { stateDescription = "Page ${pager.currentPage + 1} sur $count" }
+            .drawBehind {
+                val position = (pager.currentPage + pager.currentPageOffsetFraction).coerceIn(0f, (count - 1).toFloat())
+                val d = dot.toPx()
+                val a = active.toPx()
+                val g = gap.toPx()
+                val r = CornerRadius(d / 2f, d / 2f)
+                var x = 0f
+                for (i in 0 until count) {
+                    // Proximité au plan courant : 1 sur le plan, 0 à un plan d'écart.
+                    val near = (1f - abs(position - i)).coerceIn(0f, 1f)
+                    val w = lerp(d, a, near)
+                    drawRoundRect(color = idle, topLeft = Offset(x, 0f), size = Size(w, d), cornerRadius = r)
+                    if (near > 0f) {
+                        drawRoundRect(
+                            brush = brand,
+                            topLeft = Offset(x, 0f),
+                            size = Size(w, d),
+                            cornerRadius = r,
+                            alpha = near,
+                        )
+                    }
+                    x += w + g
+                }
+            }
+    )
 }

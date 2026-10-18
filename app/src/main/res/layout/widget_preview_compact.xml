@@ -1,20 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Aperçu du sélecteur de widgets (Android 12+) : statique, aux couleurs Synxio. -->
+<!-- Aperçu du sélecteur de widgets (Android 12+) : statique, scène Lumen à l'encre.
+     Le widget réel suit le mode sombre (encre / papier) et la couleur de la pochette. -->
+<!-- RemoteViews : app:tint (AppCompat) n'y existe pas, android:tint est le bon attribut. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:ignore="UseAppTint"
+    android:id="@android:id/background"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/widget_preview_bg"
+    android:background="@drawable/widget_lumen_preview_bg"
+    android:clipToOutline="true"
     android:gravity="center_vertical"
     android:orientation="horizontal"
-    android:padding="14dp">
+    android:padding="16dp">
 
     <ImageView
         android:layout_width="82dp"
         android:layout_height="82dp"
-        android:background="@drawable/widget_preview_art"
+        android:background="@drawable/widget_lumen_preview_art"
         android:importantForAccessibility="no"
         android:scaleType="center"
-        android:src="@drawable/ic_widget_note" />
+        android:src="@drawable/ic_widget_note"
+        android:tint="#B3FFFFFF" />
 
     <LinearLayout
         android:layout_width="0dp"
@@ -26,28 +33,32 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:fontFamily="sans-serif-medium"
+            android:maxLines="1"
+            android:text="@string/widget_eyebrow_paused"
+            android:textAllCaps="true"
+            android:textColor="#FFFF8A4C"
+            android:textSize="11sp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:ellipsize="end"
             android:maxLines="1"
             android:text="@string/widget_preview_title"
-            android:textColor="#FFF5F3FA"
+            android:textColor="#FFF6F1EC"
             android:textSize="16sp"
             android:textStyle="bold" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:ellipsize="end"
             android:maxLines="1"
             android:text="@string/widget_preview_artist"
-            android:textColor="#FFC9C4D6"
+            android:textColor="#FFBDB4AF"
             android:textSize="13sp" />
-
-        <ProgressBar
-            style="@android:style/Widget.ProgressBar.Horizontal"
-            android:layout_width="match_parent"
-            android:layout_height="4dp"
-            android:layout_marginTop="10dp"
-            android:progress="40"
-            android:progressBackgroundTint="#55FFFFFF"
-            android:progressTint="#FFB59BFF" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -61,20 +72,22 @@
                 android:layout_height="26dp"
                 android:layout_weight="1"
                 android:importantForAccessibility="no"
-                android:src="@drawable/ic_widget_previous" />
+                android:src="@drawable/ic_widget_previous"
+                android:tint="#FFF6F1EC" />
 
             <ImageView
                 android:layout_width="48dp"
                 android:layout_height="48dp"
                 android:importantForAccessibility="no"
-                android:src="@drawable/widget_preview_play" />
+                android:src="@drawable/widget_lumen_preview_play" />
 
             <ImageView
                 android:layout_width="0dp"
                 android:layout_height="26dp"
                 android:layout_weight="1"
                 android:importantForAccessibility="no"
-                android:src="@drawable/ic_widget_next" />
+                android:src="@drawable/ic_widget_next"
+                android:tint="#FFF6F1EC" />
         </LinearLayout>
     </LinearLayout>
 </LinearLayout>

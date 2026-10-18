@@ -211,7 +211,10 @@ class PlaybackService : MediaLibraryService() {
             )
             // Coupe la lecture quand on débranche le casque, comme tout lecteur sérieux.
             .setHandleAudioBecomingNoisy(true)
-            .setWakeMode(C.WAKE_MODE_LOCAL)
+            // NETWORK et non LOCAL : webradios et podcasts sont lus en flux, et le Wi-Fi
+            // se mettait en veille écran éteint jusqu'à faire caler le flux. Les verrous ne
+            // sont tenus que pendant la lecture.
+            .setWakeMode(C.WAKE_MODE_NETWORK)
             .setSeekBackIncrementMs(10_000)
             .setSeekForwardIncrementMs(30_000)
             .build()
@@ -1066,10 +1069,22 @@ class PlaybackService : MediaLibraryService() {
      */
     private fun registerHeadsetResume() {
         val audioManager = getSystemService(AudioManager::class.java) ?: return
+        // À l'enregistrement, Android rejoue « ajouté » pour chaque sortie déjà branchée.
+        // Ces sorties-là ne sont pas des connexions : sans ce filtre, chaque démarrage du
+        // service avec un casque branché réécrivait la courbe d'égaliseur choisie à la main.
+        val alreadyConnected = runCatching {
+            audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).map { it.id }.toMutableSet()
+        }.getOrDefault(mutableSetOf())
 
         headsetCallback = object : AudioDeviceCallback() {
+            override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) {
+                removedDevices.orEmpty().forEach { alreadyConnected.remove(it.id) }
+            }
+
             override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) {
-                val headset = addedDevices.orEmpty().firstOrNull { it.type in HEADSET_TYPES }
+                val headset = addedDevices.orEmpty()
+                    .filterNot { alreadyConnected.remove(it.id) }
+                    .firstOrNull { it.type in HEADSET_TYPES }
                     ?: return
 
                 // Chaque casque peut avoir sa propre correction : on l'applique dès
@@ -1083,6 +1098,8 @@ class PlaybackService : MediaLibraryService() {
                     // Court délai : la route audio n'est pas encore basculée sur le
                     // casque à l'instant où le périphérique est signalé.
                     delay(600)
+                    // L'utilisateur a pu lancer la lecture pendant ce délai.
+                    if (activePlayer.playWhenReady || activePlayer.mediaItemCount == 0) return@launch
                     if (activePlayer.playbackState == Player.STATE_IDLE) activePlayer.prepare()
                     activePlayer.play()
                 }
@@ -1318,11 +1335,20 @@ class PlaybackService : MediaLibraryService() {
             val future = com.google.common.util.concurrent.SettableFuture
                 .create<MediaSession.MediaItemsWithStartPosition>()
             serviceScope.launch {
-                val restored = runCatching { loadSavedQueue() }.getOrNull()
+                // Même règle que la restauration au démarrage : « Mémoriser la file »
+                // désactivé, rien à reprendre.
+                val remember = settingsRepository.settings.first().rememberQueue
+                val restored = if (remember) runCatching { loadSavedQueue() }.getOrNull() else null
                 if (restored == null) {
                     future.setException(UnsupportedOperationException("Aucune file sauvegardée"))
                 } else {
-                    val (queue, _) = restored
+                    val (queue, state) = restored
+                    // Aléatoire et répétition sont des propriétés du lecteur, conservées par
+                    // setMediaItems : posées avant, elles survivent à la reprise au lieu
+                    // d'être réécrites à « désactivé » à la sauvegarde suivante.
+                    activePlayer.shuffleModeEnabled = state?.shuffle ?: false
+                    activePlayer.repeatMode = state?.repeatMode ?: Player.REPEAT_MODE_OFF
+                    queueLoaded = true
                     future.set(
                         MediaSession.MediaItemsWithStartPosition(
                             forActivePlayer(queue.items),

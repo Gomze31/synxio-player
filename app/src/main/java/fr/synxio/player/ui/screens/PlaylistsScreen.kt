@@ -3,6 +3,7 @@ package fr.synxio.player.ui.screens
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,9 +17,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.PlaylistPlay
@@ -33,18 +33,16 @@ import androidx.compose.material.icons.rounded.FilterAlt
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,6 +50,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
@@ -65,25 +65,39 @@ import fr.synxio.player.data.repo.RulePlaylist
 import fr.synxio.player.data.repo.SmartPlaylist
 import fr.synxio.player.data.repo.SmartPlaylistId
 import fr.synxio.player.ui.components.ArtworkMosaic
+import fr.synxio.player.ui.components.BrandButton
+import fr.synxio.player.ui.components.GlassButton
 import fr.synxio.player.ui.components.PlaylistRow
 import fr.synxio.player.ui.components.SectionHeader
+import fr.synxio.player.ui.components.enterCascade
+import fr.synxio.player.ui.components.pressBounce
 import fr.synxio.player.ui.theme.Space
 import fr.synxio.player.ui.theme.SynxioShape
+import fr.synxio.player.ui.theme.SynxioTheme
+import fr.synxio.player.ui.theme.TabularNumbers
+import fr.synxio.player.ui.theme.glass
+import fr.synxio.player.ui.theme.glowShadow
 import fr.synxio.player.ui.viewmodel.AppViewModel
 
 /** Vignette des lignes de collection : même taille que [PlaylistRow]. */
 private val RowThumbSize = 52.dp
 private val RowMinHeight = 64.dp
-private val InlineBadgeSize = 72.dp
-private val InlineIconSize = 48.dp
+
+/** Mosaïque de la carte Favoris, plus grande que les lignes : c'est la vedette. */
+private val FavoritesArtSize = 76.dp
+
+/** Disque de lecture de la carte Favoris. */
+private val FavoritesPlaySize = 48.dp
+
+private val InlineBadgeSize = 64.dp
 
 /**
  * Onglet Playlists de la bibliothèque.
  *
  * Trois familles, trois sections dans un ordre stable : les playlists de l'utilisateur
- * (dont Favoris), ses playlists à règles, puis les sélections calculées par Synxio.
- * Chaque section garde son en-tête même vide, avec un état vide qui dit quoi faire :
- * on sait toujours où se trouvera ce qu'on crée.
+ * (dont Favoris, en vedette), ses playlists à règles, puis les sélections calculées par
+ * Synxio. Chaque section garde son en-tête même vide, avec un état vide qui dit quoi
+ * faire : on sait toujours où se trouvera ce qu'on crée.
  */
 @Composable
 fun PlaylistsTab(
@@ -105,6 +119,7 @@ fun PlaylistsTab(
     var deletingPlaylist by remember { mutableStateOf<Playlist?>(null) }
     var ruleMenuFor by remember { mutableStateOf<RulePlaylist?>(null) }
     var deletingRule by remember { mutableStateOf<RulePlaylist?>(null) }
+    val scheme = MaterialTheme.colorScheme
 
     // Import M3U : le sélecteur système évite d'avoir à demander l'accès complet au stockage.
     val importLauncher = rememberLauncherForActivityResult(
@@ -126,7 +141,7 @@ fun PlaylistsTab(
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = Space.sm, vertical = Space.sm),
+        contentPadding = PaddingValues(start = Space.sm, end = Space.sm, top = Space.xs, bottom = Space.bottomInset),
     ) {
         // Création et import en tête : ce sont les deux façons d'obtenir une playlist,
         // elles doivent se voir sans chercher (l'ancien bouton flottant masquait des lignes).
@@ -134,44 +149,32 @@ fun PlaylistsTab(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = Space.md, vertical = Space.xs),
+                    .padding(horizontal = Space.md, vertical = Space.sm),
                 horizontalArrangement = Arrangement.spacedBy(Space.md),
             ) {
-                FilledTonalButton(
+                // Libellé court : « Nouvelle playlist » était tronqué sur un écran de 6,7".
+                BrandButton(
+                    text = "Créer",
                     onClick = { creating = true },
-                    contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
-                    shape = SynxioShape.pill,
-                    modifier = Modifier
-                        .weight(1f)
-                        .heightIn(min = Space.touchTarget),
-                ) {
-                    Icon(Icons.Rounded.Add, contentDescription = null, Modifier.size(ButtonDefaults.IconSize))
-                    Spacer(Modifier.width(ButtonDefaults.IconSpacing))
-                    // Libellé court : « Nouvelle playlist » était tronqué sur un écran de 6,7".
-                    Text("Créer", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                OutlinedButton(
+                    icon = Icons.Rounded.Add,
+                    modifier = Modifier.weight(1f),
+                )
+                GlassButton(
+                    text = "Importer",
                     onClick = { importLauncher.launch(arrayOf("*/*")) },
-                    contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
-                    shape = SynxioShape.pill,
-                    modifier = Modifier
-                        .weight(1f)
-                        .heightIn(min = Space.touchTarget),
-                ) {
-                    Icon(Icons.Rounded.FileUpload, contentDescription = null, Modifier.size(ButtonDefaults.IconSize))
-                    Spacer(Modifier.width(ButtonDefaults.IconSpacing))
-                    Text("Importer", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
+                    icon = Icons.Rounded.FileUpload,
+                    modifier = Modifier.weight(1f),
+                )
             }
         }
 
         // --- Mes playlists -------------------------------------------------------------
         item(key = "mine-title", contentType = "section") {
-            SectionHeader("Mes playlists", Modifier.padding(top = Space.lg))
+            SectionHeader("Mes playlists", Modifier.padding(top = Space.xs), eyebrow = "Ta sélection")
         }
-        item(key = "favorites", contentType = "row") {
-            CollectionRow(
-                title = "Favoris",
+        item(key = "favorites", contentType = "favorites") {
+            FavoritesCard(
+                artwork = favoritesArtwork,
                 subtitle = if (favorites.isEmpty()) {
                     "Touche le cœur d'un titre pour l'ajouter ici"
                 } else {
@@ -181,22 +184,9 @@ fun PlaylistsTab(
                     if (favorites.isEmpty()) viewModel.showMessage("Aucun favori pour l'instant")
                     else viewModel.play(favorites)
                 },
-                onClickLabel = "Lire les favoris",
-                leading = {
-                    if (favoritesArtwork.isEmpty()) {
-                        IconThumb(Icons.Rounded.Favorite)
-                    } else {
-                        ArtworkMosaic(favoritesArtwork, Modifier.size(RowThumbSize), SynxioShape.artworkSm)
-                    }
-                },
-                trailing = {
-                    Icon(
-                        Icons.Rounded.PlayArrow,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(horizontal = Space.md),
-                    )
-                },
+                modifier = Modifier
+                    .animateItem()
+                    .enterCascade(0, "favorites"),
             )
         }
 
@@ -208,12 +198,17 @@ fun PlaylistsTab(
                     text = "Crée ta première playlist ou importe un fichier M3U existant.",
                     actionLabel = "Nouvelle playlist",
                     onAction = { creating = true },
+                    modifier = Modifier.animateItem(),
                 )
             }
         }
 
-        items(playlists, key = { it.id }, contentType = { "row" }) { playlist ->
-            Box(Modifier.animateItem()) {
+        itemsIndexed(playlists, key = { _, it -> it.id }, contentType = { _, _ -> "row" }) { index, playlist ->
+            Box(
+                Modifier
+                    .animateItem()
+                    .enterCascade(index + 1, "playlist-${playlist.id}")
+            ) {
                 PlaylistRow(
                     playlist = playlist,
                     onClick = { onOpenPlaylist(playlist.id) },
@@ -222,6 +217,8 @@ fun PlaylistsTab(
                 DropdownMenu(
                     expanded = menuFor?.id == playlist.id,
                     onDismissRequest = { menuFor = null },
+                    shape = SynxioShape.cardSm,
+                    containerColor = scheme.surfaceContainerHigh,
                 ) {
                     DropdownMenuItem(
                         text = { Text("Lire") },
@@ -250,8 +247,8 @@ fun PlaylistsTab(
                         },
                     )
                     DropdownMenuItem(
-                        text = { Text("Supprimer") },
-                        leadingIcon = { Icon(Icons.Rounded.Delete, null) },
+                        text = { Text("Supprimer", color = scheme.error) },
+                        leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = scheme.error) },
                         onClick = { deletingPlaylist = playlist; menuFor = null },
                     )
                 }
@@ -262,9 +259,10 @@ fun PlaylistsTab(
         item(key = "rules-title", contentType = "section") {
             SectionHeader(
                 title = "Playlists à règles",
-                modifier = Modifier.padding(top = Space.xl),
+                modifier = Modifier.padding(top = Space.sm),
                 actionLabel = "Nouvelle règle",
                 onAction = onCreateRulePlaylist,
+                eyebrow = "Toujours à jour",
             )
         }
         if (rulePlaylists.isEmpty()) {
@@ -275,11 +273,16 @@ fun PlaylistsTab(
                     text = "Compose une playlist qui se met à jour seule à partir de critères : genre, favoris, date d'ajout…",
                     actionLabel = "Créer une règle",
                     onAction = onCreateRulePlaylist,
+                    modifier = Modifier.animateItem(),
                 )
             }
         }
-        items(rulePlaylists, key = { "rule-${it.id}" }, contentType = { "row" }) { rule ->
-            Box(Modifier.animateItem()) {
+        itemsIndexed(rulePlaylists, key = { _, it -> "rule-${it.id}" }, contentType = { _, _ -> "row" }) { index, rule ->
+            Box(
+                Modifier
+                    .animateItem()
+                    .enterCascade(index, "rule-${rule.id}")
+            ) {
                 RulePlaylistRow(
                     playlist = rule,
                     onClick = { onOpenRulePlaylist(rule.id) },
@@ -288,6 +291,8 @@ fun PlaylistsTab(
                 DropdownMenu(
                     expanded = ruleMenuFor?.id == rule.id,
                     onDismissRequest = { ruleMenuFor = null },
+                    shape = SynxioShape.cardSm,
+                    containerColor = scheme.surfaceContainerHigh,
                 ) {
                     DropdownMenuItem(
                         text = { Text("Modifier") },
@@ -295,8 +300,8 @@ fun PlaylistsTab(
                         onClick = { onEditRulePlaylist(rule.id); ruleMenuFor = null },
                     )
                     DropdownMenuItem(
-                        text = { Text("Supprimer") },
-                        leadingIcon = { Icon(Icons.Rounded.Delete, null) },
+                        text = { Text("Supprimer", color = scheme.error) },
+                        leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = scheme.error) },
                         onClick = { deletingRule = rule; ruleMenuFor = null },
                     )
                 }
@@ -306,17 +311,20 @@ fun PlaylistsTab(
         // --- Sélections automatiques ---------------------------------------------------
         if (smartPlaylists.isNotEmpty()) {
             item(key = "smart-title", contentType = "section") {
-                SectionHeader("Sélections automatiques", Modifier.padding(top = Space.xl))
+                SectionHeader("Sélections automatiques", Modifier.padding(top = Space.sm), eyebrow = "Par Synxio")
             }
-            items(smartPlaylists, key = { "smart-${it.id.name}" }, contentType = { "row" }) { smart ->
+            itemsIndexed(smartPlaylists, key = { _, it -> "smart-${it.id.name}" }, contentType = { _, _ -> "row" }) { index, smart ->
                 SmartPlaylistRow(
                     playlist = smart,
                     onClick = { onOpenSmartPlaylist(smart.id) },
+                    modifier = Modifier
+                        .animateItem()
+                        .enterCascade(index, "smart-${smart.id.name}"),
                 )
             }
         }
 
-        item(key = "bottom-space", contentType = "spacer") { Spacer(Modifier.height(Space.xxxl)) }
+        item(key = "bottom-space", contentType = "spacer") { Spacer(Modifier.height(Space.xxl)) }
     }
 
     if (creating) {
@@ -326,6 +334,7 @@ fun PlaylistsTab(
             initialName = "",
             onDismiss = { creating = false },
             onConfirm = { name ->
+                // La confirmation (snackbar) vient du ViewModel.
                 viewModel.createPlaylist(name)
                 creating = false
             },
@@ -371,7 +380,10 @@ fun PlaylistsTab(
     }
 }
 
-/** Saisie d'un nom de playlist, avec erreur en ligne plutôt qu'un bouton qui ne fait rien. */
+/**
+ * Saisie d'un nom de playlist, avec erreur en ligne plutôt qu'un bouton qui ne fait rien.
+ * Le champ prend le focus à l'ouverture : on vient pour taper un nom.
+ */
 @Composable
 private fun PlaylistNameDialog(
     title: String,
@@ -383,10 +395,29 @@ private fun PlaylistNameDialog(
     var name by remember { mutableStateOf(initialName) }
     var showError by remember { mutableStateOf(false) }
     val invalid = name.isBlank()
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(title) },
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        icon = {
+            Box(
+                Modifier
+                    .size(48.dp)
+                    .glowShadow(CircleShape, SynxioTheme.colors.brandEnd, elevation = 12.dp)
+                    .clip(CircleShape)
+                    .background(SynxioTheme.colors.brandBrush),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Rounded.PlaylistPlay,
+                    contentDescription = null,
+                    tint = SynxioTheme.colors.onBrand,
+                )
+            }
+        },
+        title = { Text(title, style = MaterialTheme.typography.headlineSmall) },
         text = {
             OutlinedTextField(
                 value = name,
@@ -397,15 +428,19 @@ private fun PlaylistNameDialog(
                 supportingText = if (showError && invalid) {
                     { Text("Donne un nom à ta playlist.") }
                 } else null,
-                modifier = Modifier.fillMaxWidth(),
+                shape = SynxioShape.cardSm,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focus),
             )
         },
         confirmButton = {
-            TextButton(onClick = { if (invalid) showError = true else onConfirm(name.trim()) }) {
-                Text(confirmLabel)
-            }
+            BrandButton(
+                text = confirmLabel,
+                onClick = { if (invalid) showError = true else onConfirm(name.trim()) },
+            )
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
+        dismissButton = { TextButton(onClick = onDismiss, shape = SynxioShape.pill) { Text("Annuler") } },
     )
 }
 
@@ -416,25 +451,94 @@ private fun ConfirmDeleteDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
+    val scheme = MaterialTheme.colorScheme
     AlertDialog(
         onDismissRequest = onDismiss,
-        icon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
-        title = { Text(title) },
+        containerColor = scheme.surfaceContainerHigh,
+        icon = { Icon(Icons.Rounded.Delete, contentDescription = null, tint = scheme.error) },
+        title = { Text(title, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center) },
         text = { Text(text) },
         confirmButton = {
-            TextButton(onClick = onConfirm) {
-                Text("Supprimer", color = MaterialTheme.colorScheme.error)
+            TextButton(onClick = onConfirm, shape = SynxioShape.pill) {
+                Text("Supprimer", color = scheme.error)
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } },
+        dismissButton = { TextButton(onClick = onDismiss, shape = SynxioShape.pill) { Text("Annuler") } },
     )
+}
+
+/**
+ * Carte vedette des Favoris : verre teinté de la signature, mosaïque des pochettes et
+ * disque de lecture lumineux. Un appui lit tout de suite les favoris.
+ */
+@Composable
+private fun FavoritesCard(
+    artwork: List<Any?>,
+    subtitle: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = SynxioTheme.colors
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        modifier
+            .padding(horizontal = Space.xs, vertical = Space.xs)
+            .pressBounce(0.98f)
+            .fillMaxWidth()
+            .clip(SynxioShape.card)
+            .glass(SynxioShape.card, strength = 0.8f, tint = colors.favorite)
+            .clickable(onClickLabel = "Lire les favoris", role = Role.Button, onClick = onClick)
+            .padding(Space.md),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Space.lg),
+    ) {
+        if (artwork.isEmpty()) {
+            Box(
+                Modifier
+                    .size(FavoritesArtSize)
+                    .clip(SynxioShape.artworkMd)
+                    .glass(SynxioShape.artworkMd, strength = 1f),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Rounded.Favorite, contentDescription = null, tint = colors.favorite, modifier = Modifier.size(32.dp))
+            }
+        } else {
+            ArtworkMosaic(artwork, Modifier.size(FavoritesArtSize), SynxioShape.artworkMd)
+        }
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.Favorite, contentDescription = null, tint = colors.favorite, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.size(Space.xs))
+                Text("Favoris", style = MaterialTheme.typography.titleLarge, maxLines = 1)
+            }
+            Spacer(Modifier.height(Space.xxs))
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodyMedium.merge(TabularNumbers),
+                color = scheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Box(
+            Modifier
+                .size(FavoritesPlaySize)
+                .glowShadow(CircleShape, colors.brandEnd, elevation = 14.dp)
+                .clip(CircleShape)
+                .background(colors.brandBrush),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Rounded.PlayArrow, contentDescription = null, tint = colors.onBrand)
+        }
+    }
 }
 
 /**
  * État vide compact, placé dans une section de liste.
  *
- * Même grammaire que l'état vide plein écran (pastille, titre, texte, action) mais sans
- * occuper toute la hauteur : les autres sections doivent rester visibles en dessous.
+ * Même grammaire que l'état vide plein écran (pastille cerclée de la signature, titre,
+ * texte, action) mais dans une carte de verre qui n'occupe pas toute la hauteur : les
+ * autres sections doivent rester visibles en dessous.
  */
 @Composable
 private fun InlineEmptyState(
@@ -443,24 +547,31 @@ private fun InlineEmptyState(
     text: String,
     actionLabel: String?,
     onAction: (() -> Unit)?,
+    modifier: Modifier = Modifier,
 ) {
     val scheme = MaterialTheme.colorScheme
+    val colors = SynxioTheme.colors
     Column(
-        modifier = Modifier
+        modifier = modifier
+            .padding(horizontal = Space.md, vertical = Space.xs)
             .fillMaxWidth()
-            .padding(horizontal = Space.md, vertical = Space.lg),
+            .clip(SynxioShape.card)
+            .glass(SynxioShape.card, strength = 0.5f)
+            .padding(horizontal = Space.lg, vertical = Space.lg),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
             Modifier
                 .size(InlineBadgeSize)
-                .background(scheme.primaryContainer, CircleShape),
+                .clip(CircleShape)
+                .glass(CircleShape, strength = 1f, border = false)
+                .border(1.5.dp, colors.brandBrush, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(icon, contentDescription = null, tint = scheme.onPrimaryContainer, modifier = Modifier.size(InlineIconSize))
+            Icon(icon, contentDescription = null, tint = scheme.primary, modifier = Modifier.size(30.dp))
         }
         Spacer(Modifier.height(Space.md))
-        Text(title, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
+        Text(title, style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
         Spacer(Modifier.height(Space.xs))
         Text(
             text,
@@ -469,8 +580,8 @@ private fun InlineEmptyState(
             textAlign = TextAlign.Center,
         )
         if (actionLabel != null && onAction != null) {
-            Spacer(Modifier.height(Space.sm))
-            TextButton(onClick = onAction) { Text(actionLabel) }
+            Spacer(Modifier.height(Space.md))
+            GlassButton(text = actionLabel, onClick = onAction, icon = Icons.Rounded.Add)
         }
     }
 }
@@ -482,7 +593,7 @@ private fun IconThumb(icon: ImageVector) {
         modifier = Modifier
             .size(RowThumbSize)
             .clip(SynxioShape.artworkSm)
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+            .glass(SynxioShape.artworkSm, strength = 0.8f),
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
@@ -492,8 +603,8 @@ private fun IconThumb(icon: ImageVector) {
 /**
  * Gabarit des lignes de collection de cet onglet.
  *
- * Reprend exactement la géométrie de [PlaylistRow] (vignette, typo, marges) pour que
- * Favoris, règles et sélections automatiques s'alignent avec les playlists manuelles.
+ * Reprend exactement la géométrie de [PlaylistRow] (vignette, typo, marges, rebond au
+ * toucher) pour que règles et sélections automatiques s'alignent avec les playlists.
  */
 @Composable
 private fun CollectionRow(
@@ -502,11 +613,13 @@ private fun CollectionRow(
     onClick: () -> Unit,
     onClickLabel: String,
     leading: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
     subtitleMaxLines: Int = 1,
     trailing: @Composable () -> Unit = {},
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
+            .pressBounce(0.98f)
             .fillMaxWidth()
             .heightIn(min = RowMinHeight)
             .clip(SynxioShape.artworkMd)
@@ -526,7 +639,7 @@ private fun CollectionRow(
             Spacer(Modifier.height(Space.xxs))
             Text(
                 text = subtitle,
-                style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
+                style = MaterialTheme.typography.bodyMedium.merge(TabularNumbers),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = subtitleMaxLines,
                 overflow = TextOverflow.Ellipsis,
@@ -543,13 +656,14 @@ private fun CollectionRow(
  * changent toutes seules, et la règle qui les produit est l'information utile.
  */
 @Composable
-private fun SmartPlaylistRow(playlist: SmartPlaylist, onClick: () -> Unit) {
+private fun SmartPlaylistRow(playlist: SmartPlaylist, onClick: () -> Unit, modifier: Modifier = Modifier) {
     CollectionRow(
         title = playlist.title,
         subtitle = "${playlist.songCount.pluralSongs()} · ${playlist.description}",
         subtitleMaxLines = 2,
         onClick = onClick,
         onClickLabel = "Ouvrir la sélection",
+        modifier = modifier,
         leading = {
             ArtworkMosaic(playlist.artworkUris, Modifier.size(RowThumbSize), SynxioShape.artworkSm)
         },
@@ -582,7 +696,7 @@ private fun RulePlaylistRow(
             else ArtworkMosaic(artwork, Modifier.size(RowThumbSize), SynxioShape.artworkSm)
         },
         trailing = {
-            IconButton(onClick = onMenuClick) {
+            IconButton(onClick = onMenuClick, modifier = Modifier.size(Space.touchTarget)) {
                 Icon(Icons.Rounded.MoreVert, contentDescription = "Options de ${playlist.name}")
             }
         },

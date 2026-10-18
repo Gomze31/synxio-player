@@ -1,7 +1,13 @@
 package fr.synxio.player.ui.screens
 
-import fr.synxio.player.ui.theme.synxioTopBarColors
-import androidx.compose.ui.graphics.Color
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,34 +17,28 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -51,15 +51,18 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.synxio.player.core.util.pluralSongs
@@ -67,8 +70,21 @@ import fr.synxio.player.data.model.RuleField
 import fr.synxio.player.data.model.RuleOperator
 import fr.synxio.player.data.model.SmartRule
 import fr.synxio.player.data.model.SmartSort
+import fr.synxio.player.ui.components.BrandButton
+import fr.synxio.player.ui.components.GlassButton
+import fr.synxio.player.ui.components.GlassCard
+import fr.synxio.player.ui.components.LumenChip
+import fr.synxio.player.ui.components.enterCascade
+import fr.synxio.player.ui.components.shimmer
+import fr.synxio.player.ui.theme.EyebrowTextStyle
+import fr.synxio.player.ui.theme.LocalReduceMotion
+import fr.synxio.player.ui.theme.Motion
 import fr.synxio.player.ui.theme.Space
 import fr.synxio.player.ui.theme.SynxioShape
+import fr.synxio.player.ui.theme.SynxioTheme
+import fr.synxio.player.ui.theme.TabularNumbers
+import fr.synxio.player.ui.theme.glass
+import fr.synxio.player.ui.theme.synxioTopBarColors
 import fr.synxio.player.ui.viewmodel.RulePlaylistEditorViewModel
 
 /** Champs dont la valeur est un nombre (ou un nombre de jours pour les dates). */
@@ -88,6 +104,9 @@ private fun SmartRule.valueHint(): String? = when {
     operator == RuleOperator.IN_LAST_DAYS || operator == RuleOperator.NOT_IN_LAST_DAYS -> "Nombre de jours"
     else -> null
 }
+
+/** Pastille numérotée d'un critère. */
+private val RuleBadgeSize = 28.dp
 
 /**
  * Éditeur d'une playlist à règles : nom, critères et tri, avec un aperçu live du nombre
@@ -124,7 +143,12 @@ fun RulePlaylistEditorScreen(
         topBar = {
             TopAppBar(
                 colors = synxioTopBarColors(),
-                title = { Text(if (ruleId > 0) "Modifier la règle" else "Nouvelle règle") },
+                title = {
+                    Text(
+                        if (ruleId > 0) "Modifier la règle" else "Nouvelle règle",
+                        style = MaterialTheme.typography.headlineSmall,
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Retour")
@@ -134,31 +158,15 @@ fun RulePlaylistEditorScreen(
             )
         },
         bottomBar = {
-            Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
-                Column(Modifier.padding(horizontal = Space.gutter, vertical = Space.md)) {
-                    Text(
-                        text = "${state.matchCount.pluralSongs()} correspond${if (state.matchCount > 1) "ent" else ""}",
-                        style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-                    )
-                    Spacer(Modifier.height(Space.sm))
-                    Button(
-                        onClick = { if (formValid) viewModel.save() else showErrors = true },
-                        enabled = !state.loading,
-                        shape = SynxioShape.pill,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = Space.touchTarget),
-                    ) { Text("Enregistrer") }
-                }
-            }
+            SaveBar(
+                matchCount = state.matchCount,
+                enabled = !state.loading,
+                onSave = { if (formValid) viewModel.save() else showErrors = true },
+            )
         },
     ) { padding ->
         if (state.loading) {
-            Box(Modifier.fillMaxSize().padding(padding), Alignment.Center) {
-                CircularProgressIndicator(Modifier.semantics { contentDescription = "Chargement" })
-            }
+            EditorSkeleton(Modifier.padding(padding))
             return@Scaffold
         }
 
@@ -166,42 +174,54 @@ fun RulePlaylistEditorScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
-            contentPadding = PaddingValues(horizontal = Space.gutter, vertical = Space.lg),
+            contentPadding = PaddingValues(start = Space.gutter, end = Space.gutter, top = Space.sm, bottom = Space.xl),
+            verticalArrangement = Arrangement.spacedBy(Space.md),
         ) {
             item(key = "name") {
-                OutlinedTextField(
-                    value = state.name,
-                    onValueChange = viewModel::setName,
-                    label = { Text("Nom de la playlist") },
-                    singleLine = true,
-                    isError = nameError != null,
-                    supportingText = nameError?.let { { Text(it) } },
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                GlassCard(Modifier.fillMaxWidth().enterCascade(0, "rule-name")) {
+                    Column {
+                        FormSectionTitle("Nom", eyebrow = "Ta playlist", topPadding = 0.dp)
+                        OutlinedTextField(
+                            value = state.name,
+                            onValueChange = viewModel::setName,
+                            label = { Text("Nom de la playlist") },
+                            singleLine = true,
+                            isError = nameError != null,
+                            supportingText = nameError?.let { { Text(it) } },
+                            shape = SynxioShape.cardSm,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
             }
 
             item(key = "match") {
-                FormSectionTitle("Correspondance")
-                ChoiceRow(
-                    options = listOf(true to "Toutes les règles", false to "Au moins une"),
-                    selected = state.matchAll,
-                    onSelect = viewModel::setMatchAll,
-                )
+                GlassCard(Modifier.fillMaxWidth().enterCascade(1, "rule-match")) {
+                    Column {
+                        FormSectionTitle("Correspondance", eyebrow = "Logique", topPadding = 0.dp)
+                        ChoiceRow(
+                            options = listOf(true to "Toutes les règles", false to "Au moins une"),
+                            selected = state.matchAll,
+                            onSelect = viewModel::setMatchAll,
+                        )
+                    }
+                }
             }
 
             item(key = "rules-title") {
-                FormSectionTitle("Critères")
-                if (state.rules.isEmpty()) {
-                    Text(
-                        text = rulesError ?: "Aucun critère : ajoute-en un pour composer ta règle.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (rulesError != null) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        modifier = Modifier.padding(bottom = Space.sm),
-                    )
+                Column(Modifier.enterCascade(2, "rule-criteria")) {
+                    FormSectionTitle("Critères", eyebrow = "Ce qui entre")
+                    if (state.rules.isEmpty()) {
+                        Text(
+                            text = rulesError ?: "Aucun critère : ajoute-en un pour composer ta règle.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (rulesError != null) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    }
                 }
             }
 
@@ -214,71 +234,155 @@ fun RulePlaylistEditorScreen(
                     onOperatorChange = { viewModel.updateOperator(index, it) },
                     onValueChange = { viewModel.updateValue(index, it) },
                     onRemove = { viewModel.removeRule(index) },
-                    modifier = Modifier.padding(bottom = Space.md),
+                    modifier = Modifier.animateItem(),
                 )
             }
 
             item(key = "add-rule") {
-                OutlinedButton(
+                GlassButton(
+                    text = "Ajouter un critère",
                     onClick = viewModel::addRule,
-                    shape = SynxioShape.pill,
+                    icon = Icons.Rounded.Add,
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = Space.touchTarget),
-                ) {
-                    Icon(Icons.Rounded.Add, contentDescription = null, Modifier.size(ButtonDefaults.IconSize))
-                    Spacer(Modifier.width(ButtonDefaults.IconSpacing))
-                    Text("Ajouter un critère")
-                }
+                        .animateItem()
+                        .fillMaxWidth(),
+                )
             }
 
             item(key = "sort") {
-                FormSectionTitle("Tri")
-                DropdownSelector(
-                    label = "Trier par",
-                    selected = state.sort,
-                    options = SmartSort.entries,
-                    optionLabel = SmartSort::label,
-                    onSelect = viewModel::setSort,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(Space.md))
-                ChoiceRow(
-                    options = listOf(false to "Croissant", true to "Décroissant"),
-                    selected = state.descending,
-                    onSelect = viewModel::setDescending,
-                )
+                GlassCard(Modifier.fillMaxWidth().animateItem()) {
+                    Column {
+                        FormSectionTitle("Tri", eyebrow = "Ordre", topPadding = 0.dp)
+                        DropdownSelector(
+                            label = "Trier par",
+                            selected = state.sort,
+                            options = SmartSort.entries,
+                            optionLabel = SmartSort::label,
+                            onSelect = viewModel::setSort,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(Space.md))
+                        ChoiceRow(
+                            options = listOf(false to "Croissant", true to "Décroissant"),
+                            selected = state.descending,
+                            onSelect = viewModel::setDescending,
+                        )
+                    }
+                }
             }
 
             item(key = "limit") {
-                FormSectionTitle("Limite")
-                OutlinedTextField(
-                    value = state.limitText,
-                    onValueChange = viewModel::setLimitText,
-                    label = { Text("Nombre maximal de titres") },
-                    placeholder = { Text("Pas de limite") },
-                    supportingText = { Text("Laisse vide pour garder tous les titres.") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                GlassCard(Modifier.fillMaxWidth().animateItem()) {
+                    Column {
+                        FormSectionTitle("Limite", eyebrow = "Taille", topPadding = 0.dp)
+                        OutlinedTextField(
+                            value = state.limitText,
+                            onValueChange = viewModel::setLimitText,
+                            label = { Text("Nombre maximal de titres") },
+                            placeholder = { Text("Pas de limite") },
+                            supportingText = { Text("Laisse vide pour garder tous les titres.") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            shape = SynxioShape.cardSm,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
             }
         }
     }
 }
 
+/**
+ * Barre d'enregistrement : verre dense, aperçu du nombre de titres qui roule quand il
+ * change (annoncé poliment par TalkBack), puis l'action principale à la signature.
+ */
 @Composable
-private fun FormSectionTitle(text: String) {
-    Text(
-        text,
-        style = MaterialTheme.typography.titleMedium,
-        modifier = Modifier
-            .padding(top = Space.xl, bottom = Space.sm)
-            .semantics { heading() },
-    )
+private fun SaveBar(matchCount: Int, enabled: Boolean, onSave: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val reduce = LocalReduceMotion.current
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(SynxioShape.sheet)
+            .background(scheme.surfaceContainer.copy(alpha = 0.9f))
+            .glass(SynxioShape.sheet, strength = 1f)
+            .padding(horizontal = Space.gutter, vertical = Space.md),
+    ) {
+        AnimatedContent(
+            targetState = matchCount,
+            transitionSpec = {
+                if (reduce) {
+                    fadeIn(snap()) togetherWith fadeOut(snap())
+                } else {
+                    val up = targetState > initialState
+                    (slideInVertically(Motion.spatial()) { if (up) it else -it } + fadeIn(Motion.enter(Motion.SHORT)))
+                        .togetherWith(slideOutVertically(Motion.spatial()) { if (up) -it else it } + fadeOut(Motion.exit()))
+                }
+            },
+            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+            label = "matchCount",
+        ) { count ->
+            Text(
+                text = "${count.pluralSongs()} correspond${if (count > 1) "ent" else ""}",
+                style = MaterialTheme.typography.titleSmall.merge(TabularNumbers),
+                color = scheme.onSurfaceVariant,
+            )
+        }
+        Spacer(Modifier.height(Space.sm))
+        BrandButton(
+            text = "Enregistrer",
+            onClick = onSave,
+            icon = Icons.Rounded.Check,
+            enabled = enabled,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
 }
 
-/** Choix exclusif en puces : annoncé comme un groupe de boutons radio. */
+/** Squelette du formulaire pendant le chargement d'une règle existante. */
+@Composable
+private fun EditorSkeleton(modifier: Modifier = Modifier) {
+    Column(
+        modifier
+            .fillMaxSize()
+            .padding(horizontal = Space.gutter, vertical = Space.sm)
+            .semantics { contentDescription = "Chargement" },
+        verticalArrangement = Arrangement.spacedBy(Space.md),
+    ) {
+        repeat(3) { i ->
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(if (i == 0) 120.dp else 150.dp)
+                    .clip(SynxioShape.card)
+                    .shimmer()
+            )
+        }
+    }
+}
+
+@Composable
+private fun FormSectionTitle(text: String, eyebrow: String? = null, topPadding: androidx.compose.ui.unit.Dp = Space.lg) {
+    Column(Modifier.padding(top = topPadding, bottom = Space.sm)) {
+        if (eyebrow != null) {
+            Text(
+                eyebrow.uppercase(),
+                style = EyebrowTextStyle,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+            )
+            Spacer(Modifier.height(Space.xxs))
+        }
+        Text(
+            text,
+            style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier.semantics { heading() },
+        )
+    }
+}
+
+/** Choix exclusif en puces Lumen : annoncé comme un groupe de boutons radio. */
 @Composable
 private fun <T> ChoiceRow(
     options: List<Pair<T, String>>,
@@ -291,11 +395,12 @@ private fun <T> ChoiceRow(
     ) {
         options.forEach { (value, label) ->
             val isSelected = value == selected
-            FilterChip(
+            LumenChip(
+                label = label,
                 selected = isSelected,
                 onClick = { onSelect(value) },
-                label = { Text(label) },
-                // La puce gère déjà le clic et l'état coché ; on précise seulement le rôle.
+                icon = if (isSelected) Icons.Rounded.Check else null,
+                // La puce gère déjà le clic et l'état ; on précise seulement le rôle.
                 modifier = Modifier.semantics { role = Role.RadioButton },
             )
         }
@@ -303,8 +408,8 @@ private fun <T> ChoiceRow(
 }
 
 /**
- * Un critère. Couche tonale plutôt que carte ombrée : la liste en contient plusieurs,
- * des ombres empilées alourdiraient l'écran.
+ * Un critère : carte de verre numérotée d'une pastille à la signature. Le verre plutôt
+ * qu'une ombre : la liste en contient plusieurs, des ombres empilées alourdiraient l'écran.
  */
 @Composable
 private fun RuleCard(
@@ -317,23 +422,34 @@ private fun RuleCard(
     onRemove: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = SynxioShape.card,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-    ) {
+    val colors = SynxioTheme.colors
+    GlassCard(modifier.fillMaxWidth(), contentPadding = 0.dp) {
         Column(Modifier.padding(start = Space.lg, end = Space.xs, top = Space.xs, bottom = Space.lg)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .size(RuleBadgeSize)
+                        .clip(CircleShape)
+                        .background(colors.brandBrush),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        "${index + 1}",
+                        style = MaterialTheme.typography.labelLarge.merge(TabularNumbers),
+                        color = colors.onBrand,
+                    )
+                }
+                Spacer(Modifier.size(Space.md))
                 Text(
                     text = "Critère ${index + 1}",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier.weight(1f),
                 )
                 IconButton(onClick = onRemove) {
                     Icon(Icons.Rounded.Close, contentDescription = "Retirer le critère ${index + 1}")
                 }
             }
+            Spacer(Modifier.height(Space.xs))
             Column(Modifier.padding(end = Space.md)) {
                 DropdownSelector(
                     label = "Champ",
@@ -368,6 +484,7 @@ private fun RuleCard(
                         keyboardOptions = KeyboardOptions(
                             keyboardType = if (rule.field.isNumeric) KeyboardType.Number else KeyboardType.Text,
                         ),
+                        shape = SynxioShape.cardSm,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -387,6 +504,7 @@ private fun <T> DropdownSelector(
     modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val scheme = MaterialTheme.colorScheme
     ExposedDropdownMenuBox(
         expanded = expanded,
         onExpandedChange = { expanded = it },
@@ -398,6 +516,7 @@ private fun <T> DropdownSelector(
             readOnly = true,
             label = { Text(label) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            shape = SynxioShape.cardSm,
             modifier = Modifier
                 .menuAnchor(MenuAnchorType.PrimaryNotEditable)
                 .fillMaxWidth(),
@@ -405,10 +524,16 @@ private fun <T> DropdownSelector(
         ExposedDropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
+            shape = SynxioShape.cardSm,
+            containerColor = scheme.surfaceContainerHigh,
         ) {
             options.forEach { option ->
+                val current = option == selected
                 DropdownMenuItem(
-                    text = { Text(optionLabel(option)) },
+                    text = { Text(optionLabel(option), color = if (current) scheme.primary else scheme.onSurface) },
+                    trailingIcon = if (current) {
+                        { Icon(Icons.Rounded.Check, contentDescription = null, tint = scheme.primary) }
+                    } else null,
                     onClick = { onSelect(option); expanded = false },
                 )
             }

@@ -1,5 +1,11 @@
 package fr.synxio.player.ui.components
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.draw.clip
+import fr.synxio.player.ui.theme.SynxioTheme
+import fr.synxio.player.ui.theme.glass
+import fr.synxio.player.ui.theme.glowShadow
 import android.os.Build
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -98,7 +104,12 @@ fun SongOptionsSheet(
     var showDetails by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        dragHandle = { SheetHandle() },
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
         Column(
             Modifier
                 .verticalScroll(rememberScrollState())
@@ -109,7 +120,13 @@ fun SongOptionsSheet(
                 Modifier.padding(horizontal = Space.xl, vertical = Space.sm),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Artwork(song.artworkUri, Modifier.size(56.dp), SynxioShape.artworkSm)
+                Artwork(
+                    song.artworkUri,
+                    Modifier
+                        .size(60.dp)
+                        .glowShadow(SynxioShape.artworkSm, SynxioTheme.colors.brandEnd, 12.dp),
+                    SynxioShape.artworkSm,
+                )
                 Spacer(Modifier.width(Space.lg))
                 Column(Modifier.weight(1f)) {
                     Text(
@@ -227,6 +244,7 @@ private fun SheetAction(
     val scheme = MaterialTheme.colorScheme
     Row(
         modifier = Modifier
+            .pressBounce(0.98f)
             .fillMaxWidth()
             .heightIn(min = SheetActionHeight)
             .clickable(role = Role.Button, onClick = onClick)
@@ -234,11 +252,24 @@ private fun SheetAction(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Space.lg),
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = if (destructive) scheme.error else scheme.onSurfaceVariant,
-        )
+        // Icône dans une pastille teintée : les actions se lisent en colonne d'un coup d'œil.
+        Box(
+            Modifier
+                .size(38.dp)
+                .clip(SynxioShape.cardSm)
+                .background(
+                    if (destructive) scheme.errorContainer.copy(alpha = 0.6f)
+                    else scheme.primary.copy(alpha = 0.14f)
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (destructive) scheme.error else scheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
+        }
         Text(
             text = label,
             style = MaterialTheme.typography.bodyLarge,
@@ -322,6 +353,8 @@ fun AddToPlaylistSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        dragHandle = { SheetHandle() },
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Column(
             Modifier
@@ -330,7 +363,7 @@ fun AddToPlaylistSheet(
         ) {
             Text(
                 text = "Ajouter à une playlist",
-                style = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.headlineSmall,
                 modifier = Modifier
                     .padding(horizontal = Space.xl, vertical = Space.md)
                     .semantics { heading() },
@@ -354,20 +387,23 @@ fun AddToPlaylistSheet(
     if (creating) {
         AlertDialog(
             onDismissRequest = { creating = false },
-            title = { Text("Nouvelle playlist") },
+            title = { Text("Nouvelle playlist", style = MaterialTheme.typography.headlineSmall) },
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
             text = {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
                     label = { Text("Nom") },
                     singleLine = true,
+                    shape = SynxioShape.cardSm,
                     keyboardOptions = KeyboardOptions.Default,
                 )
             },
             confirmButton = {
-                Button(
-                    onClick = { onCreate(name.ifBlank { "Nouvelle playlist" }); creating = false; onDismiss() }
-                ) { Text("Créer") }
+                BrandButton(
+                    text = "Créer",
+                    onClick = { onCreate(name.ifBlank { "Nouvelle playlist" }); creating = false; onDismiss() },
+                )
             },
             dismissButton = { TextButton(onClick = { creating = false }) { Text("Annuler") } },
         )
@@ -382,6 +418,7 @@ fun SynxioDialog(onDismiss: () -> Unit, content: @Composable () -> Unit) {
             shape = MaterialTheme.shapes.extraLarge,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
             tonalElevation = 6.dp,
+            modifier = Modifier.glass(MaterialTheme.shapes.extraLarge, strength = 0.3f),
         ) {
             Column(Modifier.padding(Space.xl)) {
                 content()

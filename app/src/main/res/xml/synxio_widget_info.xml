@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Widget compact : 4x2 par défaut, redimensionnable jusqu'à une seule ligne. -->
+<!-- Widget compact : 4x2 par défaut, redimensionnable jusqu'à une seule ligne.
+     updatePeriodMillis à 0 : le widget n'est jamais réveillé par le système, c'est le
+     service de lecture qui le republie aux changements d'état. -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:minWidth="250dp"
     android:minHeight="110dp"
@@ -13,5 +15,5 @@
     android:widgetCategory="home_screen|keyguard"
     android:initialLayout="@layout/glance_default_loading_layout"
     android:previewLayout="@layout/widget_preview_compact"
-    android:previewImage="@mipmap/ic_launcher"
+    android:previewImage="@drawable/widget_preview_image_compact"
     android:description="@string/widget_compact_description" />

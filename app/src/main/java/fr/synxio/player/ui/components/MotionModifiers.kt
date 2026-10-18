@@ -71,20 +71,16 @@ fun Modifier.enterCascade(index: Int, key: Any = index): Modifier = composed {
     val progress = remember(key) { Animatable(if (shown) 1f else 0f) }
     LaunchedEffect(key) {
         if (shown) return@LaunchedEffect
-        delay(index.coerceIn(0, MAX_STAGGERED) * STAGGER_MS)
+        delay(index.coerceIn(0, Motion.MAX_STAGGERED) * Motion.STAGGER_MS)
         progress.animateTo(1f, tween(Motion.LONG, easing = Motion.Decelerate))
         shown = true
     }
     graphicsLayer {
         val p = progress.value
         alpha = p
-        translationY = (1f - p) * 18.dp.toPx()
-        val s = 0.96f + 0.04f * p
+        translationY = (1f - p) * 22.dp.toPx()
+        val s = 0.94f + 0.06f * p
         scaleX = s
         scaleY = s
     }
 }
-
-/** Au-delà, les éléments arrivent ensemble : attendre le dixième serait trop long. */
-private const val MAX_STAGGERED = 8
-private const val STAGGER_MS = 45L

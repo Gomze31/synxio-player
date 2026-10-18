@@ -4,6 +4,9 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.lazy.LazyListItemInfo
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
@@ -14,11 +17,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import fr.synxio.player.ui.theme.LocalReduceMotion
+import fr.synxio.player.ui.theme.Motion
+import fr.synxio.player.ui.theme.SynxioShape
 import kotlinx.coroutines.delay
 
 /**
@@ -194,13 +202,51 @@ fun Modifier.reorderHandle(state: ReorderState<*>, key: Any): Modifier {
     }
 }
 
-/** À poser sur chaque ligne : la ligne tenue suit le doigt et passe au-dessus des autres. */
-fun Modifier.reorderItem(state: ReorderState<*>, key: Any): Modifier =
-    zIndex(if (state.draggingKey == key) 1f else 0f)
-        .graphicsLayer {
-            val dragged = state.draggingKey == key
-            translationY = state.offsetOf(key)
-            scaleX = if (dragged) 1.02f else 1f
-            scaleY = if (dragged) 1.02f else 1f
-            shadowElevation = if (dragged) 12f else 0f
+/**
+ * À poser sur chaque ligne : la ligne tenue suit le doigt, passe au-dessus des autres et
+ * se soulève (léger agrandissement, ombre portée) comme une carte qu'on prend en main.
+ *
+ * Au lâcher, elle ne saute pas à sa place : elle s'y pose en ressort depuis l'endroit où
+ * le doigt l'a laissée, et redescend. Animations réduites : levée et pose instantanées.
+ */
+fun Modifier.reorderItem(state: ReorderState<*>, key: Any): Modifier = composed {
+    val reduce = LocalReduceMotion.current
+    val dragged = state.draggingKey == key
+    val lift by animateFloatAsState(
+        targetValue = if (dragged) 1f else 0f,
+        animationSpec = if (reduce) snap() else Motion.spatialBouncy(),
+        label = "reorderLift",
+    )
+    // Décalage résiduel au lâcher, relu au dessin : pas d'état, pas de recomposition.
+    val residual = remember { floatArrayOf(0f) }
+    val settle = remember { Animatable(0f) }
+    LaunchedEffect(dragged) {
+        if (!dragged && residual[0] != 0f && !reduce) {
+            settle.snapTo(residual[0])
+            settle.animateTo(0f, Motion.spatial())
         }
+        residual[0] = 0f
+    }
+    zIndex(if (dragged || lift > 0.01f || settle.isRunning) 1f else 0f)
+        .graphicsLayer {
+            val live = state.offsetOf(key)
+            translationY = when {
+                dragged -> live.also { residual[0] = it }
+                reduce -> 0f
+                settle.isRunning -> settle.value
+                else -> residual[0]
+            }
+            val s = 1f + LIFT_SCALE * lift
+            scaleX = s
+            scaleY = s
+            shadowElevation = LIFT_ELEVATION.toPx() * lift
+            shape = SynxioShape.artworkMd
+            clip = false
+        }
+}
+
+/** Agrandissement de la ligne tenue : perceptible, sans masquer les voisines. */
+private const val LIFT_SCALE = 0.035f
+
+/** Ombre de la ligne tenue : elle flotte au-dessus de la liste. */
+private val LIFT_ELEVATION = 16.dp

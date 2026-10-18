@@ -8,6 +8,7 @@ import androidx.compose.ui.unit.sp
 import androidx.datastore.preferences.core.Preferences
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
+import androidx.glance.LocalContext
 import androidx.glance.LocalSize
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
@@ -19,6 +20,7 @@ import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
+import androidx.glance.layout.RowScope
 import androidx.glance.layout.Spacer
 import androidx.glance.layout.fillMaxHeight
 import androidx.glance.layout.fillMaxSize
@@ -29,11 +31,11 @@ import androidx.glance.layout.width
 import fr.synxio.player.R
 
 /**
- * Widget compact : pochette, titre, artiste, progression et commandes de base.
+ * Widget compact : pochette, titre, artiste et commandes de base, sur une scène Lumen.
  *
  * Il ne se connecte pas à la session — un `MediaController` ne survit pas à un widget —
  * mais affiche l'état que le service lui publie (voir [WidgetUpdater]) et pilote la
- * lecture par touches média, exactement comme un casque Bluetooth.
+ * lecture par le contrôleur de l'app, ou par touche média quand le service est arrêté.
  */
 class SynxioWidget : GlanceAppWidget() {
 
@@ -45,11 +47,7 @@ class SynxioWidget : GlanceAppWidget() {
         provideContent {
             val prefs = currentState<Preferences>()
             val snapshot = resolveSnapshot(prefs, fallback)
-            val palette = WidgetPalette.of(
-                snapshot,
-                dark = prefs[WidgetSnapshot.Keys.DARK] ?: fallback.dark,
-                amoled = prefs[WidgetSnapshot.Keys.AMOLED] ?: fallback.amoled,
-            )
+            val palette = WidgetPalette.of(snapshot, resolveTheme(prefs, fallback))
             WidgetSurface(snapshot, palette, GlanceModifier.clickable(openPlayerAction())) {
                 val size = LocalSize.current
                 when {
@@ -66,30 +64,38 @@ class SynxioWidget : GlanceAppWidget() {
         val size = LocalSize.current
         // La pochette ne prend jamais la place des commandes : au plus 38 % de la largeur,
         // et la colonne de droite garde de quoi aligner précédent, lecture et suivant.
+        // Budget vertical : titre + artiste ≈ 38 dp, barre 12 dp, commandes 44 à 52 dp.
+        // Sur deux rangées basses (≈ 110 dp), la barre cède sa place et la marge se resserre.
+        val cramped = size.height < CRAMPED_HEIGHT
+        val roomy = size.height >= ROOMY_HEIGHT
+        val pad = if (cramped) 12.dp else 16.dp
         val artSide = if (size.width >= ARTWORK_MIN_WIDTH) {
-            minOf(size.height - 28.dp, size.width * 0.38f, 136.dp).coerceAtLeast(56.dp)
+            minOf(size.height - pad * 2, size.width * 0.38f, 140.dp).coerceAtLeast(56.dp)
         } else 0.dp
-        val columnWidth = size.width - 28.dp - if (artSide > 0.dp) artSide + 14.dp else 0.dp
-        val playSize = if (size.height < 150.dp) 42.dp else 48.dp
+        val columnWidth = size.width - pad * 2 - if (artSide > 0.dp) artSide + 14.dp else 0.dp
+        // 48 dp de cible tactile dès que la hauteur le permet.
+        val playSize = if (roomy) 52.dp else 44.dp
+        val buttonSize = if (roomy) 48.dp else 40.dp
         Row(
-            modifier = GlanceModifier.fillMaxSize().padding(14.dp),
+            modifier = GlanceModifier.fillMaxSize().padding(pad),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (artSide > 0.dp) {
-                WidgetArtwork(s, palette, artSide, radius = 18.dp)
+                WidgetArtwork(s, palette, artSide)
                 Spacer(GlanceModifier.width(14.dp))
             }
             Column(
                 modifier = GlanceModifier.defaultWeight().fillMaxHeight(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                WidgetTitle(s.title, palette, 16.sp)
-                WidgetSubtitle(s.artist, palette)
-                if (!s.live && s.durationMs > 0) {
-                    Spacer(GlanceModifier.height(8.dp))
-                    WidgetProgress(s, palette)
+                if (size.height >= EYEBROW_HEIGHT) {
+                    WidgetEyebrow(eyebrowFor(s), palette)
+                    Spacer(GlanceModifier.height(2.dp))
                 }
-                Spacer(GlanceModifier.height(6.dp))
+                WidgetTitle(s.title, palette, if (roomy) 17.sp else 16.sp)
+                WidgetSubtitle(s.artist, palette)
+                if (!cramped) WidgetProgressSlot(s, palette, top = 8.dp)
+                Spacer(GlanceModifier.height(if (roomy) 8.dp else if (cramped) 2.dp else 4.dp))
                 Row(
                     modifier = GlanceModifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -101,19 +107,19 @@ class SynxioWidget : GlanceAppWidget() {
                                 description = if (s.favorite) "Retirer des favoris" else "Ajouter aux favoris",
                                 action = commandAction(PlayerCommandAction.FAVORITE),
                                 tint = if (s.favorite) palette.accent else palette.textVariant,
-                                size = 40.dp,
+                                size = buttonSize,
                                 iconSize = 22.dp,
                             )
                         }
                     }
                     Slot {
                         WidgetIconButton(R.drawable.ic_widget_previous, "Titre précédent",
-                            mediaKeyAction(KeyEvent.KEYCODE_MEDIA_PREVIOUS), palette.text, size = 40.dp)
+                            mediaKeyAction(KeyEvent.KEYCODE_MEDIA_PREVIOUS), palette.text, size = buttonSize, iconSize = 26.dp)
                     }
                     Slot { PlayPauseButton(s.isPlaying, palette, playSize) }
                     Slot {
                         WidgetIconButton(R.drawable.ic_widget_next, "Titre suivant",
-                            mediaKeyAction(KeyEvent.KEYCODE_MEDIA_NEXT), palette.text, size = 40.dp)
+                            mediaKeyAction(KeyEvent.KEYCODE_MEDIA_NEXT), palette.text, size = buttonSize, iconSize = 26.dp)
                     }
                 }
             }
@@ -125,44 +131,55 @@ class SynxioWidget : GlanceAppWidget() {
     private fun SlimContent(s: WidgetSnapshot, palette: WidgetPalette) {
         val size = LocalSize.current
         Row(
-            modifier = GlanceModifier.fillMaxSize().padding(horizontal = 10.dp, vertical = 6.dp),
+            modifier = GlanceModifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (size.width >= 200.dp) {
-                WidgetArtwork(s, palette, (size.height - 16.dp).coerceIn(32.dp, 52.dp), radius = 12.dp)
+                WidgetArtwork(s, palette, (size.height - 16.dp).coerceIn(32.dp, 52.dp))
                 Spacer(GlanceModifier.width(10.dp))
             }
             Column(modifier = GlanceModifier.defaultWeight()) {
                 WidgetTitle(s.title, palette, 14.sp)
                 WidgetSubtitle(s.artist, palette, 12.sp)
             }
-            PlayPauseButton(s.isPlaying, palette, 40.dp)
+            Spacer(GlanceModifier.width(4.dp))
+            PlayPauseButton(s.isPlaying, palette, 42.dp)
             WidgetIconButton(R.drawable.ic_widget_next, "Titre suivant",
-                mediaKeyAction(KeyEvent.KEYCODE_MEDIA_NEXT), palette.text, size = 40.dp, iconSize = 24.dp)
+                mediaKeyAction(KeyEvent.KEYCODE_MEDIA_NEXT), palette.text, size = 44.dp, iconSize = 24.dp)
         }
     }
 
     @Composable
     private fun EmptyContent(palette: WidgetPalette) {
+        val context = LocalContext.current
         Row(
-            modifier = GlanceModifier.fillMaxSize().padding(14.dp),
+            modifier = GlanceModifier.fillMaxSize().padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = GlanceModifier.defaultWeight()) {
-                WidgetTitle("Synxio Player", palette, 16.sp)
-                WidgetSubtitle("Touchez lecture pour reprendre", palette)
+                WidgetEyebrow(context.getString(R.string.widget_eyebrow_brand), palette)
+                Spacer(GlanceModifier.height(2.dp))
+                WidgetTitle(context.getString(R.string.widget_empty_title), palette, 16.sp)
+                WidgetSubtitle(context.getString(R.string.widget_empty_subtitle), palette)
             }
-            PlayPauseButton(false, palette, 48.dp)
+            Spacer(GlanceModifier.width(8.dp))
+            PlayPauseButton(false, palette, 52.dp)
         }
     }
 
     @Composable
-    private fun androidx.glance.layout.RowScope.Slot(content: @Composable () -> Unit) {
+    private fun RowScope.Slot(content: @Composable () -> Unit) {
         Box(GlanceModifier.defaultWeight(), contentAlignment = Alignment.Center) { content() }
     }
 
     private companion object {
         val SLIM_HEIGHT = 96.dp
+        /** En dessous, pas de barre de progression : les commandes passent avant. */
+        val CRAMPED_HEIGHT = 130.dp
+        /** À partir de là, cibles tactiles de 48 dp et titre plus grand. */
+        val ROOMY_HEIGHT = 150.dp
+        /** Hauteur qui loge aussi le surtitre d'état au-dessus du titre. */
+        val EYEBROW_HEIGHT = 168.dp
         /** En dessous, la pochette prendrait la place des commandes. */
         val ARTWORK_MIN_WIDTH = 220.dp
         /** Largeur de colonne qui loge le cœur en plus des trois commandes. */

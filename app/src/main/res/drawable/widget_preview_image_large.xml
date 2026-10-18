@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Aperçu statique du widget étendu pour les sélecteurs d'avant Android 12 (image
+     seule, previewLayout ignoré). 250 × 180 dp, pochette à gauche. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:width="250dp"
+        android:height="180dp"
+        android:drawable="@drawable/widget_lumen_preview_bg" />
+    <item
+        android:width="92dp"
+        android:height="92dp"
+        android:left="16dp"
+        android:top="16dp"
+        android:drawable="@drawable/widget_lumen_preview_art"
+        android:gravity="top|left" />
+    <!-- Surtitre, titre, artiste. -->
+    <item
+        android:width="48dp"
+        android:height="6dp"
+        android:left="122dp"
+        android:top="34dp"
+        android:gravity="top|left">
+        <shape android:shape="rectangle">
+            <solid android:color="#FFFF8A4C" />
+            <corners android:radius="3dp" />
+        </shape>
+    </item>
+    <item
+        android:width="100dp"
+        android:height="11dp"
+        android:left="122dp"
+        android:top="48dp"
+        android:gravity="top|left">
+        <shape android:shape="rectangle">
+            <solid android:color="#FFF6F1EC" />
+            <corners android:radius="5dp" />
+        </shape>
+    </item>
+    <item
+        android:width="66dp"
+        android:height="8dp"
+        android:left="122dp"
+        android:top="67dp"
+        android:gravity="top|left">
+        <shape android:shape="rectangle">
+            <solid android:color="#FFBDB4AF" />
+            <corners android:radius="4dp" />
+        </shape>
+    </item>
+    <!-- Progression. -->
+    <item
+        android:width="218dp"
+        android:height="4dp"
+        android:left="16dp"
+        android:top="122dp"
+        android:gravity="top|left">
+        <shape android:shape="rectangle">
+            <solid android:color="#29FFFFFF" />
+            <corners android:radius="2dp" />
+        </shape>
+    </item>
+    <item
+        android:width="88dp"
+        android:height="4dp"
+        android:left="16dp"
+        android:top="122dp"
+        android:gravity="top|left">
+        <shape android:shape="rectangle">
+            <solid android:color="#FFFF8A4C" />
+            <corners android:radius="2dp" />
+        </shape>
+    </item>
+    <!-- Aléatoire, précédent, lecture, suivant, répétition. -->
+    <item
+        android:width="20dp"
+        android:height="20dp"
+        android:left="28dp"
+        android:top="144dp"
+        android:drawable="@drawable/ic_widget_shuffle"
+        android:gravity="top|left" />
+    <item
+        android:width="24dp"
+        android:height="24dp"
+        android:left="72dp"
+        android:top="142dp"
+        android:drawable="@drawable/ic_widget_previous"
+        android:gravity="top|left" />
+    <item
+        android:width="38dp"
+        android:height="38dp"
+        android:left="106dp"
+        android:top="135dp"
+        android:drawable="@drawable/widget_lumen_preview_play"
+        android:gravity="top|left" />
+    <item
+        android:width="24dp"
+        android:height="24dp"
+        android:left="154dp"
+        android:top="142dp"
+        android:drawable="@drawable/ic_widget_next"
+        android:gravity="top|left" />
+    <item
+        android:width="20dp"
+        android:height="20dp"
+        android:left="202dp"
+        android:top="144dp"
+        android:drawable="@drawable/ic_widget_repeat"
+        android:gravity="top|left" />
+</layer-list>

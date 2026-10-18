@@ -1,5 +1,20 @@
 package fr.synxio.player.ui.screens.nowplaying
 
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import fr.synxio.player.ui.components.BrandButton
+import fr.synxio.player.ui.components.EmptyState
+import fr.synxio.player.ui.components.GlassButton
+import fr.synxio.player.ui.components.LumenChip
+import fr.synxio.player.ui.components.SheetHandle
+import fr.synxio.player.ui.components.pressBounce
+import fr.synxio.player.ui.components.shimmer
+import fr.synxio.player.ui.theme.EyebrowTextStyle
+import fr.synxio.player.ui.theme.SynxioTheme
+import fr.synxio.player.ui.theme.glass
 import android.os.Build
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -13,6 +28,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -107,12 +123,12 @@ import kotlinx.coroutines.launch
 /** Style commun des chiffres qui bougent (durées, vitesses) : chasse fixe, pas de tremblement. */
 private const val TabularNums = "tnum"
 
-/** Titre de feuille : `titleLarge`, annoncé comme en-tête par TalkBack. */
+/** Titre de feuille : `headlineSmall` en Bricolage, annoncé comme en-tête par TalkBack. */
 @Composable
 private fun SheetTitle(text: String, modifier: Modifier = Modifier) {
     Text(
         text = text,
-        style = MaterialTheme.typography.titleLarge,
+        style = MaterialTheme.typography.headlineSmall,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
         modifier = modifier.semantics { heading() },
@@ -141,7 +157,18 @@ fun LyricsPane(
     onResetOffset: () -> Unit = {},
 ) {
     if (loading) {
-        Box(modifier, Alignment.Center) { CircularProgressIndicator() }
+        // Squelette de lignes plutôt qu'un rond qui tourne : on voit que du texte arrive.
+        Column(modifier.padding(vertical = 120.dp), verticalArrangement = Arrangement.spacedBy(Space.lg)) {
+            listOf(0.82f, 0.64f, 0.9f, 0.5f, 0.74f).forEach { width ->
+                Box(
+                    Modifier
+                        .fillMaxWidth(width)
+                        .height(22.dp)
+                        .clip(SynxioShape.pill)
+                        .shimmer()
+                )
+            }
+        }
         return
     }
 
@@ -294,18 +321,27 @@ private fun LyricRow(line: LyricLine, active: Boolean, synced: Boolean, onClick:
         label = "lyricColor",
     )
     // Animations réduites : la ligne active ne grossit plus, seule la couleur la distingue.
+    // L'échelle passe par graphicsLayer : changer la taille de police relançait la mise
+    // en page de la ligne à chaque image de l'animation.
     val scale by animateFloatAsState(
-        targetValue = if (active || reduceMotion) 1f else 0.92f,
-        animationSpec = if (reduceMotion) snap() else Motion.standard(),
+        targetValue = if (active || reduceMotion) 1f else 0.9f,
+        animationSpec = if (reduceMotion) snap() else Motion.spatial(),
         label = "lyricScale",
     )
+    val brand = SynxioTheme.colors.brandBrushHorizontal
 
     Text(
         text = line.text.ifBlank { "♪" },
-        style = LyricsTextStyle.copy(fontSize = LyricsTextStyle.fontSize * scale),
+        // La ligne chantée prend la signature Lumen, comme éclairée par un projecteur.
+        style = if (active && synced) LyricsTextStyle.copy(brush = brand) else LyricsTextStyle,
         color = color,
         modifier = Modifier
             .fillMaxWidth()
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                transformOrigin = TransformOrigin(0f, 0.5f)
+            }
             .clickable(
                 enabled = synced,
                 onClickLabel = "Lire à partir de cette ligne",
@@ -347,6 +383,8 @@ fun QueueSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        dragHandle = { SheetHandle() },
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
             Row(
@@ -356,6 +394,7 @@ fun QueueSheet(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
+                    Text("À SUIVRE", style = EyebrowTextStyle, color = MaterialTheme.colorScheme.primary)
                     SheetTitle("File d'attente")
                     Text(
                         text = "${queue.size} titre" + if (queue.size > 1) "s" else "",
@@ -364,16 +403,16 @@ fun QueueSheet(
                     )
                 }
                 if (queue.isNotEmpty()) {
-                    TextButton(onClick = onClear) { Text("Vider") }
+                    GlassButton(text = "Vider", onClick = onClear, icon = Icons.Rounded.Close)
                 }
             }
 
             if (queue.isEmpty()) {
-                Text(
-                    text = "La file est vide. Ajoute des titres depuis leur menu « Plus ».",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = Space.xl, vertical = Space.xl),
+                EmptyState(
+                    title = "La file est vide",
+                    subtitle = "Ajoute des titres depuis leur menu « Plus ».",
+                    icon = Icons.AutoMirrored.Rounded.QueueMusic,
+                    modifier = Modifier.heightIn(max = 360.dp),
                 )
             }
 
@@ -401,16 +440,58 @@ fun QueueSheet(
                     // L'index affiché suit la copie locale : pendant un glissement, la ligne
                     // en cours de lecture se repère par sa clé, pas par sa position.
                     val isCurrentRow = keys.getOrNull(currentIndex) == key
-                    SongRow(
-                        song = song,
-                        onClick = { keys.indexOf(key).takeIf { it >= 0 }?.let(onSelect) },
-                        isCurrent = isCurrentRow,
-                        isPlaying = isPlaying,
+                    // Balayer une ligne vers la gauche la retire de la file ; le fond rouge
+                    // qui se dévoile dit ce qui va se passer avant qu'on lâche.
+                    val dismiss = rememberSwipeToDismissBoxState(
+                        confirmValueChange = { value ->
+                            if (value == SwipeToDismissBoxValue.EndToStart) {
+                                keys.indexOf(key).takeIf { it >= 0 }?.let(onRemove)
+                                true
+                            } else false
+                        },
+                    )
+                    val lift by animateFloatAsState(if (dragged && !reduceMotion) 1.03f else 1f, Motion.spatial(), label = "queueLift")
+                    SwipeToDismissBox(
+                        state = dismiss,
+                        enableDismissFromStartToEnd = false,
+                        gesturesEnabled = !dragged,
+                        backgroundContent = {
+                            Box(
+                                Modifier
+                                    .fillMaxSize()
+                                    .clip(SynxioShape.artworkMd)
+                                    .background(MaterialTheme.colorScheme.errorContainer)
+                                    .padding(horizontal = Space.xl),
+                                contentAlignment = Alignment.CenterEnd,
+                            ) {
+                                Icon(
+                                    Icons.Rounded.Close,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                                )
+                            }
+                        },
                         modifier = (if (reduceMotion || dragged) {
                             Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null)
                         } else {
                             Modifier.animateItem()
                         }).reorderItem(reorder, key),
+                    ) {
+                    SongRow(
+                        song = song,
+                        onClick = { keys.indexOf(key).takeIf { it >= 0 }?.let(onSelect) },
+                        isCurrent = isCurrentRow,
+                        isPlaying = isPlaying,
+                        // La ligne saisie se soulève : verre dense et léger agrandissement.
+                        modifier = Modifier
+                            .graphicsLayer {
+                                scaleX = lift
+                                scaleY = lift
+                            }
+                            .then(
+                                if (dragged) Modifier.glass(SynxioShape.artworkMd, strength = 1f)
+                                else Modifier.background(MaterialTheme.colorScheme.surfaceContainerLow, SynxioShape.artworkMd)
+                            ),
                         trailing = {
                             Icon(
                                 Icons.Rounded.DragHandle,
@@ -452,6 +533,7 @@ fun QueueSheet(
                             }
                         },
                     )
+                    }
                 }
             }
         }
@@ -471,6 +553,8 @@ fun SleepTimerSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        dragHandle = { SheetHandle() },
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Column(
             Modifier
@@ -495,10 +579,11 @@ fun SleepTimerSheet(
                     color = MaterialTheme.colorScheme.primary,
                 )
                 Spacer(Modifier.height(Space.md))
-                OutlinedButton(
+                GlassButton(
+                    text = "Annuler la minuterie",
                     onClick = { onCancel(); onDismiss() },
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("Annuler la minuterie") }
+                )
                 Spacer(Modifier.height(Space.xl))
             }
 
@@ -507,18 +592,18 @@ fun SleepTimerSheet(
                 horizontalArrangement = Arrangement.spacedBy(Space.sm),
             ) {
                 listOf(15, 30, 45, 60).forEach { preset ->
-                    FilterChip(
+                    LumenChip(
+                        label = "$preset min",
                         selected = minutes == preset,
                         onClick = { minutes = preset },
-                        label = { Text("$preset min") },
                     )
                 }
             }
 
             Spacer(Modifier.height(Space.md))
             Text(
-                "$minutes minutes",
-                style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = TabularNums),
+                "$minutes min",
+                style = MaterialTheme.typography.displaySmall.merge(fr.synxio.player.ui.theme.TabularNumbers),
             )
             Slider(
                 value = minutes.toFloat(),
@@ -543,10 +628,12 @@ fun SleepTimerSheet(
             }
 
             Spacer(Modifier.height(Space.lg))
-            Button(
+            BrandButton(
+                text = "Démarrer",
                 onClick = { onStart(minutes, finishTrack); onDismiss() },
+                icon = Icons.Rounded.Bedtime,
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Démarrer") }
+            )
             Spacer(Modifier.height(Space.xl))
         }
     }
@@ -566,6 +653,8 @@ fun SpeedSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        dragHandle = { SheetHandle() },
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Column(
             Modifier
@@ -625,27 +714,29 @@ fun SpeedSheet(
                 horizontalArrangement = Arrangement.spacedBy(Space.sm),
             ) {
                 listOf(0.75f, 1f, 1.25f, 1.5f, 2f).forEach { preset ->
-                    FilterChip(
+                    LumenChip(
+                        label = "${preset}×",
                         selected = currentSpeed == preset,
                         onClick = {
                             currentSpeed = preset
                             if (linkPitch) currentPitch = preset
                         },
-                        label = { Text("${preset}×") },
                     )
                 }
             }
 
             Spacer(Modifier.height(Space.lg))
             Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(Space.sm)) {
-                OutlinedButton(
+                GlassButton(
+                    text = "Réinitialiser",
                     onClick = { onApply(1f, 1f); onDismiss() },
                     modifier = Modifier.weight(1f),
-                ) { Text("Réinitialiser") }
-                Button(
+                )
+                BrandButton(
+                    text = "Appliquer",
                     onClick = { onApply(currentSpeed, currentPitch); onDismiss() },
                     modifier = Modifier.weight(1f),
-                ) { Text("Appliquer") }
+                )
             }
             Spacer(Modifier.height(Space.xl))
         }
@@ -691,7 +782,12 @@ fun NowPlayingMenuSheet(
     var ringtoneNeedsPermission by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        dragHandle = { SheetHandle() },
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
         // Complété par le décalage de la barre de navigation, que la feuille ne gère pas.
         Column(
             Modifier
@@ -744,6 +840,7 @@ fun NowPlayingMenuSheet(
                             Column(
                                 modifier = Modifier
                                     .weight(1f)
+                                    .pressBounce(0.92f)
                                     .clip(RoundedCornerShape(Radius.md))
                                     .clickable(role = Role.Button, onClick = action.onClick)
                                     .padding(vertical = Space.sm, horizontal = Space.xs),
@@ -751,8 +848,9 @@ fun NowPlayingMenuSheet(
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(Space.touchTarget)
-                                        .background(scheme.surfaceContainerHigh, RoundedCornerShape(Radius.sm)),
+                                        .size(52.dp)
+                                        .clip(RoundedCornerShape(Radius.sm))
+                                        .glass(RoundedCornerShape(Radius.sm), strength = 0.9f),
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Icon(action.icon, contentDescription = null, tint = scheme.primary)
@@ -852,6 +950,7 @@ private fun MenuRow(
     val scheme = MaterialTheme.colorScheme
     Row(
         Modifier
+            .pressBounce(0.98f)
             .fillMaxWidth()
             .heightIn(min = 56.dp)
             .clickable(role = Role.Button, onClick = onClick)
@@ -859,7 +958,23 @@ private fun MenuRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Space.lg),
     ) {
-        Icon(icon, contentDescription = null, tint = if (destructive) scheme.error else scheme.onSurfaceVariant)
+        Box(
+            Modifier
+                .size(38.dp)
+                .clip(SynxioShape.cardSm)
+                .background(
+                    if (destructive) scheme.errorContainer.copy(alpha = 0.6f)
+                    else scheme.primary.copy(alpha = 0.14f)
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = if (destructive) scheme.error else scheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
+        }
         Text(
             text = label,
             style = MaterialTheme.typography.bodyLarge,

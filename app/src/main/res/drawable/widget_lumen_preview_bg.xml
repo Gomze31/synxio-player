@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Scène Lumen de l'aperçu des widgets : encre, halo braise depuis la pochette,
+     réponse magenta en bas à droite (le widget réel prend la couleur de la pochette). -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#FF0C0A10" />
+            <corners android:radius="24dp" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:centerX="0.12"
+                android:centerY="0.2"
+                android:endColor="#00FF8A4C"
+                android:gradientRadius="95%"
+                android:startColor="#5CFF8A4C"
+                android:type="radial" />
+            <corners android:radius="24dp" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:centerX="1"
+                android:centerY="1"
+                android:endColor="#00FF4F8B"
+                android:gradientRadius="70%"
+                android:startColor="#38FF4F8B"
+                android:type="radial" />
+            <corners android:radius="24dp" />
+        </shape>
+    </item>
+</layer-list>

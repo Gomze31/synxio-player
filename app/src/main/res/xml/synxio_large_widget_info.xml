@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Widget étendu : grande pochette et commandes complètes, 4x3 par défaut. -->
+<!-- Widget étendu : grande pochette et commandes complètes, 4x3 par défaut.
+     updatePeriodMillis à 0 : republié par le service aux changements d'état seulement. -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:minWidth="250dp"
     android:minHeight="180dp"
@@ -12,5 +13,5 @@
     android:widgetCategory="home_screen"
     android:initialLayout="@layout/glance_default_loading_layout"
     android:previewLayout="@layout/widget_preview_large"
-    android:previewImage="@mipmap/ic_launcher"
+    android:previewImage="@drawable/widget_preview_image_large"
     android:description="@string/widget_large_description" />

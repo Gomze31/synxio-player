@@ -1,11 +1,20 @@
 package fr.synxio.player.ui.screens
 
-import fr.synxio.player.ui.theme.synxioTopBarColors
-import androidx.compose.ui.graphics.Color
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -23,7 +32,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.InsertDriveFile
@@ -36,15 +45,16 @@ import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -58,12 +68,18 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -72,23 +88,34 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.synxio.player.core.util.pluralSongs
 import fr.synxio.player.data.model.Playlist
 import fr.synxio.player.data.repo.BackupRepository
-import fr.synxio.player.ui.components.SectionHeader
+import fr.synxio.player.ui.components.BrandButton
+import fr.synxio.player.ui.components.BrandProgressBar
+import fr.synxio.player.ui.components.GlassCard
+import fr.synxio.player.ui.components.enterCascade
+import fr.synxio.player.ui.components.pressBounce
+import fr.synxio.player.ui.theme.EyebrowTextStyle
+import fr.synxio.player.ui.theme.LocalReduceMotion
+import fr.synxio.player.ui.theme.Motion
+import fr.synxio.player.ui.theme.Radius
 import fr.synxio.player.ui.theme.Space
 import fr.synxio.player.ui.theme.SynxioShape
+import fr.synxio.player.ui.theme.SynxioTheme
+import fr.synxio.player.ui.theme.TabularNumbers
+import fr.synxio.player.ui.theme.glowShadow
+import fr.synxio.player.ui.theme.synxioTopBarColors
 import fr.synxio.player.ui.viewmodel.AppViewModel
 import fr.synxio.player.ui.viewmodel.BackupViewModel
 import fr.synxio.player.ui.viewmodel.BackupViewModel.BackupState
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /**
  * Sauvegarde et restauration : export/import complet (JSON), export/import d'une playlist
  * au format M3U8, et remise à zéro des données locales.
  *
- * Les retours passent par la snackbar de l'app ([AppViewModel.showMessage]) ; une barre de
- * progression sous la barre d'app indique qu'une opération tourne, et les actions sont
- * désactivées pendant ce temps pour éviter un double import.
+ * L'export complet est l'action principale (bouton à la signature) ; le reste se range en
+ * groupes de verre. Les retours passent par la snackbar de l'app
+ * ([AppViewModel.showMessage]) ; une barre à la signature sous la barre d'app indique
+ * qu'une opération tourne, et les actions sont désactivées pendant ce temps pour éviter
+ * un double import.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -171,7 +198,7 @@ fun BackupScreen(
             Column {
                 TopAppBar(
                     colors = synxioTopBarColors(),
-                    title = { Text("Sauvegarde et restauration") },
+                    title = { Text("Sauvegarde", style = MaterialTheme.typography.headlineSmall) },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Retour")
@@ -179,88 +206,113 @@ fun BackupScreen(
                     },
                     scrollBehavior = scrollBehavior,
                 )
-                if (busy) {
-                    LinearProgressIndicator(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .semantics { contentDescription = "Opération en cours" }
-                    )
-                }
+                BusyBar(busy)
             }
         },
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
-                top = padding.calculateTopPadding(),
-                bottom = padding.calculateBottomPadding() + Space.xxl,
+                start = Space.gutter,
+                end = Space.gutter,
+                top = padding.calculateTopPadding() + Space.sm,
+                bottom = padding.calculateBottomPadding() + Space.xxl + Space.bottomInset,
             ),
+            verticalArrangement = Arrangement.spacedBy(Space.sm),
         ) {
-            item(key = "export-title") { SectionHeader("Exporter") }
-            item(key = "export-all") {
-                BackupAction(
-                    title = "Exporter toutes les données",
-                    description = "Playlists, favoris, historique, statistiques et réglages dans un fichier JSON",
-                    icon = Icons.Rounded.Backup,
+            item(key = "hero") {
+                ExportHero(
                     enabled = !busy,
-                    onClick = { exportLauncher.launch(backupViewModel.getDefaultBackupFilename()) },
-                )
-            }
-            item(key = "export-m3u") {
-                BackupAction(
-                    title = "Exporter une playlist (M3U8)",
-                    description = if (playlists.isEmpty()) "Crée d'abord une playlist"
-                    else "Lisible par VLC, Poweramp, foobar2000…",
-                    icon = Icons.AutoMirrored.Rounded.PlaylistPlay,
-                    enabled = !busy && playlists.isNotEmpty(),
-                    onClick = { showExportPlaylistDialog = true },
+                    onExport = { exportLauncher.launch(backupViewModel.getDefaultBackupFilename()) },
+                    modifier = Modifier.enterCascade(0, key = "backup-hero"),
                 )
             }
 
-            item(key = "import-title") { SectionHeader("Importer") }
-            item(key = "import-all") {
-                BackupAction(
-                    title = "Restaurer une sauvegarde",
-                    description = "Remplace tes données par celles d'un fichier Synxio",
-                    icon = Icons.Rounded.Restore,
-                    enabled = !busy,
-                    onClick = { importLauncher.launch(arrayOf("application/json")) },
-                )
-            }
-            item(key = "import-m3u") {
-                BackupAction(
-                    title = "Importer une playlist (M3U8)",
-                    description = "Retrouve les titres dans ta bibliothèque et crée une playlist",
-                    icon = Icons.AutoMirrored.Rounded.InsertDriveFile,
-                    enabled = !busy,
-                    onClick = {
-                        importM3uLauncher.launch(arrayOf("audio/x-mpegurl", "audio/mpegurl", "application/vnd.apple.mpegurl", "*/*"))
-                    },
-                )
+            item(key = "export-title") { BackupGroupTitle("Playlists") }
+            item(key = "playlists") {
+                GlassCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .enterCascade(1, key = "backup-playlists"),
+                    contentPadding = Space.xs,
+                ) {
+                    Column {
+                        BackupAction(
+                            title = "Exporter une playlist (M3U8)",
+                            description = if (playlists.isEmpty()) "Crée d'abord une playlist"
+                            else "Lisible par VLC, Poweramp, foobar2000…",
+                            icon = Icons.AutoMirrored.Rounded.PlaylistPlay,
+                            enabled = !busy && playlists.isNotEmpty(),
+                            onClick = { showExportPlaylistDialog = true },
+                        )
+                        BackupDivider()
+                        BackupAction(
+                            title = "Importer une playlist (M3U8)",
+                            description = "Retrouve les titres dans ta bibliothèque et crée une playlist",
+                            icon = Icons.AutoMirrored.Rounded.InsertDriveFile,
+                            enabled = !busy,
+                            onClick = {
+                                importM3uLauncher.launch(arrayOf("audio/x-mpegurl", "audio/mpegurl", "application/vnd.apple.mpegurl", "*/*"))
+                            },
+                        )
+                    }
+                }
             }
 
-            item(key = "danger-title") { SectionHeader("Zone sensible") }
+            item(key = "import-title") { BackupGroupTitle("Restaurer") }
+            item(key = "import") {
+                GlassCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .enterCascade(2, key = "backup-import"),
+                    contentPadding = Space.xs,
+                ) {
+                    BackupAction(
+                        title = "Restaurer une sauvegarde",
+                        description = "Remplace tes données par celles d'un fichier Synxio",
+                        icon = Icons.Rounded.Restore,
+                        enabled = !busy,
+                        onClick = { importLauncher.launch(arrayOf("application/json")) },
+                    )
+                }
+            }
+
+            item(key = "danger-title") { BackupGroupTitle("Zone sensible", danger = true) }
             item(key = "clear") {
-                BackupAction(
-                    title = "Effacer toutes les données",
-                    description = "Supprime playlists, favoris, historique, statistiques et réglages. Tes fichiers audio ne sont pas touchés.",
-                    icon = Icons.Rounded.DeleteForever,
-                    enabled = !busy,
-                    destructive = true,
-                    onClick = { showClearDialog = true },
-                )
+                GlassCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .enterCascade(3, key = "backup-clear"),
+                    contentPadding = Space.xs,
+                ) {
+                    BackupAction(
+                        title = "Effacer toutes les données",
+                        description = "Supprime playlists, favoris, historique, statistiques et réglages. Tes fichiers audio ne sont pas touchés.",
+                        icon = Icons.Rounded.DeleteForever,
+                        enabled = !busy,
+                        destructive = true,
+                        onClick = { showClearDialog = true },
+                    )
+                }
             }
 
-            item(key = "about-title") { SectionHeader("Bon à savoir") }
-            item(key = "about") { BackupInfoSection() }
+            item(key = "about-title") { BackupGroupTitle("Bon à savoir") }
+            item(key = "about") {
+                GlassCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .enterCascade(4, key = "backup-about"),
+                ) { BackupInfoSection() }
+            }
         }
     }
 
     if (showClearDialog) {
         AlertDialog(
             onDismissRequest = { showClearDialog = false },
-            icon = { Icon(Icons.Rounded.DeleteForever, contentDescription = null) },
-            title = { Text("Effacer toutes les données ?") },
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            icon = { Icon(Icons.Rounded.DeleteForever, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+            title = { Text("Effacer toutes les données ?", style = MaterialTheme.typography.headlineSmall) },
             text = {
                 Text(
                     "Tes playlists, favoris, historique, statistiques et réglages seront supprimés. " +
@@ -269,12 +321,19 @@ fun BackupScreen(
                 )
             },
             confirmButton = {
-                TextButton(onClick = {
-                    showClearDialog = false
-                    backupViewModel.clearAllData()
-                }) {
-                    Text("Effacer", color = MaterialTheme.colorScheme.error)
-                }
+                // Bouton plein couleur d'erreur : le geste irréversible ne se confond pas
+                // avec « Annuler ».
+                Button(
+                    onClick = {
+                        showClearDialog = false
+                        backupViewModel.clearAllData()
+                    },
+                    shape = SynxioShape.pill,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError,
+                    ),
+                ) { Text("Effacer") }
             },
             dismissButton = {
                 TextButton(onClick = { showClearDialog = false }) { Text("Annuler") }
@@ -294,37 +353,19 @@ fun BackupScreen(
     if (showExportPlaylistDialog) {
         AlertDialog(
             onDismissRequest = { showExportPlaylistDialog = false },
-            title = { Text("Quelle playlist exporter ?") },
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            title = { Text("Quelle playlist exporter ?", style = MaterialTheme.typography.headlineSmall) },
             text = {
                 LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp)) {
                     items(playlists, key = { it.id }) { playlist ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = Space.touchTarget)
-                                .clip(SynxioShape.pill)
-                                .clickable(onClickLabel = "Exporter", role = Role.Button) {
-                                    playlistToExportId = playlist.id
-                                    showExportPlaylistDialog = false
-                                    exportM3uLauncher.launch("${playlist.name.toSafeFileName()}.m3u8")
-                                }
-                                .padding(horizontal = Space.sm, vertical = Space.sm),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    playlist.name,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Text(
-                                    playlist.songCount.pluralSongs(),
-                                    style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
+                        PlaylistChoice(
+                            playlist = playlist,
+                            onClick = {
+                                playlistToExportId = playlist.id
+                                showExportPlaylistDialog = false
+                                exportM3uLauncher.launch("${playlist.name.toSafeFileName()}.m3u8")
+                            },
+                        )
                     }
                 }
             },
@@ -338,7 +379,8 @@ fun BackupScreen(
     if (importedM3uUri != null) {
         AlertDialog(
             onDismissRequest = { importedM3uUri = null },
-            title = { Text("Importer la playlist") },
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            title = { Text("Importer la playlist", style = MaterialTheme.typography.headlineSmall) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(Space.md)) {
                     Text(
@@ -350,6 +392,11 @@ fun BackupScreen(
                         onValueChange = { importPlaylistName = it },
                         label = { Text("Nom de la playlist") },
                         singleLine = true,
+                        shape = SynxioShape.cardSm,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                        ),
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -375,8 +422,117 @@ private fun String.toSafeFileName(): String =
     replace(Regex("[\\\\/:*?\"<>|]"), "_").trim().ifBlank { "playlist" }
 
 /**
- * Action de l'écran : une ligne tonale cliquable. Une action destructive prend la couleur
- * d'erreur sur l'icône et le titre, jamais seulement sur un détail.
+ * Barre d'activité à la signature sous la barre d'app. L'opération n'expose pas
+ * d'avancement : un segment lumineux balaie la piste (animation infinie, mais composée
+ * seulement pendant l'opération). Animations réduites : piste pleine, immobile.
+ */
+@Composable
+private fun BusyBar(busy: Boolean) {
+    val reduce = LocalReduceMotion.current
+    AnimatedVisibility(
+        visible = busy,
+        enter = expandVertically(Motion.spatial()) + fadeIn(Motion.enter(Motion.SHORT)),
+        exit = shrinkVertically(Motion.spatial()) + fadeOut(Motion.exit()),
+    ) {
+        val barModifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Space.gutter, vertical = Space.xs)
+            .semantics { contentDescription = "Opération en cours" }
+        if (reduce) {
+            BrandProgressBar(progress = 1f, height = 4.dp, modifier = barModifier)
+        } else {
+            val brush = SynxioTheme.colors.brandBrushHorizontal
+            val track = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+            val t = rememberInfiniteTransition(label = "backupBusy")
+            val x by t.animateFloat(
+                initialValue = -0.4f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(tween(1100, easing = LinearEasing), RepeatMode.Restart),
+                label = "backupBusyX",
+            )
+            Box(
+                barModifier
+                    .height(4.dp)
+                    .clip(SynxioShape.pill)
+                    .background(track)
+                    .drawBehind {
+                        val w = size.width * 0.4f
+                        drawRect(brush, topLeft = Offset(size.width * x, 0f), size = Size(w, size.height))
+                    }
+            )
+        }
+    }
+}
+
+/**
+ * En-tête de l'écran : ce que contient une sauvegarde, et l'action principale.
+ */
+@Composable
+private fun ExportHero(enabled: Boolean, onExport: () -> Unit, modifier: Modifier = Modifier) {
+    val colors = SynxioTheme.colors
+    val shape = RoundedCornerShape(Radius.md)
+    GlassCard(modifier = modifier.fillMaxWidth(), contentPadding = Space.xl) {
+        Column {
+            Box(
+                Modifier
+                    .size(56.dp)
+                    .glowShadow(shape, colors.brandEnd, elevation = 18.dp)
+                    .clip(shape)
+                    .background(colors.brandBrush),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Rounded.Backup, contentDescription = null, tint = colors.onBrand, modifier = Modifier.size(28.dp))
+            }
+            Spacer(Modifier.height(Space.lg))
+            Text("EXPORT COMPLET", style = EyebrowTextStyle, color = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(Space.xxs))
+            Text(
+                "Tout ton Synxio dans un fichier",
+                style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.semantics { heading() },
+            )
+            Spacer(Modifier.height(Space.sm))
+            Text(
+                "Playlists, favoris, historique, statistiques et réglages dans un fichier JSON, à garder où tu veux.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(Space.xl))
+            BrandButton(
+                text = "Exporter toutes les données",
+                icon = Icons.Rounded.Save,
+                enabled = enabled,
+                onClick = onExport,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun BackupGroupTitle(title: String, danger: Boolean = false) {
+    Text(
+        title.uppercase(),
+        style = EyebrowTextStyle,
+        color = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = Space.xs, top = Space.lg, bottom = Space.xxs)
+            .semantics { heading() },
+    )
+}
+
+@Composable
+private fun BackupDivider() {
+    HorizontalDivider(
+        modifier = Modifier.padding(start = 64.dp, end = Space.md),
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+    )
+}
+
+/**
+ * Action de l'écran : une ligne dans un groupe de verre. Une action destructive prend la
+ * couleur d'erreur sur l'icône et le titre, jamais seulement sur un détail.
  */
 @Composable
 private fun BackupAction(
@@ -388,57 +544,84 @@ private fun BackupAction(
     destructive: Boolean = false,
 ) {
     val scheme = MaterialTheme.colorScheme
-    Surface(
-        onClick = onClick,
-        enabled = enabled,
-        shape = SynxioShape.card,
-        color = scheme.surfaceContainerLow,
+    val accent = if (destructive) scheme.error else scheme.primary
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = Space.gutter, vertical = Space.xs),
+            .heightIn(min = Space.touchTarget)
+            .clip(SynxioShape.cardSm)
+            .then(if (enabled) Modifier.pressBounce(0.98f) else Modifier)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .alpha(if (enabled) 1f else 0.45f)
+            .padding(horizontal = Space.md, vertical = Space.md),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = Space.touchTarget)
-                .padding(Space.lg),
-            verticalAlignment = Alignment.CenterVertically,
+                .size(40.dp)
+                .clip(RoundedCornerShape(Radius.sm))
+                .background(accent.copy(alpha = 0.14f)),
+            contentAlignment = Alignment.Center,
         ) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(if (destructive) scheme.errorContainer else scheme.primaryContainer),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                    tint = if (destructive) scheme.onErrorContainer else scheme.onPrimaryContainer,
-                )
-            }
-            Spacer(Modifier.width(Space.md))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = when {
-                        !enabled -> scheme.onSurface.copy(alpha = 0.38f)
-                        destructive -> scheme.error
-                        else -> scheme.onSurface
-                    },
-                )
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (enabled) scheme.onSurfaceVariant else scheme.onSurface.copy(alpha = 0.38f),
-                )
-            }
-            Icon(
-                Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                contentDescription = null,
-                tint = scheme.onSurfaceVariant,
+            Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp), tint = accent)
+        }
+        Spacer(Modifier.width(Space.md))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                color = if (destructive) scheme.error else scheme.onSurface,
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = scheme.onSurfaceVariant,
+            )
+        }
+        Spacer(Modifier.width(Space.sm))
+        Icon(
+            Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+            contentDescription = null,
+            tint = scheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** Ligne de choix d'une playlist dans le dialogue d'export. */
+@Composable
+private fun PlaylistChoice(playlist: Playlist, onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = Space.touchTarget)
+            .clip(SynxioShape.cardSm)
+            .pressBounce(0.98f)
+            .clickable(onClickLabel = "Exporter", role = Role.Button, onClick = onClick)
+            .padding(horizontal = Space.sm, vertical = Space.sm),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(Radius.xs))
+                .background(scheme.primary.copy(alpha = 0.14f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.AutoMirrored.Rounded.PlaylistPlay, contentDescription = null, tint = scheme.primary, modifier = Modifier.size(20.dp))
+        }
+        Spacer(Modifier.width(Space.md))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                playlist.name,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                playlist.songCount.pluralSongs(),
+                style = MaterialTheme.typography.bodySmall.merge(TabularNumbers),
+                color = scheme.onSurfaceVariant,
             )
         }
     }
@@ -448,10 +631,8 @@ private fun BackupAction(
 @Composable
 private fun BackupInfoSection() {
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = Space.gutter),
-        verticalArrangement = Arrangement.spacedBy(Space.md),
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(Space.lg),
     ) {
         InfoItem(Icons.Rounded.MusicNote, "Contenu", "Playlists, favoris, historique, statistiques et réglages. Pas les fichiers audio.")
         InfoItem(Icons.Rounded.Save, "Format", "Fichier JSON propre à Synxio, lisible en texte.")
@@ -483,17 +664,19 @@ private fun BackupInfoDialog(
     }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Restaurer cette sauvegarde ?") },
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        icon = { Icon(Icons.Rounded.Restore, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+        title = { Text("Restaurer cette sauvegarde ?", style = MaterialTheme.typography.headlineSmall) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) {
                 InfoRow("Exportée le", date)
-                HorizontalDivider()
+                InfoDivider()
                 InfoRow("Version", "${info.version}")
-                HorizontalDivider()
+                InfoDivider()
                 InfoRow("Playlists", "${info.playlistCount}")
-                HorizontalDivider()
+                InfoDivider()
                 InfoRow("Favoris", "${info.favoriteCount}")
-                HorizontalDivider()
+                InfoDivider()
                 InfoRow("Entrées d'historique", "${info.historyCount}")
                 Spacer(Modifier.height(Space.xs))
                 Text(
@@ -513,6 +696,11 @@ private fun BackupInfoDialog(
 }
 
 @Composable
+private fun InfoDivider() {
+    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+}
+
+@Composable
 private fun InfoRow(label: String, value: String) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -520,9 +708,10 @@ private fun InfoRow(label: String, value: String) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.width(Space.md))
         Text(
             value,
-            style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = "tnum"),
+            style = MaterialTheme.typography.titleSmall.merge(TabularNumbers),
             color = MaterialTheme.colorScheme.onSurface,
         )
     }

@@ -34,6 +34,7 @@ fun SynxioTheme(
     themePreset: ThemePreset = ThemePreset.SYNXIO,
     customAccent: String = "",
     reduceAnimations: Boolean = false,
+    glowEffects: Boolean = true,
     textScale: Float = 1f,
     content: @Composable () -> Unit,
 ) {
@@ -89,7 +90,8 @@ fun SynxioTheme(
     CompositionLocalProvider(
         LocalArtworkColors provides artworkColors,
         LocalReduceMotion provides reduceMotion,
-        LocalSynxioColors provides SynxioColors(),
+        LocalSynxioColors provides scheme.brandColors(dark),
+        LocalGlowEffects provides glowEffects,
         LocalDensity provides scaledDensity,
     ) {
         MaterialTheme(
@@ -167,6 +169,21 @@ private fun ColorScheme.animated(): ColorScheme {
         surfaceContainerHighest = animate(surfaceContainerHighest),
         outlineVariant = animate(outlineVariant),
     )
+}
+
+/**
+ * Signature lumineuse dérivée de l'accent courant : elle part de l'accent (donc de la
+ * pochette quand l'app en prend la couleur) et glisse vers le magenta Synxio. Deux
+ * albums différents donnent deux signatures différentes, mais on reconnaît toujours
+ * Synxio à cette fin magenta.
+ */
+private fun ColorScheme.brandColors(dark: Boolean): SynxioColors {
+    val defaults = SynxioColors()
+    val start = primary
+    val end = lerpColor(primary, defaults.favorite, if (dark) 0.7f else 0.6f)
+    // Le contenu (icône lecture) doit rester lisible au milieu du dégradé.
+    val onBrand = lerpColor(start, end, 0.5f).contrastingOn()
+    return defaults.copy(brandStart = start, brandEnd = end, onBrand = onBrand)
 }
 
 private tailrec fun android.content.Context.findActivity(): android.app.Activity? = when (this) {

@@ -2,6 +2,23 @@ package fr.synxio.player.ui
 
 import androidx.compose.ui.graphics.graphicsLayer
 import android.Manifest
+import androidx.compose.animation.AnimatedContentScope
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.offset
+import androidx.navigation.NamedNavArgument
+import androidx.navigation.NavGraphBuilder
+import fr.synxio.player.ui.components.LocalNavAnimatedScope
+import fr.synxio.player.ui.components.LocalPlayerAnimatedScope
+import fr.synxio.player.ui.components.LocalSharedTransitionScope
+import fr.synxio.player.ui.components.SynxioSnackbar
+import fr.synxio.player.ui.theme.SynxioTheme
+import fr.synxio.player.ui.theme.glowShadow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import android.content.Intent
 import android.os.Build
 import android.util.Base64
@@ -78,6 +95,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -210,8 +228,14 @@ fun SynxioRoot(viewModel: AppViewModel, openPlayerRequest: Long) {
     // Le Surface d'origine fournissait aussi la couleur de texte par défaut. Sans elle,
     // tout texte sans couleur explicite retombait au noir : titre du lecteur et nom
     // d'album illisibles sur fond sombre. On la fournit explicitement.
+    // Seul « en lecture » intéresse le fond : la position change quatre fois par seconde
+    // et ne doit pas recomposer la racine de l'app.
+    val isPlaying by remember(viewModel) {
+        viewModel.playerState.map { it.isPlaying }.distinctUntilChanged()
+    }.collectAsStateWithLifecycle(initialValue = false)
+
     Box(Modifier.fillMaxSize()) {
-        AmbientBackdrop()
+        AmbientBackdrop(drifting = isPlaying)
         CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
         if (permission.status.isGranted) {
             MainScaffold(viewModel, openPlayerRequest)
@@ -284,12 +308,14 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
     if (updateState.hasUpdate && !dismissUpdate && !updateState.downloading) {
         AlertDialog(
             onDismissRequest = { dismissUpdate = true },
-            title = { Text("Mise à jour disponible") },
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            title = { Text("Mise à jour disponible", style = MaterialTheme.typography.headlineSmall) },
             text = { Text("La version ${updateState.available?.versionName} est disponible !\n\n${updateState.available?.notes}") },
             confirmButton = {
-                TextButton(onClick = { updateViewModel.downloadAndInstall() }) {
-                    Text("Mettre à jour")
-                }
+                fr.synxio.player.ui.components.BrandButton(
+                    text = "Mettre à jour",
+                    onClick = { updateViewModel.downloadAndInstall() },
+                )
             },
             dismissButton = {
                 TextButton(onClick = { dismissUpdate = true }) {
@@ -302,14 +328,15 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
     if (updateState.downloading) {
         AlertDialog(
             onDismissRequest = { },
-            title = { Text("Téléchargement...") },
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            title = { Text("Téléchargement…", style = MaterialTheme.typography.headlineSmall) },
             text = { 
                 Column {
                     Text("Téléchargement de la mise à jour en cours.")
                     Spacer(Modifier.padding(8.dp))
-                    LinearProgressIndicator(
-                        progress = { updateState.progress },
-                        modifier = Modifier.fillMaxWidth()
+                    fr.synxio.player.ui.components.BrandProgressBar(
+                        progress = updateState.progress,
+                        height = 6.dp,
                     )
                 }
             },
@@ -322,10 +349,14 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
         )
     }
 
+    // Couche commune des éléments partagés : pochettes des grilles vers les détails, et
+    // pochette du mini-lecteur vers le lecteur plein écran.
+    SharedTransitionLayout(Modifier.fillMaxSize()) {
+    CompositionLocalProvider(LocalSharedTransitionScope provides this) {
     Box(Modifier.fillMaxSize()) {
         Scaffold(
             containerColor = Color.Transparent,
-            snackbarHost = { SnackbarHost(snackbarHost) },
+            snackbarHost = { SnackbarHost(snackbarHost) { SynxioSnackbar(it) } },
             bottomBar = {
                 Column {
                     AnimatedVisibility(
@@ -333,12 +364,15 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
                         enter = slideInVertically(Motion.enter()) { it / 2 } + fadeIn(Motion.enter()),
                         exit = slideOutVertically(Motion.exit()) { it / 2 } + fadeOut(Motion.exit()),
                     ) {
+                        CompositionLocalProvider(LocalPlayerAnimatedScope provides this) {
                         MiniPlayer(
                             state = playerState,
                             onExpand = { playerExpanded = true },
                             onPlayPause = viewModel::togglePlayPause,
                             onNext = viewModel::next,
+                            onPrevious = viewModel::previous,
                         )
+                        }
                     }
 
                     if (showBottomBar) {
@@ -362,25 +396,33 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
                 navController = navController,
                 viewModel = viewModel,
                 onOpenPlayer = { playerExpanded = true },
-                modifier = Modifier.padding(padding),
+                // Marge haute réservée aux onglets : leurs en-têtes éditoriaux n'ont pas de
+                // barre Material. Les écrans secondaires ont une TopAppBar qui absorbe déjà
+                // la barre d'état ; ajouter la marge du Scaffold la doublait.
+                modifier = Modifier.padding(
+                    top = if (showBottomBar) padding.calculateTopPadding() else 0.dp,
+                    bottom = padding.calculateBottomPadding(),
+                ),
             )
         }
 
-        // Le lecteur monte depuis le mini-lecteur et redescend vers lui : même axe, même
-        // courbe que le reste de l'app. Animations réduites : simple fondu.
+        // Le lecteur monte depuis le mini-lecteur et redescend vers lui : même axe, et la
+        // pochette du mini-lecteur grandit jusqu'à sa place (élément partagé) pendant que
+        // l'écran glisse. Animations réduites : simple fondu.
         AnimatedVisibility(
             visible = playerExpanded,
             enter = if (reduceMotion) {
                 fadeIn(Motion.enter(Motion.SHORT))
             } else {
-                slideInVertically(Motion.enter(Motion.LONG)) { it } + fadeIn(Motion.enter(Motion.MEDIUM))
+                slideInVertically(Motion.enter(Motion.LONG)) { it / 3 } + fadeIn(Motion.enter(Motion.MEDIUM))
             },
             exit = if (reduceMotion) {
                 fadeOut(Motion.exit())
             } else {
-                slideOutVertically(Motion.exit(Motion.MEDIUM)) { it } + fadeOut(Motion.exit(Motion.MEDIUM))
+                slideOutVertically(Motion.exit(Motion.MEDIUM)) { it / 3 } + fadeOut(Motion.exit(Motion.MEDIUM))
             },
         ) {
+            CompositionLocalProvider(LocalPlayerAnimatedScope provides this) {
             NowPlayingScreen(
                 viewModel = viewModel,
                 onCollapse = { playerExpanded = false },
@@ -413,7 +455,10 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
                     navController.navigate(Routes.trim(song.id))
                 },
             )
+            }
         }
+    }
+    }
     }
 }
 
@@ -457,13 +502,18 @@ private fun shouldShowBottomBar(navController: NavHostController): Boolean {
 /**
  * Barre de navigation flottante en verre.
  *
- * Une pilule translucide posée au-dessus du fond ambiant, au lieu de la barre opaque
- * pleine largeur de Material : l'onglet actif porte une capsule d'accent animée.
+ * Une pilule translucide posée au-dessus de l'aurore, au lieu de la barre opaque pleine
+ * largeur de Material. L'onglet actif porte une capsule à la signature Lumen qui
+ * **glisse** d'un onglet à l'autre (ressort spatial) au lieu de clignoter : on voit d'où
+ * l'on vient et où l'on va.
  */
 @Composable
 private fun BottomBar(navController: NavHostController) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+    val selectedIndex = TopLevel.entries.indexOfFirst { it.route == currentRoute }
+    val reduceMotion = LocalReduceMotion.current
+    val colors = SynxioTheme.colors
 
     Box(
         Modifier
@@ -471,23 +521,51 @@ private fun BottomBar(navController: NavHostController) {
             .navigationBarsPadding()
             .padding(start = Space.md, end = Space.md, top = Space.xs, bottom = Space.sm)
     ) {
-        Row(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(68.dp)
+                .glowShadow(SynxioShape.pill, colors.brandEnd.copy(alpha = 0.5f), elevation = 18.dp)
                 .clip(SynxioShape.pill)
                 .glass(SynxioShape.pill, strength = 1f)
-                .selectableGroup()
                 .padding(horizontal = Space.xs),
-            verticalAlignment = Alignment.CenterVertically,
         ) {
-            TopLevel.entries.forEach { destination ->
-                NavItem(
-                    destination = destination,
-                    selected = currentRoute == destination.route,
-                    onClick = { navController.navigateToTopLevel(destination.route) },
-                    modifier = Modifier.weight(1f),
-                )
+            val itemWidth = maxWidth / TopLevel.entries.size
+            val indicatorWidth = 56.dp
+            val target = itemWidth * selectedIndex.coerceAtLeast(0) + (itemWidth - indicatorWidth) / 2
+            val offset by animateDpAsState(
+                targetValue = target,
+                animationSpec = if (reduceMotion) snap() else spring(dampingRatio = 0.72f, stiffness = 420f),
+                label = "navIndicatorOffset",
+            )
+            val indicatorAlpha by animateFloatAsState(
+                if (selectedIndex >= 0) 1f else 0f,
+                Motion.standardOrSnap(reduceMotion, Motion.SHORT),
+                label = "navIndicatorAlpha",
+            )
+            // Capsule commune, dessinée sous les icônes : elle voyage, les icônes restent.
+            Box(
+                Modifier
+                    .offset(x = offset, y = 9.dp)
+                    .size(width = indicatorWidth, height = 32.dp)
+                    .graphicsLayer { alpha = indicatorAlpha }
+                    .clip(SynxioShape.pill)
+                    .background(colors.brandBrushHorizontal)
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .selectableGroup(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TopLevel.entries.forEach { destination ->
+                    NavItem(
+                        destination = destination,
+                        selected = currentRoute == destination.route,
+                        onClick = { navController.navigateToTopLevel(destination.route) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
         }
     }
@@ -501,25 +579,21 @@ private fun NavItem(
     modifier: Modifier = Modifier,
 ) {
     val scheme = MaterialTheme.colorScheme
+    val colors = SynxioTheme.colors
     val reduceMotion = LocalReduceMotion.current
-    val indicator by animateColorAsState(
-        if (selected) scheme.primary.copy(alpha = 0.20f) else Color.Transparent,
-        Motion.standardOrSnap(reduceMotion),
-        label = "navIndicator",
+    val iconTint by animateColorAsState(
+        if (selected) colors.onBrand else scheme.onSurfaceVariant,
+        Motion.standardOrSnap(reduceMotion, Motion.SHORT),
+        label = "navIconTint",
     )
-    val tint by animateColorAsState(
-        if (selected) scheme.primary else scheme.onSurfaceVariant,
-        Motion.standardOrSnap(reduceMotion),
-        label = "navTint",
+    val labelTint by animateColorAsState(
+        if (selected) scheme.onSurface else scheme.onSurfaceVariant,
+        Motion.standardOrSnap(reduceMotion, Motion.SHORT),
+        label = "navLabelTint",
     )
-    val indicatorWidth by animateDpAsState(
-        if (selected) 56.dp else 36.dp,
-        if (reduceMotion) androidx.compose.animation.core.snap() else androidx.compose.animation.core.spring(dampingRatio = 0.55f, stiffness = 500f),
-        label = "navWidth",
-    )
-    val iconScale by androidx.compose.animation.core.animateFloatAsState(
-        if (selected && !reduceMotion) 1.12f else 1f,
-        androidx.compose.animation.core.spring(dampingRatio = 0.4f, stiffness = 400f),
+    val iconScale by animateFloatAsState(
+        if (selected && !reduceMotion) 1.08f else 1f,
+        Motion.spatialBouncy(),
         label = "navIcon",
     )
     Column(
@@ -530,18 +604,11 @@ private fun NavItem(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Box(
-            Modifier
-                .width(indicatorWidth)
-                .height(30.dp)
-                .clip(SynxioShape.pill)
-                .background(indicator),
-            contentAlignment = Alignment.Center,
-        ) {
+        Box(Modifier.size(width = 56.dp, height = 32.dp), contentAlignment = Alignment.Center) {
             Icon(
                 destination.icon,
                 contentDescription = null,
-                tint = tint,
+                tint = iconTint,
                 modifier = Modifier
                     .size(22.dp)
                     .graphicsLayer {
@@ -550,17 +617,33 @@ private fun NavItem(
                     },
             )
         }
-        Spacer(Modifier.height(2.dp))
+        Spacer(Modifier.height(3.dp))
         Text(
             text = destination.label,
             maxLines = 1,
             softWrap = false,
-            color = tint,
+            color = labelTint,
+            // Espacement nul : sur un écran de 360 dp, une colonne fait ~65 dp et
+            // « Recherche » débordait avec l'espacement par défaut des libellés.
             style = MaterialTheme.typography.labelSmall.copy(
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
+                letterSpacing = 0.sp,
             ),
         )
     }
+}
+
+/**
+ * `composable` qui fournit aussi sa portée d'animation aux éléments partagés
+ * ([LocalNavAnimatedScope]) : une pochette posée avec `sharedNavElement` voyage alors
+ * d'un écran à l'autre sans que l'écran ait à connaître la navigation.
+ */
+private fun NavGraphBuilder.screen(
+    route: String,
+    arguments: List<NamedNavArgument> = emptyList(),
+    content: @Composable AnimatedContentScope.(NavBackStackEntry) -> Unit,
+) = composable(route = route, arguments = arguments) { entry ->
+    CompositionLocalProvider(LocalNavAnimatedScope provides this) { content(entry) }
 }
 
 /** Un seul exemplaire de chaque onglet dans la pile, état conservé. */
@@ -597,7 +680,7 @@ private fun AppNavHost(
         enterTransition = {
             when {
                 reduceMotion -> fadeIn(Motion.enter(Motion.SHORT))
-                isTabSwitch() -> fadeIn(Motion.enter()) + scaleIn(Motion.enter(), initialScale = 0.98f)
+                isTabSwitch() -> fadeIn(Motion.enter()) + scaleIn(Motion.enter(), initialScale = 0.97f)
                 else -> fadeIn(Motion.enter()) + slideInHorizontally(Motion.enter()) { it / 10 }
             }
         },
@@ -621,7 +704,7 @@ private fun AppNavHost(
             }
         },
     ) {
-        composable(TopLevel.HOME.route) {
+        screen(TopLevel.HOME.route) {
             HomeScreen(
                 viewModel = viewModel,
                 onOpenAlbum = { navController.navigate(Routes.album(it)) },
@@ -631,10 +714,11 @@ private fun AppNavHost(
                 // seconde bibliothèque par-dessus celle de la barre de navigation.
                 onSeeAll = { navController.navigateToTopLevel(TopLevel.LIBRARY.route) },
                 onSeeRecents = { navController.navigate(Routes.RECENTS) },
+                onOpenSmartPlaylist = { navController.navigate(Routes.smart(it)) },
             )
         }
 
-        composable(TopLevel.LIBRARY.route) {
+        screen(TopLevel.LIBRARY.route) {
             LibraryScreen(
                 viewModel = viewModel,
                 onOpenAlbum = { navController.navigate(Routes.album(it)) },
@@ -651,7 +735,7 @@ private fun AppNavHost(
             )
         }
 
-        composable(Routes.AUDIOBOOKS) {
+        screen(Routes.AUDIOBOOKS) {
             AudiobooksScreen(
                 viewModel = viewModel,
                 onOpenFolder = { navController.navigate(Routes.folder(it)) },
@@ -659,7 +743,7 @@ private fun AppNavHost(
             )
         }
 
-        composable(TopLevel.SEARCH.route) {
+        screen(TopLevel.SEARCH.route) {
             SearchScreen(
                 viewModel = viewModel,
                 onOpenAlbum = { navController.navigate(Routes.album(it)) },
@@ -669,13 +753,13 @@ private fun AppNavHost(
             )
         }
 
-        composable(TopLevel.RADIOS.route) {
+        screen(TopLevel.RADIOS.route) {
             fr.synxio.player.ui.screens.RadiosScreen(
                 viewModel = viewModel,
             )
         }
 
-        composable(TopLevel.SETTINGS.route) {
+        screen(TopLevel.SETTINGS.route) {
             SettingsScreen(
                 viewModel = viewModel,
                 onOpenEqualizer = { navController.navigate(Routes.EQUALIZER) },
@@ -690,7 +774,7 @@ private fun AppNavHost(
         }
         
 
-        composable(Routes.ALBUM) { entry ->
+        screen(Routes.ALBUM) { entry ->
             val id = entry.arguments?.getString("albumId")?.toLongOrNull()
             AlbumDetailScreen(
                 viewModel = viewModel,
@@ -701,7 +785,7 @@ private fun AppNavHost(
             )
         }
 
-        composable(Routes.ARTIST) { entry ->
+        screen(Routes.ARTIST) { entry ->
             val name = entry.arguments?.getString("artistName")?.let(Routes::decode).orEmpty()
             ArtistDetailScreen(
                 viewModel = viewModel,
@@ -711,13 +795,14 @@ private fun AppNavHost(
             )
         }
 
-        composable(Routes.GENRE) { entry ->
+        screen(Routes.GENRE) { entry ->
             val name = entry.arguments?.getString("genreName")?.let(Routes::decode).orEmpty()
             val genre = viewModel.genreByName(name)
             SongListScreen(
                 viewModel = viewModel,
                 title = name,
                 subtitle = "Genre",
+                eyebrow = "Genre",
                 songs = genre?.songs.orEmpty(),
                 artworkModel = genre?.artworkUris?.firstOrNull(),
                 onBack = { navController.popBackStack() },
@@ -725,13 +810,14 @@ private fun AppNavHost(
             )
         }
 
-        composable(Routes.FOLDER) { entry ->
+        screen(Routes.FOLDER) { entry ->
             val path = entry.arguments?.getString("folderPath")?.let(Routes::decode).orEmpty()
             val folder = viewModel.folderByPath(path)
             SongListScreen(
                 viewModel = viewModel,
                 title = folder?.name ?: "Dossier",
                 subtitle = path,
+                eyebrow = "Dossier",
                 songs = folder?.songs.orEmpty(),
                 artworkModel = folder?.songs?.firstOrNull()?.artworkUri,
                 onBack = { navController.popBackStack() },
@@ -739,7 +825,7 @@ private fun AppNavHost(
             )
         }
 
-        composable(Routes.PLAYLIST) { entry ->
+        screen(Routes.PLAYLIST) { entry ->
             val id = entry.arguments?.getString("playlistId")?.toLongOrNull() ?: -1L
             PlaylistDetailScreen(
                 viewModel = viewModel,
@@ -749,26 +835,26 @@ private fun AppNavHost(
             )
         }
 
-        composable(Routes.EQUALIZER) {
+        screen(Routes.EQUALIZER) {
             EqualizerScreen(onBack = { navController.popBackStack() })
         }
 
-        composable(Routes.REPAIR) {
+        screen(Routes.REPAIR) {
             RepairScreen(onBack = { navController.popBackStack() })
         }
 
-        composable(Routes.DOWNLOAD) {
+        screen(Routes.DOWNLOAD) {
             fr.synxio.player.ui.screens.DownloadScreen(
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() }
             )
         }
 
-        composable(Routes.DUPLICATES) {
+        screen(Routes.DUPLICATES) {
             DuplicatesScreen(onBack = { navController.popBackStack() })
         }
 
-        composable(Routes.RECENTS) {
+        screen(Routes.RECENTS) {
             RecentsScreen(
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() },
@@ -776,21 +862,21 @@ private fun AppNavHost(
             )
         }
 
-        composable(Routes.DRIVE_MODE) {
+        screen(Routes.DRIVE_MODE) {
             fr.synxio.player.ui.screens.DriveModeScreen(
                 viewModel = viewModel,
                 onExit = { navController.popBackStack() }
             )
         }
 
-        composable(Routes.PARTY_MODE) {
+        screen(Routes.PARTY_MODE) {
             fr.synxio.player.ui.screens.PartyScreen(
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() }
             )
         }
 
-        composable(Routes.SMART) { entry ->
+        screen(Routes.SMART) { entry ->
             // L'identifiant vient de l'URL : une valeur inconnue (raccourci obsolète,
             // lien restauré) ne doit pas faire planter la navigation.
             val id = entry.arguments?.getString("smartId")
@@ -800,6 +886,7 @@ private fun AppNavHost(
                 viewModel = viewModel,
                 title = smart?.title ?: "Sélection",
                 subtitle = smart?.description ?: "Sélection automatique",
+                eyebrow = "Pour toi",
                 songs = smart?.songs.orEmpty(),
                 artworkModel = smart?.artworkUris?.firstOrNull(),
                 onBack = { navController.popBackStack() },
@@ -809,7 +896,7 @@ private fun AppNavHost(
             )
         }
 
-        composable(
+        screen(
             route = Routes.RULE,
             arguments = listOf(navArgument("ruleId") { type = NavType.LongType }),
         ) { entry ->
@@ -823,6 +910,7 @@ private fun AppNavHost(
                 viewModel = viewModel,
                 title = rule?.name ?: "Règle",
                 subtitle = "Playlist à règles",
+                eyebrow = "Playlist à règles",
                 songs = rule?.songs.orEmpty(),
                 artworkModel = rule?.songs?.distinctBy { it.albumId }?.take(4)?.map { it.artworkUri },
                 onBack = { navController.popBackStack() },
@@ -860,14 +948,15 @@ private fun AppNavHost(
             if (deleting && rule != null) {
                 AlertDialog(
                     onDismissRequest = { deleting = false },
-                    title = { Text("Supprimer la règle") },
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    title = { Text("Supprimer la règle", style = MaterialTheme.typography.headlineSmall) },
                     text = { Text("Supprimer « ${rule.name} » ? Cette action ne peut pas être annulée.") },
                     confirmButton = {
                         TextButton(onClick = {
                             viewModel.deleteRulePlaylist(rule)
                             deleting = false
                             navController.popBackStack()
-                        }) { Text("Supprimer") }
+                        }) { Text("Supprimer", color = MaterialTheme.colorScheme.error) }
                     },
                     dismissButton = {
                         TextButton(onClick = { deleting = false }) { Text("Annuler") }
@@ -876,7 +965,7 @@ private fun AppNavHost(
             }
         }
 
-        composable(
+        screen(
             route = Routes.RULE_EDITOR,
             arguments = listOf(
                 navArgument("ruleId") {
@@ -892,7 +981,7 @@ private fun AppNavHost(
             )
         }
 
-        composable(Routes.TAGS) { entry ->
+        screen(Routes.TAGS) { entry ->
             val songId = entry.arguments?.getString("songId")?.toLongOrNull() ?: -1L
             TagEditorScreen(
                 songId = songId,
@@ -905,7 +994,7 @@ private fun AppNavHost(
         // NOUVELLES ROUTES
         // ========================================================================
 
-        composable(Routes.STATS) {
+        screen(Routes.STATS) {
             StatsScreen(
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() },
@@ -917,7 +1006,7 @@ private fun AppNavHost(
             )
         }
 
-        composable(Routes.HISTORY) {
+        screen(Routes.HISTORY) {
             HistoryScreen(
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() },
@@ -929,20 +1018,20 @@ private fun AppNavHost(
             )
         }
 
-        composable(Routes.BACKUP) {
+        screen(Routes.BACKUP) {
             BackupScreen(
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() }
             )
         }
 
-        composable(Routes.ABOUT) {
+        screen(Routes.ABOUT) {
             AboutScreen(
                 onBack = { navController.popBackStack() }
             )
         }
 
-        composable(Routes.ADVANCED_SEARCH) {
+        screen(Routes.ADVANCED_SEARCH) {
             AdvancedSearchScreen(
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() },
@@ -952,7 +1041,7 @@ private fun AppNavHost(
             )
         }
 
-        composable(Routes.TRIM) { entry ->
+        screen(Routes.TRIM) { entry ->
             val songId = entry.arguments?.getString("songId")?.toLongOrNull() ?: -1L
             val library by viewModel.library.collectAsStateWithLifecycle()
             val song = library.songs.find { it.id == songId }

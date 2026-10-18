@@ -4,15 +4,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Shapes
 import androidx.compose.ui.unit.dp
 
-/** Coins généreux : l'app doit respirer, pas ressembler à un tableur. */
+/**
+ * Formes Material alignées sur [Radius] : dialogues, feuilles, menus et champs prennent
+ * les mêmes arrondis que les composants Synxio, sans réglage écran par écran.
+ */
 val SynxioShapes = Shapes(
-    extraSmall = RoundedCornerShape(8.dp),
-    small = RoundedCornerShape(12.dp),
-    medium = RoundedCornerShape(18.dp),
-    large = RoundedCornerShape(26.dp),
-    extraLarge = RoundedCornerShape(34.dp),
+    extraSmall = RoundedCornerShape(Radius.xs),
+    small = RoundedCornerShape(Radius.sm),
+    medium = RoundedCornerShape(Radius.md),
+    large = RoundedCornerShape(Radius.lg),
+    extraLarge = RoundedCornerShape(Radius.xl),
 )
 
-val ArtworkShape = RoundedCornerShape(20.dp)
-val MiniPlayerShape = RoundedCornerShape(22.dp)
-val SheetShape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+val ArtworkShape = RoundedCornerShape(Radius.artworkMd)
+val MiniPlayerShape = RoundedCornerShape(Radius.lg)
+val SheetShape = RoundedCornerShape(topStart = Radius.xl, topEnd = Radius.xl)

@@ -1,9 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Aperçu du sélecteur de widgets (Android 12+) : statique, aux couleurs Synxio. -->
+<!-- Aperçu du sélecteur de widgets (Android 12+) : statique, scène Lumen à l'encre.
+     Montré en pause : c'est l'état où le widget affiche la progression. -->
+<!-- RemoteViews : app:tint (AppCompat) n'y existe pas, android:tint est le bon attribut. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:ignore="UseAppTint"
+    android:id="@android:id/background"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/widget_preview_bg"
+    android:background="@drawable/widget_lumen_preview_bg"
+    android:clipToOutline="true"
     android:gravity="center_vertical"
     android:orientation="vertical"
     android:padding="16dp">
@@ -17,10 +23,11 @@
         <ImageView
             android:layout_width="110dp"
             android:layout_height="110dp"
-            android:background="@drawable/widget_preview_art"
+            android:background="@drawable/widget_lumen_preview_art"
             android:importantForAccessibility="no"
             android:scaleType="center"
-            android:src="@drawable/ic_widget_note" />
+            android:src="@drawable/ic_widget_note"
+            android:tint="#B3FFFFFF" />
 
         <LinearLayout
             android:layout_width="0dp"
@@ -32,18 +39,31 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:fontFamily="sans-serif-medium"
+                android:maxLines="1"
+                android:text="@string/widget_eyebrow_paused"
+                android:textAllCaps="true"
+                android:textColor="#FFFF8A4C"
+                android:textSize="11sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:ellipsize="end"
                 android:maxLines="1"
                 android:text="@string/widget_preview_title"
-                android:textColor="#FFF5F3FA"
+                android:textColor="#FFF6F1EC"
                 android:textSize="18sp"
                 android:textStyle="bold" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:ellipsize="end"
                 android:maxLines="1"
                 android:text="@string/widget_preview_artist"
-                android:textColor="#FFC9C4D6"
+                android:textColor="#FFBDB4AF"
                 android:textSize="14sp" />
         </LinearLayout>
     </LinearLayout>
@@ -54,8 +74,8 @@
         android:layout_height="4dp"
         android:layout_marginTop="14dp"
         android:progress="40"
-        android:progressBackgroundTint="#55FFFFFF"
-        android:progressTint="#FFB59BFF" />
+        android:progressBackgroundTint="#29FFFFFF"
+        android:progressTint="#FFFF8A4C" />
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -69,33 +89,37 @@
             android:layout_height="22dp"
             android:layout_weight="1"
             android:importantForAccessibility="no"
-            android:src="@drawable/ic_widget_shuffle" />
+            android:src="@drawable/ic_widget_shuffle"
+            android:tint="#FFBDB4AF" />
 
         <ImageView
             android:layout_width="0dp"
             android:layout_height="28dp"
             android:layout_weight="1"
             android:importantForAccessibility="no"
-            android:src="@drawable/ic_widget_previous" />
+            android:src="@drawable/ic_widget_previous"
+            android:tint="#FFF6F1EC" />
 
         <ImageView
-            android:layout_width="56dp"
-            android:layout_height="56dp"
+            android:layout_width="60dp"
+            android:layout_height="60dp"
             android:importantForAccessibility="no"
-            android:src="@drawable/widget_preview_play" />
+            android:src="@drawable/widget_lumen_preview_play" />
 
         <ImageView
             android:layout_width="0dp"
             android:layout_height="28dp"
             android:layout_weight="1"
             android:importantForAccessibility="no"
-            android:src="@drawable/ic_widget_next" />
+            android:src="@drawable/ic_widget_next"
+            android:tint="#FFF6F1EC" />
 
         <ImageView
             android:layout_width="0dp"
             android:layout_height="22dp"
             android:layout_weight="1"
             android:importantForAccessibility="no"
-            android:src="@drawable/ic_widget_repeat" />
+            android:src="@drawable/ic_widget_repeat"
+            android:tint="#FFBDB4AF" />
     </LinearLayout>
 </LinearLayout>
