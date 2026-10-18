@@ -42,3 +42,13 @@
 # feraient plus rien en release.
 -keep class * implements androidx.glance.appwidget.action.ActionCallback { <init>(); }
 -keep class fr.synxio.player.widget.** extends androidx.glance.appwidget.GlanceAppWidgetReceiver { <init>(); }
+
+# youtubedl-android : au premier init d'une nouvelle version, Python et FFmpeg sont
+# décompressés avec commons-compress, dont ExtraFieldUtils instancie les champs ZIP par
+# réflexion (sinon crash « AsiExtraField is not a concrete class »). Les réponses de
+# yt-dlp sont désérialisées par Jackson dans les classes mapper de la bibliothèque.
+-keep class com.yausername.** { *; }
+-keep class org.apache.commons.compress.archivers.zip.** implements org.apache.commons.compress.archivers.zip.ZipExtraField { <init>(); }
+-keepattributes Signature
+-dontwarn org.apache.commons.compress.**
+-dontwarn com.fasterxml.jackson.databind.**
