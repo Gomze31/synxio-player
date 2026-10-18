@@ -711,8 +711,8 @@ fun SettingsScreen(
                             )
                             GroupDivider()
                             ClickableSetting(
-                                title = "Réparer les tags",
-                                subtitle = "Corrige artistes, albums, années et pochettes en masse",
+                                title = "Atelier des tags",
+                                subtitle = "Écris dans tes fichiers les artistes, albums et pochettes retrouvés",
                                 icon = Icons.Rounded.AutoFixHigh,
                                 onClick = onOpenRepair
                             )

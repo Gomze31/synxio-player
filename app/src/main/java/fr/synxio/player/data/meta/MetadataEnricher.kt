@@ -188,6 +188,14 @@ class MetadataEnricher @Inject constructor(
     fun artSourceOf(song: Song): ArtSource? = cache[song.path]?.takeIf { it.isFreshFor(song) }
         ?.artSource?.let { runCatching { ArtSource.valueOf(it) }.getOrNull() }
 
+    /** Entrée à jour du cache pour [song], et la recherche en ligne qui l'a complétée. */
+    suspend fun entryFor(song: Song): Pair<TrackMetaEntity, OnlineLookupEntity?>? {
+        prepare()
+        val entry = cache[song.path]?.takeIf { it.isFreshFor(song) } ?: return null
+        val lookup = entry.onlineKey?.let { runCatching { onlineLookupDao.get(it) }.getOrNull() }?.takeIf { it.found }
+        return entry to lookup
+    }
+
     /** Signale un nouveau scan MediaStore : les fichiers nouveaux ou modifiés seront traités. */
     fun onLibraryScanned(songs: List<Song>) {
         librarySongs = songs
@@ -612,7 +620,7 @@ class MetadataEnricher @Inject constructor(
         private fun TrackMetaEntity.isFreshFor(song: Song): Boolean =
             version == ALGORITHM_VERSION && sizeBytes == song.sizeBytes && modifiedSec == song.dateModifiedSec
 
-        private fun TrackMetaEntity.sourceMap(): Map<MetaField, MetaSource> = sources.split(';')
+        internal fun TrackMetaEntity.sourceMap(): Map<MetaField, MetaSource> = sources.split(';')
             .mapNotNull { part ->
                 val pieces = part.split('=')
                 if (pieces.size != 2) return@mapNotNull null

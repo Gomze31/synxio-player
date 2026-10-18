@@ -209,6 +209,27 @@ class TagEditorRepository @Inject constructor(
         }
     }
 
+    /**
+     * Remet [song] dans l'état de [backup], copie intacte faite avant une écriture.
+     * Même canal que [write] : l'URI de contenu, avec le même consentement.
+     */
+    suspend fun restore(song: Song, backup: File): TagWriteResult = withContext(Dispatchers.IO) {
+        if (!backup.exists()) return@withContext TagWriteResult.Failure("Sauvegarde introuvable")
+        runCatching {
+            writeThroughUri(song, backup) {}
+            rescan(song.path)
+            TagWriteResult.Success
+        }.getOrElse { error ->
+            if (error is SecurityException) {
+                requestConsent(song)?.let { TagWriteResult.NeedsUserConsent(it) }
+                    ?: TagWriteResult.Failure("Accès en écriture refusé")
+            } else {
+                Log.w(TAG, "Restauration impossible", error)
+                TagWriteResult.Failure(error.message ?: "Restauration impossible")
+            }
+        }
+    }
+
     /** Remplace le contenu de [song] par [file] via son URI, et vérifie la taille écrite. */
     private fun writeThroughUri(song: Song, file: File, onTruncated: () -> Unit) {
         val pfd = context.contentResolver.openFileDescriptor(song.uri, "rwt")

@@ -516,6 +516,9 @@ class MusicRepository @Inject constructor(
         return enricher.refetch(raw, label)
     }
 
+    /** Morceaux tels que lus dans MediaStore, avant la cascade : la base de l'atelier des tags. */
+    fun scannedSongs(): List<Song> = scannedSongs
+
     fun reanalyseMetadata() {
         enricher.reanalyseAll()
     }

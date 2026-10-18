@@ -4,156 +4,219 @@ import android.content.IntentSender
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import fr.synxio.player.data.repo.LibraryRepairRepository
+import fr.synxio.player.data.meta.BackupSession
+import fr.synxio.player.data.meta.EnrichProgress
+import fr.synxio.player.data.meta.FixField
+import fr.synxio.player.data.meta.TagWorkshopRepository
+import fr.synxio.player.data.meta.TrackFix
+import fr.synxio.player.data.meta.WorkshopReport
 import fr.synxio.player.data.repo.MusicRepository
-import fr.synxio.player.data.repo.RepairProgress
-import fr.synxio.player.data.repo.RepairProposal
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-data class RepairUiState(
-    val progress: RepairProgress = RepairProgress(),
-    val proposals: List<RepairProposal> = emptyList(),
-    val analysed: Boolean = false,
-    val applying: Boolean = false,
-    val minConfidence: Int = 80,
-    val withArtwork: Boolean = true,
+enum class WorkshopPhase { INTRO, ANALYSING, REVIEW, EMPTY, WRITING, DONE }
+
+/** Filtres de la revue. */
+enum class WorkshopFilter(val label: String) {
+    ALL("Tout"),
+    SURE("Sûrs"),
+    CHECK("À vérifier"),
+    ARTWORK("Pochettes"),
+}
+
+data class WorkshopUiState(
+    val phase: WorkshopPhase = WorkshopPhase.INTRO,
+    val done: Int = 0,
+    val total: Int = 0,
+    val fixes: List<TrackFix> = emptyList(),
+    /** Chemin du fichier → champs cochés. */
+    val selection: Map<String, Set<FixField>> = emptyMap(),
+    val filter: WorkshopFilter = WorkshopFilter.ALL,
+    val backup: Boolean = true,
+    val backupBytes: Long = 0,
+    val backupFits: Boolean = true,
+    val report: WorkshopReport? = null,
+    /** Vrai pendant une restauration, pour l'écran de progression. */
+    val restoring: Boolean = false,
+    val backups: List<BackupSession> = emptyList(),
     val consentRequest: IntentSender? = null,
     val message: String? = null,
 ) {
-    val selectedCount: Int get() = proposals.count { it.selected }
+    val fraction: Float get() = if (total > 0) done.toFloat() / total else 0f
+    val selectedFields: Int get() = selection.values.sumOf { it.size }
+    val selectedFiles: Int get() = selection.count { it.value.isNotEmpty() }
+    val sureCount: Int get() = fixes.count { it.sure }
+    val checkCount: Int get() = fixes.count { !it.sure }
+    val artworkCount: Int get() = fixes.count { it.fix(FixField.ARTWORK) != null }
+
+    val visible: List<TrackFix>
+        get() = when (filter) {
+            WorkshopFilter.ALL -> fixes
+            WorkshopFilter.SURE -> fixes.filter { it.sure }
+            WorkshopFilter.CHECK -> fixes.filter { !it.sure }
+            WorkshopFilter.ARTWORK -> fixes.filter { it.fix(FixField.ARTWORK) != null }
+        }
 }
 
+/** Ce que l'utilisateur a demandé avant que le consentement Android ne revienne. */
+private sealed interface PendingWrite {
+    data object Apply : PendingWrite
+    data class Restore(val session: BackupSession) : PendingWrite
+}
+
+/**
+ * Atelier des tags : revue des corrections retrouvées par la cascade, puis écriture
+ * dans les fichiers avec sauvegarde, ou restauration d'une séance précédente.
+ */
 @HiltViewModel
 class RepairViewModel @Inject constructor(
-    private val repair: LibraryRepairRepository,
+    private val workshop: TagWorkshopRepository,
     private val music: MusicRepository,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(RepairUiState())
-    val state: StateFlow<RepairUiState> = _state.asStateFlow()
+    private val _state = MutableStateFlow(WorkshopUiState(backups = workshop.backups()))
+    val state: StateFlow<WorkshopUiState> = _state.asStateFlow()
+
+    /** Avancement de la cascade : l'atelier attend qu'elle ait fini pour proposer. */
+    val cascade: StateFlow<EnrichProgress> = music.metadataProgress
 
     private var job: Job? = null
+    private var pending: PendingWrite? = null
 
-    /** Analyse toute la bibliothèque : une requête réseau par morceau suspect. */
     fun analyse() {
         job?.cancel()
-        val songs = music.library.value.songs
-        _state.value = _state.value.copy(
-            progress = RepairProgress(0, songs.size, running = true),
-            proposals = emptyList(),
-            analysed = false,
-        )
-
+        update { copy(phase = WorkshopPhase.ANALYSING, done = 0, total = 0, report = null) }
         job = viewModelScope.launch {
-            val proposals = repair.analyse(songs, _state.value.minConfidence) { done, total ->
-                _state.value = _state.value.copy(
-                    progress = RepairProgress(done, total, running = true)
+            // Des propositions faites pendant que la cascade tourne seraient incomplètes.
+            music.metadataProgress.first { !it.running }
+            val fixes = workshop.analyse { done, total -> update { copy(done = done, total = total) } }
+            val selection = fixes.associate { fix -> fix.path to fix.fixes.filter { it.sure }.mapTo(HashSet()) { it.field } }
+            update {
+                copy(
+                    phase = if (fixes.isEmpty()) WorkshopPhase.EMPTY else WorkshopPhase.REVIEW,
+                    fixes = fixes,
+                    selection = selection,
+                    filter = WorkshopFilter.ALL,
                 )
             }
-            _state.value = _state.value.copy(
-                proposals = proposals,
-                analysed = true,
-                progress = RepairProgress(running = false),
-                message = if (proposals.isEmpty()) {
-                    "Aucune correction proposée — tes tags sont déjà corrects, ou aucune correspondance fiable n'a été trouvée."
-                } else null,
-            )
+            refreshBackupCost()
         }
     }
 
-    fun cancel() {
-        job?.cancel()
-        _state.value = _state.value.copy(
-            progress = RepairProgress(running = false),
-            applying = false,
-        )
+    fun setFilter(filter: WorkshopFilter) = update { copy(filter = filter) }
+
+    fun toggleField(fix: TrackFix, field: FixField) {
+        val current = _state.value.selection[fix.path].orEmpty()
+        val next = if (field in current) current - field else current + field
+        update { copy(selection = selection + (fix.path to next)) }
+        refreshBackupCost()
     }
 
-    fun toggle(proposal: RepairProposal) {
-        _state.value = _state.value.copy(
-            proposals = _state.value.proposals.map {
-                if (it.song.id == proposal.song.id) it.copy(selected = !it.selected) else it
-            }
-        )
+    /** Tout le titre : coche tout s'il manque quelque chose, sinon décoche tout. */
+    fun toggleTrack(fix: TrackFix) {
+        val all = fix.fixes.mapTo(HashSet()) { it.field }
+        val current = _state.value.selection[fix.path].orEmpty()
+        update { copy(selection = selection + (fix.path to if (current.containsAll(all)) emptySet() else all)) }
+        refreshBackupCost()
     }
 
-    fun setAllSelected(selected: Boolean) {
-        _state.value = _state.value.copy(
-            proposals = _state.value.proposals.map { it.copy(selected = selected) }
-        )
+    /** Coche ce qui est sûr, ou tout, dans la liste affichée. */
+    fun selectVisible(includeDoubtful: Boolean) {
+        val s = _state.value
+        val updates = s.visible.associate { fix ->
+            fix.path to fix.fixes.filter { includeDoubtful || it.sure }.mapTo(HashSet()) { it.field }
+        }
+        update { copy(selection = selection + updates) }
+        refreshBackupCost()
     }
 
-    fun setMinConfidence(value: Int) {
-        _state.value = _state.value.copy(minConfidence = value)
+    fun clearVisible() {
+        val updates = _state.value.visible.associate { it.path to emptySet<FixField>() }
+        update { copy(selection = selection + updates) }
+        refreshBackupCost()
     }
 
-    fun setWithArtwork(value: Boolean) {
-        _state.value = _state.value.copy(withArtwork = value)
+    fun setBackup(value: Boolean) = update { copy(backup = value) }
+
+    private fun refreshBackupCost() {
+        val paths = _state.value.selection.filterValues { it.isNotEmpty() }.keys
+        val (bytes, fits) = workshop.backupCost(paths)
+        update { copy(backupBytes = bytes, backupFits = fits) }
     }
 
-    /**
-     * Demande l'autorisation d'écriture groupée avant d'appliquer.
-     * Android 11+ exige un consentement, mais un seul suffit pour toute la liste.
-     */
     fun requestApply() {
-        val selected = _state.value.proposals.filter { it.selected }
-        if (selected.isEmpty()) return
+        val paths = _state.value.selection.filterValues { it.isNotEmpty() }.keys
+        if (paths.isEmpty()) return
+        pending = PendingWrite.Apply
+        val sender = workshop.writeRequestFor(paths)
+        if (sender != null) update { copy(consentRequest = sender) } else runPending()
+    }
 
-        val sender = repair.writeRequestFor(selected.map { it.song })
-        if (sender != null) {
-            _state.value = _state.value.copy(consentRequest = sender)
-        } else {
-            applyNow()
-        }
+    fun requestRestore(session: BackupSession) {
+        pending = PendingWrite.Restore(session)
+        val sender = workshop.restoreRequestFor(session)
+        if (sender != null) update { copy(consentRequest = sender) } else runPending()
     }
 
     fun onConsentResult(granted: Boolean) {
-        _state.value = _state.value.copy(consentRequest = null)
-        if (granted) applyNow()
-        else _state.value = _state.value.copy(message = "Autorisation refusée, rien n'a été modifié")
-    }
-
-    private fun applyNow() {
-        val selected = _state.value.proposals.filter { it.selected }
-        _state.value = _state.value.copy(
-            applying = true,
-            progress = RepairProgress(0, selected.size, running = true),
-        )
-
-        job = viewModelScope.launch {
-            val result = repair.apply(selected, _state.value.withArtwork) { done, total ->
-                _state.value = _state.value.copy(
-                    progress = RepairProgress(done, total, running = true)
-                )
-            }
-            music.refresh()
-
-            val ok = result.ok
-            val failed = result.failed
-            _state.value = _state.value.copy(
-                applying = false,
-                // Si rien n'a abouti, on garde la liste à l'écran : la vider obligerait à
-                // relancer une analyse de plusieurs minutes pour simplement réessayer.
-                analysed = ok > 0 || failed == 0,
-                proposals = if (ok > 0 || failed == 0) emptyList() else _state.value.proposals,
-                progress = RepairProgress(running = false),
-                message = buildString {
-                    append("$ok titre${if (ok > 1) "s" else ""} corrigé${if (ok > 1) "s" else ""}")
-                    if (failed > 0) {
-                        append(" · $failed échec${if (failed > 1) "s" else ""}")
-                        result.firstError?.let { append(" : $it") }
-                    }
-                },
-            )
+        update { copy(consentRequest = null) }
+        if (granted) runPending() else {
+            pending = null
+            update { copy(message = "Autorisation refusée : aucun fichier n'a été modifié") }
         }
     }
 
-    fun consumeMessage() {
-        _state.value = _state.value.copy(message = null)
+    private fun runPending() {
+        when (val action = pending.also { pending = null }) {
+            PendingWrite.Apply -> applyNow()
+            is PendingWrite.Restore -> restoreNow(action.session)
+            null -> Unit
+        }
+    }
+
+    private fun applyNow() {
+        val s = _state.value
+        update { copy(phase = WorkshopPhase.WRITING, restoring = false, done = 0, total = s.selectedFiles) }
+        job = viewModelScope.launch {
+            val report = workshop.apply(s.fixes, s.selection, s.backup && s.backupFits) { done, total ->
+                update { copy(done = done, total = total) }
+            }
+            update { copy(phase = WorkshopPhase.DONE, report = report, backups = workshop.backups()) }
+        }
+    }
+
+    private fun restoreNow(session: BackupSession) {
+        update { copy(phase = WorkshopPhase.WRITING, restoring = true, done = 0, total = session.files.size) }
+        job = viewModelScope.launch {
+            val report = workshop.restore(session) { done, total -> update { copy(done = done, total = total) } }
+            update {
+                copy(
+                    phase = WorkshopPhase.INTRO,
+                    restoring = false,
+                    report = null,
+                    backups = workshop.backups(),
+                    message = if (report.failed.isEmpty()) "${report.ok} fichier${if (report.ok > 1) "s" else ""} remis comme avant"
+                    else "${report.ok} remis · ${report.failed.size} échec(s) : ${report.failed.first().second}",
+                )
+            }
+        }
+    }
+
+    fun deleteBackup(session: BackupSession) {
+        workshop.delete(session)
+        update { copy(backups = workshop.backups(), message = "Sauvegarde supprimée") }
+    }
+
+    fun backToIntro() = update { copy(phase = WorkshopPhase.INTRO, report = null) }
+
+    fun consumeMessage() = update { copy(message = null) }
+
+    private inline fun update(block: WorkshopUiState.() -> WorkshopUiState) {
+        _state.value = _state.value.block()
     }
 }
