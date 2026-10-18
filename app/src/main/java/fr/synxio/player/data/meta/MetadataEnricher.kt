@@ -209,7 +209,9 @@ class MetadataEnricher @Inject constructor(
     /** Oublie tout et recommence : réglage « Tout réanalyser ». */
     fun reanalyseAll() = scope.launch(Dispatchers.IO) {
         runCatching { trackMetaDao.clear() }
-        runCatching { onlineLookupDao.deleteMisses() }
+        // Les fiches en ligne aussi : elles ont pu être retenues par une version plus
+        // permissive de la cascade.
+        runCatching { onlineLookupDao.clear() }
         cache.clear()
         _revision.value++
         autoRequested.set(true)
@@ -490,7 +492,9 @@ class MetadataEnricher @Inject constructor(
         if (match == null && artistIsGuess && altTitle != null && altArtist != null) {
             match = musicBrainz.search(altTitle, altArtist, duration).getOrThrow()
         }
-        if (match == null && artistIsGuess) match = musicBrainz.search(title, null, duration).getOrThrow()
+        // Titre seul : seulement sans aucun artiste. Sinon un homonyme de même durée
+        // remplaçait l'artiste déduit (« Dingo et Max - Sur la Route » devenait Garou).
+        if (match == null && data.artist == null) match = musicBrainz.search(title, null, duration).getOrThrow()
 
         val artPath = if (match != null && needArt) {
             musicBrainz.frontCover(match.releaseId, match.releaseGroupId)?.let(artworkStore::save)?.path
@@ -599,7 +603,7 @@ class MetadataEnricher @Inject constructor(
     companion object {
         private const val TAG = "MetadataEnricher"
         /** À monter quand la cascade change : toutes les entrées seront recalculées. */
-        const val ALGORITHM_VERSION = 3
+        const val ALGORITHM_VERSION = 4
         private const val LOCAL_PARALLELISM = 3
         private const val BATCH_SIZE = 24
         /** Un « rien trouvé » est redemandé au bout d'un mois. */

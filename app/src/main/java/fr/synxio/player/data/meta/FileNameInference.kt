@@ -214,6 +214,20 @@ object FileNameInference {
         return FolderGuess(album.takeIf { it.isNotBlank() }, artist, year, disc)
     }
 
+    /**
+     * Vrai si [folderPath] ressemble à un dossier d'album : ni fourre-tout (« Download »,
+     * « Son v2 »), ni dossier posé à la racine du stockage. Une image `cover.jpg` trouvée
+     * ailleurs n'est la pochette de rien : dans « Download », c'est une image téléchargée.
+     */
+    fun isAlbumFolder(folderPath: String): Boolean {
+        val root = STORAGE_ROOT.find(folderPath)?.value.orEmpty()
+        val dirs = folderPath.removePrefix(root).trim('/').split('/').filter { it.isNotBlank() }
+        if (dirs.isEmpty()) return false
+        var albumIndex = dirs.lastIndex
+        if (DISC_FOLDER.matchEntire(dirs[albumIndex].trim()) != null) albumIndex--
+        return albumIndex >= 1 && !isGeneric(dirs[albumIndex])
+    }
+
     internal fun isGeneric(folder: String): Boolean {
         val name = folder.trim().lowercase()
         return name in GENERIC_FOLDERS || name.startsWith(".") || GENERIC_PATTERN.matches(name)

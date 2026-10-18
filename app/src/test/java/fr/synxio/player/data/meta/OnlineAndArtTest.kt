@@ -73,6 +73,22 @@ class OnlineAndArtTest {
     }
 
     @Test
+    fun `une autre version, plus de dix secondes d ecart, est rejetee`() {
+        val recordings = MusicBrainzClient.parseRecordings(response)
+        assertNull(MusicBrainzClient.bestMatch(recordings, "Deuxième option", "Coralie Fischer", 215_000))
+        // Sans artiste, deux secondes au plus.
+        assertNull(MusicBrainzClient.bestMatch(recordings, "Deuxième option", null, 203_500))
+    }
+
+    @Test
+    fun `une image dans un dossier fourre-tout n est pas une pochette`() {
+        assertTrue(!FileNameInference.isAlbumFolder("/storage/emulated/0/Download"))
+        assertTrue(!FileNameInference.isAlbumFolder("/storage/emulated/0/Son v2"))
+        assertTrue(FileNameInference.isAlbumFolder("/storage/emulated/0/Son v2/NRJ Summer Hits 2024"))
+        assertTrue(FileNameInference.isAlbumFolder("/storage/emulated/0/Son v2/Les 100 Plus Belles Chansons Disney/CD4"))
+    }
+
+    @Test
     fun `un artiste different fait rejeter la fiche`() {
         val recordings = MusicBrainzClient.parseRecordings(response)
         assertNull(MusicBrainzClient.bestMatch(recordings, "Deuxième option", "Laura", 201_000))

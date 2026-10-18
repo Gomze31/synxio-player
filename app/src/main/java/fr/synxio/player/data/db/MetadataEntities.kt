@@ -100,7 +100,6 @@ interface OnlineLookupDao {
     @Query("DELETE FROM online_lookups WHERE `key` IN (:keys)")
     suspend fun deleteAll(keys: List<String>)
 
-    /** Oublie les « rien trouvé » : ils seront redemandés. */
-    @Query("DELETE FROM online_lookups WHERE found = 0")
-    suspend fun deleteMisses()
+    @Query("DELETE FROM online_lookups")
+    suspend fun clear()
 }

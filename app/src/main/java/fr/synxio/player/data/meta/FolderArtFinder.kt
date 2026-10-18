@@ -20,6 +20,7 @@ class FolderArtFinder @Inject constructor() {
     private val cache = ConcurrentHashMap<String, String>()
 
     fun find(folderPath: String): File? {
+        if (!FileNameInference.isAlbumFolder(folderPath)) return null
         cache[folderPath]?.let { return it.takeIf { p -> p.isNotEmpty() }?.let(::File) }
         val found = runCatching { search(File(folderPath)) }.getOrNull()
         cache[folderPath] = found?.path.orEmpty()

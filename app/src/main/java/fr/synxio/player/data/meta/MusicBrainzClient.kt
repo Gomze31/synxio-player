@@ -141,6 +141,8 @@ class MusicBrainzClient @Inject constructor(
         private const val RETRY_DELAY_MS = 3_000L
         /** Seuil de confiance en dessous duquel une fiche est ignorée. */
         const val MIN_CONFIDENCE = 70
+        private const val MAX_DELTA_MS = 10_000L
+        private const val NO_ARTIST_MAX_DELTA_MS = 2_000L
 
         val USER_AGENT = "SynxioPlayer/${BuildConfig.VERSION_NAME} ( https://github.com/${BuildConfig.UPDATE_REPO} )"
 
@@ -281,20 +283,28 @@ class MusicBrainzClient @Inject constructor(
                 val delta = if (durationMs != null && durationMs > 0 && rec.lengthMs != null) {
                     abs(rec.lengthMs - durationMs)
                 } else null
-                if (wantedArtist == null && (delta == null || delta > 4_000)) return@mapNotNull null
-                if (delta != null && delta > 20_000) return@mapNotNull null
+                // Sans artiste, seule une durée quasi identique et un titre exact départagent
+                // les homonymes (« Skyfall », « Panamera ») ; sinon on s'abstient.
+                if (wantedArtist == null && (delta == null || delta > NO_ARTIST_MAX_DELTA_MS || titleSim < 1.0)) {
+                    return@mapNotNull null
+                }
+                // Dix secondes d'écart : une autre version (remix, live, reprise), pas ce fichier.
+                if (delta != null && delta > MAX_DELTA_MS) return@mapNotNull null
 
                 var confidence = (rec.score * 0.3 + titleSim * 40 + (artistSim ?: 0.6) * 30).toInt()
                 confidence += when {
                     delta == null -> 0
-                    delta <= 3_000 -> 10
+                    delta <= 1_000 -> 10
+                    delta <= 3_000 -> 6
                     delta <= 8_000 -> 0
                     else -> -15
                 }
-                rec to confidence.coerceIn(0, 100)
+                Triple(rec, confidence.coerceIn(0, 100), delta ?: Long.MAX_VALUE)
             }
                 .filter { it.second >= MIN_CONFIDENCE }
-                .maxByOrNull { it.second }
+                // À confiance égale, la durée la plus proche.
+                .maxWithOrNull(compareBy<Triple<Recording, Int, Long>> { it.second }.thenByDescending { it.third })
+                ?.let { Pair(it.first, it.second) }
                 ?.let { (rec, confidence) ->
                     val release = rec.release
                     OnlineMatch(

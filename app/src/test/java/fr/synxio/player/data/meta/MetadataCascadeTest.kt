@@ -54,6 +54,20 @@ class MetadataCascadeTest {
     }
 
     @Test
+    fun `le titre en ligne ne remplace pas le titre du nom de fichier`() {
+        val resolved = MetadataCascade.resolve(
+            listOf(
+                layer(MetaSource.INFERRED, TrackMetadata(title = "Something Just Like This", artist = "The Chainsmokers & Coldplay")),
+                layer(MetaSource.ONLINE, TrackMetadata(title = "Something Just Like This (R3hab remix)", artist = "The Chainsmokers & Coldplay")),
+            )
+        )
+        assertEquals("Something Just Like This", resolved.data.title)
+        // Sans autre titre, celui de la fiche sert.
+        val onlyOnline = MetadataCascade.resolve(listOf(layer(MetaSource.ONLINE, TrackMetadata(title = "Stand By Me"))))
+        assertEquals("Stand By Me", onlyOnline.data.title)
+    }
+
+    @Test
     fun `sans fiche en ligne, la deduction est gardee`() {
         val resolved = MetadataCascade.resolve(
             listOf(

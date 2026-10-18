@@ -68,7 +68,8 @@ data class ResolvedMetadata(
  * valeur vide ou bidon en tête suffisait à afficher « Artiste inconnu ».
  *
  * Une exception à l'ordre : la recherche en ligne passe après la déduction depuis le nom
- * de fichier, mais une correspondance en ligne jugée sûre remplace une simple déduction
+ * de fichier, mais une correspondance en ligne jugée sûre remplace une simple déduction,
+ * sauf pour le titre
  * (l'ordre « Titre - Artiste » ou « Artiste - Titre » d'un nom de fichier n'est qu'une
  * supposition). Elle ne remplace jamais une valeur lue dans le fichier ou dans MediaStore.
  */
@@ -78,13 +79,20 @@ object MetadataCascade {
         val ordered = layers.sortedBy { it.source.ordinal }
         val sources = HashMap<MetaField, MetaSource>()
 
-        fun <T : Any> pick(field: MetaField, read: (TrackMetadata) -> T?, valid: (T) -> Boolean): T? {
+        fun <T : Any> pick(
+            field: MetaField,
+            read: (TrackMetadata) -> T?,
+            valid: (T) -> Boolean,
+            onlineBeatsGuess: Boolean = true,
+        ): T? {
             var guess: Pair<T, MetaSource>? = null
             for (layer in ordered) {
                 val value = read(layer.data)?.takeIf(valid) ?: continue
                 // Une déduction est retenue en réserve : une fiche en ligne peut la battre.
                 if (layer.source == MetaSource.INFERRED) {
                     if (guess == null) guess = value to layer.source
+                } else if (layer.source == MetaSource.ONLINE && !onlineBeatsGuess && guess != null) {
+                    continue
                 } else {
                     sources[field] = layer.source
                     return value
@@ -94,15 +102,18 @@ object MetadataCascade {
         }
 
         val data = TrackMetadata(
-            title = pick(MetaField.TITLE, { it.title?.cleanText() }, TagSanity::isValidTitle),
+            // Le titre en ligne ne remplace pas celui du nom de fichier : la fiche trouvée
+            // peut être un remix ou une autre version (« … (R3hab remix) » pour une reprise
+            // au piano), et le nom de fichier dit bien ce que l'on écoute.
+            title = pick(MetaField.TITLE, { it.title?.cleanText() }, TagSanity::isValidTitle, onlineBeatsGuess = false),
             artist = pick(MetaField.ARTIST, { it.artist?.cleanArtist() }, TagSanity::isValidArtist),
             album = pick(MetaField.ALBUM, { it.album?.cleanText() }, TagSanity::isValidAlbum),
             albumArtist = pick(MetaField.ALBUM_ARTIST, { it.albumArtist?.cleanArtist() }, TagSanity::isValidArtist),
             year = pick(MetaField.YEAR, { it.year }, TagSanity::isValidYear),
             genre = pick(MetaField.GENRE, { it.genre?.cleanText() }, TagSanity::isValidGenre),
-            track = pick(MetaField.TRACK, { it.track }) { it in 1..999 },
-            disc = pick(MetaField.DISC, { it.disc }) { it in 1..99 },
-            durationMs = pick(MetaField.DURATION, { it.durationMs }) { it > 0 },
+            track = pick(MetaField.TRACK, { it.track }, { it in 1..999 }),
+            disc = pick(MetaField.DISC, { it.disc }, { it in 1..99 }),
+            durationMs = pick(MetaField.DURATION, { it.durationMs }, { it > 0 }),
         )
         return ResolvedMetadata(data.withInferredTitleWhenArtistGuessed(ordered, sources).withoutArtistPrefix(), sources)
     }
