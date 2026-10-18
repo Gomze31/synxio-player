@@ -204,8 +204,8 @@ dependencies {
     implementation("com.google.zxing:core:3.5.2")
     
     // Youtube DL
-    implementation("io.github.junkfood02.youtubedl-android:library:0.17.2")
-    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.17.2")
+    implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
+    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
 
     testImplementation(libs.junit)
 }
