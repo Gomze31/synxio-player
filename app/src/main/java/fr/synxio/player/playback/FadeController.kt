@@ -1,5 +1,6 @@
 package fr.synxio.player.playback
 
+import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -65,17 +66,67 @@ class FadeController(
 
     private var job: Job? = null
 
+    /**
+     * Relance le suivi à chaque événement qui déplace le prochain fondu : lecture ou
+     * pause, saut, changement de piste ou de file (une piste suivante rend possible le
+     * fondu sortant), changement de vitesse.
+     */
+    private val listener = object : Player.Listener {
+        override fun onEvents(player: Player, events: Player.Events) {
+            if (events.containsAny(
+                    Player.EVENT_IS_PLAYING_CHANGED,
+                    Player.EVENT_POSITION_DISCONTINUITY,
+                    Player.EVENT_MEDIA_ITEM_TRANSITION,
+                    Player.EVENT_TIMELINE_CHANGED,
+                    Player.EVENT_PLAYBACK_PARAMETERS_CHANGED,
+                )
+            ) {
+                start()
+            }
+        }
+    }
+
+    init {
+        player.addListener(listener)
+    }
+
     private fun applyVolume() {
         player.volume = (envelope * normalizationGain * sleepGain * volumeCap).coerceIn(0f, 1f)
     }
 
+    /**
+     * Suit la position, seulement pendant la lecture.
+     *
+     * Le pas de [TICK_MS] ne sert qu'à l'intérieur d'un fondu. Entre deux, la tâche dort
+     * jusqu'au début du prochain fondu sortant ; sans piste suivante ni durée connue, elle
+     * s'arrête, et l'écouteur la relance si la file change. Tourner toutes les 100 ms en
+     * continu, même en pause, réveillait le processeur pour rien.
+     */
     private fun start() {
-        if (job?.isActive == true) return
+        stop()
+        if (durationMs == 0 || !player.isPlaying) return
         job = scope.launch {
-            while (isActive) {
-                delay(TICK_MS)
-                if (durationMs == 0) break
+            while (isActive && durationMs > 0 && player.isPlaying) {
                 applyVolumeForPosition()
+                delay(nextCheckInMs() ?: break)
+            }
+        }
+    }
+
+    /** Délai avant le prochain recalcul de l'enveloppe, null s'il n'y a plus de fondu à venir. */
+    private fun nextCheckInMs(): Long? {
+        val duration = player.duration
+        if (duration <= 0) return null
+        val position = player.currentPosition
+        val fade = durationMs.toLong()
+        val remaining = duration - position
+        return when {
+            position < fade && duration > fade * 2 -> TICK_MS
+            !player.hasNextMediaItem() -> null
+            remaining < fade -> TICK_MS
+            else -> {
+                val speed = player.playbackParameters.speed.takeIf { it > 0f } ?: 1f
+                ((remaining - fade) / speed).toLong().coerceAtLeast(TICK_MS)
             }
         }
     }
@@ -83,6 +134,12 @@ class FadeController(
     fun stop() {
         job?.cancel()
         job = null
+    }
+
+    /** Détache le contrôleur du lecteur, à la fin du service. */
+    fun release() {
+        stop()
+        player.removeListener(listener)
     }
 
     /** Réinitialise l'enveloppe : appelé sur seek et changement de piste manuel. */

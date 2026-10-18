@@ -1,5 +1,8 @@
 package fr.synxio.player.playback
 
+import android.app.Activity
+import android.app.ActivityManager
+import android.app.Application
 import android.content.ComponentName
 import android.content.Context
 import android.os.Bundle
@@ -17,6 +20,7 @@ import fr.synxio.player.data.repo.MusicRepository
 import fr.synxio.player.di.ApplicationScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -107,8 +111,20 @@ class PlayerConnection @Inject constructor(
     private val pendingCommands = ArrayList<() -> Unit>()
 
     private inline fun whenConnected(crossinline block: () -> Unit) {
-        if (controller != null) block() else pendingCommands += { block() }
+        if (controller != null) {
+            block()
+        } else {
+            pendingCommands += { block() }
+            // Service arrêté pendant que l'app était en arrière-plan : la commande le relance.
+            scope.launch { connect() }
+        }
     }
+
+    /** Connexion en cours : évite d'en ouvrir une seconde en parallèle. */
+    private var connecting = false
+
+    /** Libération différée du contrôleur, voir [releaseIfIdle]. */
+    private var idleReleaseJob: Job? = null
 
     /**
      * Commandes qui n'ont de sens que sur une file : suivant, précédent, aléatoire,
@@ -145,11 +161,31 @@ class PlayerConnection @Inject constructor(
         val commands = pendingUntilQueue.toList()
         pendingUntilQueue.clear()
         commands.forEach { it() }
+        // releaseIfIdle attendait ces commandes pour lâcher le service.
+        if (PlaybackService.stopRequested.value) scheduleIdleRelease()
     }
 
     init {
         scope.launch { connect() }
         scope.launch { tickPosition() }
+        // Retour au premier plan après un arrêt du service : l'écran doit retrouver le lecteur.
+        (context as? Application)?.registerActivityLifecycleCallbacks(
+            object : Application.ActivityLifecycleCallbacks {
+                override fun onActivityStarted(activity: Activity) {
+                    idleReleaseJob?.cancel()
+                    if (controller == null) scope.launch { connect() }
+                }
+                override fun onActivityStopped(activity: Activity) = scheduleIdleRelease()
+                override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
+                override fun onActivityResumed(activity: Activity) = Unit
+                override fun onActivityPaused(activity: Activity) = Unit
+                override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+                override fun onActivityDestroyed(activity: Activity) = Unit
+            }
+        )
+        scope.launch(Dispatchers.Main) {
+            PlaybackService.stopRequested.collect { if (it) scheduleIdleRelease() }
+        }
         // La file affichée est reconstruite quand la bibliothèque change (tags édités,
         // rescan) : sinon elle gardait anciens titres et pochettes, ou les fiches
         // provisoires créées avant la fin du scan, jusqu'au prochain changement de file.
@@ -160,15 +196,29 @@ class PlayerConnection @Inject constructor(
         }
     }
 
+    /**
+     * Ouvre la connexion au service, ce qui le crée s'il ne tourne pas.
+     *
+     * Sans effet si une connexion existe ou s'ouvre déjà : premier plan, commande et
+     * reconnexion peuvent la demander au même moment.
+     */
     private suspend fun connect(): Unit = withContext(Dispatchers.Main) {
+        if (controller != null || connecting) return@withContext
+        connecting = true
         val token = SessionToken(context, ComponentName(context, PlaybackService::class.java))
         val future = MediaController.Builder(context, token)
             .setListener(object : MediaController.Listener {
-                // Service tué (mémoire, mise à jour) : sans reconnexion, toutes les
-                // commandes devenaient silencieusement sans effet jusqu'au redémarrage.
+                // Service tué (mémoire, mise à jour) ou arrêté de lui-même (inactivité,
+                // app balayée sans lecture). Se reconnecter aussitôt le recréait sans
+                // fin, app en arrière-plan comprise : on ne le fait donc que si l'écran
+                // est affiché. Sinon, la prochaine commande ou le retour au premier plan
+                // rouvre la connexion.
                 override fun onDisconnected(controller: MediaController) {
+                    // Contrôleur libéré volontairement (releaseIfIdle) ou déjà remplacé.
+                    if (this@PlayerConnection.controller !== controller) return
                     this@PlayerConnection.controller = null
                     _state.value = _state.value.copy(connected = false, isPlaying = false)
+                    if (!isAppInForeground()) return
                     scope.launch {
                         delay(RECONNECT_DELAY_MS)
                         connect()
@@ -178,6 +228,7 @@ class PlayerConnection @Inject constructor(
             .buildAsync()
         future.addListener(
             {
+                connecting = false
                 runCatching { future.get() }.onSuccess { mediaController ->
                     controller = mediaController
                     mediaController.addListener(ControllerListener())
@@ -191,6 +242,41 @@ class PlayerConnection @Inject constructor(
             },
             androidx.core.content.ContextCompat.getMainExecutor(context),
         )
+    }
+
+    /** Laisse passer une rotation ou un changement d'activité avant de juger l'app quittée. */
+    private fun scheduleIdleRelease() {
+        idleReleaseJob?.cancel()
+        idleReleaseJob = scope.launch(Dispatchers.Main) {
+            delay(IDLE_RELEASE_DELAY_MS)
+            releaseIfIdle()
+        }
+    }
+
+    /**
+     * Lâche le service quand il a demandé son arrêt (app balayée sans lecture, inactivité).
+     *
+     * Un contrôleur lié empêche stopSelf de détruire le service : le nôtre vivait aussi
+     * longtemps que le processus. On ne le libère pas à chaque pause en arrière-plan pour
+     * autant : sans liaison, un service en pause n'est plus au premier plan et Android
+     * l'arrête au bout d'une minute environ, emportant notification et reprise Bluetooth.
+     * Le retour au premier plan ou la prochaine commande rouvrent la connexion.
+     */
+    private fun releaseIfIdle() {
+        val c = controller ?: return
+        if (!PlaybackService.stopRequested.value) return
+        if (isAppInForeground() || !Util.shouldShowPlayButton(c)) return
+        if (pendingCommands.isNotEmpty() || pendingUntilQueue.isNotEmpty()) return
+        controller = null
+        _state.value = _state.value.copy(connected = false, isPlaying = false)
+        c.release()
+    }
+
+    /** Une activité de l'app est visible au premier plan. */
+    private fun isAppInForeground(): Boolean {
+        val info = ActivityManager.RunningAppProcessInfo()
+        ActivityManager.getMyMemoryState(info)
+        return info.importance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
     }
 
     /**
@@ -547,5 +633,6 @@ class PlayerConnection @Inject constructor(
         /** En dessous, la boucle ne produirait qu'un hoquet au lieu d'une phrase. */
         const val MIN_LOOP_MS = 1_000L
         const val RECONNECT_DELAY_MS = 1_000L
+        const val IDLE_RELEASE_DELAY_MS = 1_000L
     }
 }

@@ -52,6 +52,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
@@ -133,7 +136,16 @@ class PlaybackService : MediaLibraryService() {
     private var persistSoonJob: Job? = null
     private var positionSaveJob: Job? = null
     private var widgetJob: Job? = null
-    private var widgetTickJob: Job? = null
+
+    /**
+     * Dernier drapeau de lecture écrit en base, par la persistance ou par le widget.
+     *
+     * La position est sauvegardée toutes les dix secondes pendant la lecture, et chaque
+     * sauvegarde redemande le widget : sans ce repère, le drapeau était réécrit à
+     * l'identique à chaque fois. Null tant que rien n'a été écrit.
+     */
+    @Volatile
+    private var storedPlaying: Boolean? = null
 
     /** Vrai quand la composition de la file a changé depuis la dernière écriture. */
     private var queueDirty = true
@@ -178,6 +190,7 @@ class PlaybackService : MediaLibraryService() {
     override fun onCreate() {
         super.onCreate()
         isRunning = true
+        _stopRequested.value = false
 
         val httpDataSourceFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
@@ -347,7 +360,7 @@ class PlaybackService : MediaLibraryService() {
         // playWhenReady reste vrai alors que plus rien ne joue.
         if (Util.shouldShowPlayButton(activePlayer) || activePlayer.mediaItemCount == 0) {
             persistQueue()
-            stopSelf()
+            requestStop()
         }
         super.onTaskRemoved(rootIntent)
     }
@@ -363,7 +376,6 @@ class PlaybackService : MediaLibraryService() {
         }
         // Le widget ne doit pas rester sur « lecture » une fois le service parti.
         isRunning = false
-        widgetTickJob?.cancel()
         val (lastSnapshot, lastArt) = widgetSnapshot()
         val updater = widgetUpdater
         writeScope.launch { runCatching { updater.publish(lastSnapshot.copy(isPlaying = false), lastArt) } }
@@ -377,7 +389,7 @@ class PlaybackService : MediaLibraryService() {
             }
         }
         headsetCallback = null
-        fade.stop()
+        fade.release()
         sleepTimer.cancel()
         sensorManager?.unregisterListener(shakeDetector)
 
@@ -567,6 +579,7 @@ class PlaybackService : MediaLibraryService() {
             ids != null && state != null -> queueDao.persist(ids, state)
             state != null -> queueDao.saveState(state)
         }
+        storedPlaying = state?.isPlaying
     }
 
     /**
@@ -633,7 +646,10 @@ class PlaybackService : MediaLibraryService() {
             val playing = activePlayer.isPlaying
             val (snapshot, artworkUri) = widgetSnapshot()
             runCatching {
-                queueDao.setPlaying(playing)
+                if (playing != storedPlaying) {
+                    queueDao.setPlaying(playing)
+                    storedPlaying = playing
+                }
                 widgetUpdater.publish(snapshot, artworkUri)
             }.onFailure { android.util.Log.d("SynxioWidget", "Widget non rafraichi", it) }
         }
@@ -667,24 +683,6 @@ class PlaybackService : MediaLibraryService() {
             live = p.isCurrentMediaItemLive || (song == null && duration <= 0L),
         )
         return snapshot to (metadata.artworkUri ?: song?.artworkUri)
-    }
-
-    /**
-     * Fait avancer la barre de progression des widgets pendant la lecture.
-     *
-     * Seulement écran allumé et si un widget est posé : personne ne regarde un écran
-     * d'accueil éteint, et chaque mise à jour réveille le lanceur.
-     */
-    private fun startWidgetTicker() {
-        if (widgetTickJob?.isActive == true) return
-        widgetTickJob = serviceScope.launch {
-            val power = getSystemService(android.os.PowerManager::class.java)
-            while (isActive) {
-                delay(WIDGET_TICK_MS)
-                if (!activePlayer.isPlaying) break
-                if (power?.isInteractive != false && widgetUpdater.hasWidgets()) refreshWidgetSoon()
-            }
-        }
     }
 
     // --- Suivi d'écoute ----------------------------------------------------------------
@@ -941,12 +939,14 @@ class PlaybackService : MediaLibraryService() {
                 // Pas de remise à zéro du compteur d'erreurs ici : un titre qui démarre puis
                 // échoue aussitôt relançait sinon le saut automatique à l'infini.
                 inactivityJob?.cancel()
+                // Lecture relancée après un arrêt demandé : le service redevient démarré
+                // (notification au premier plan), le contrôleur n'a plus à le lâcher.
+                _stopRequested.value = false
                 applyAutoRewind()
                 lastResumeUptime = SystemClock.elapsedRealtime()
                 if (trackedSongId < 0) startTracking(activePlayer.currentMediaItem)
                 announceIfPlaying()
                 startPositionSaver()
-                startWidgetTicker()
             } else {
                 accumulate()
                 persistPodcastProgress()
@@ -1005,13 +1005,25 @@ class PlaybackService : MediaLibraryService() {
             delay(minutes * 60_000L)
             if (!activePlayer.isPlaying) {
                 persistQueue()
-                // L'app garde un contrôleur connecté : stopSelf seul ne détruit pas le
-                // service. stop() passe le lecteur au repos, ce qui retire la notification
-                // et libère le décodeur.
+                // stop() passe le lecteur au repos, ce qui retire la notification et libère
+                // le décodeur, même si l'écran affiché garde le service en vie.
                 activePlayer.stop()
-                stopSelf()
+                requestStop()
             }
         }
+    }
+
+    /**
+     * stopSelf, en prévenant le contrôleur de l'app.
+     *
+     * Tant qu'un contrôleur reste lié, stopSelf ne détruit pas le service. Celui de l'app
+     * vivait aussi longtemps que le processus : le service survivait à l'app balayée comme
+     * à l'arrêt après inactivité. [stopRequested] lui dit de se libérer une fois l'écran
+     * quitté.
+     */
+    private fun requestStop() {
+        _stopRequested.value = true
+        stopSelf()
     }
 
     /** Regroupe les rafales (ajouts multiples, glissements de curseur) en une écriture. */
@@ -1388,13 +1400,15 @@ class PlaybackService : MediaLibraryService() {
         /** Laisse la persistance écrire, et absorbe les appels groupés. */
         private const val WIDGET_REFRESH_DELAY_MS = 250L
 
-        /** Cadence de la progression des widgets pendant la lecture, écran allumé. */
-        private const val WIDGET_TICK_MS = 20_000L
-
         /** Vrai tant que le service existe dans ce processus (widgets : état « lecture » périmé). */
         @Volatile
         var isRunning: Boolean = false
             private set
+
+        private val _stopRequested = MutableStateFlow(false)
+
+        /** Le service a demandé son arrêt et attend que le contrôleur de l'app se libère. */
+        val stopRequested: StateFlow<Boolean> = _stopRequested.asStateFlow()
 
         private const val TAG = "PlaybackService"
         private const val POSITION_SAVE_INTERVAL_MS = 10_000L
