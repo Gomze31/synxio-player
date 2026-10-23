@@ -103,8 +103,8 @@ class ArtworkColorRepository @Inject constructor(
         val palette = Palette.from(bitmap).generate()
         
         val primary = palette.getDominantColor(AndroidColor.parseColor("#673AB7"))
-        val secondary = palette.getVibrantColor(primary) ?: primary
-        val background = palette.getLightMutedColor(AndroidColor.WHITE) ?: AndroidColor.WHITE
+        val secondary = palette.getVibrantColor(primary)
+        val background = palette.getLightMutedColor(AndroidColor.WHITE)
         
         val onPrimary = getContrastColor(primary)
         val onSecondary = getContrastColor(secondary)

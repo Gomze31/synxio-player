@@ -27,6 +27,9 @@ data class EqualizerCapabilities(
  * Ces effets sont fournis par le constructeur du téléphone : le nombre de bandes et
  * les préréglages varient d'un appareil à l'autre, d'où la découverte dynamique.
  */
+// `Virtualizer` est déprécié depuis Android 14 au profit de `Spatializer`, qui n'existe
+// que sur une minorité d'appareils : on garde l'effet classique, qui fonctionne partout.
+@Suppress("DEPRECATION")
 @Singleton
 class EqualizerController @Inject constructor() {
 

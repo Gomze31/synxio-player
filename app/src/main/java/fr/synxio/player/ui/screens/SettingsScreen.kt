@@ -52,7 +52,7 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlayCircle
-import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.RadioButtonChecked
 import androidx.compose.material.icons.rounded.RadioButtonUnchecked
@@ -60,13 +60,13 @@ import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Shuffle
-import androidx.compose.material.icons.rounded.Send
+import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.SurroundSound
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.Timer
-import androidx.compose.material.icons.rounded.VolumeUp
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.SmartDisplay
 import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material3.Button
@@ -104,7 +104,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.synxio.player.BuildConfig
 import fr.synxio.player.R
@@ -348,7 +348,7 @@ fun SettingsScreen(
                 SwitchSetting(
                     title = "Reprendre la file au démarrage",
                     subtitle = "Retrouve ta file d'attente là où tu l'avais laissée",
-                    icon = Icons.Rounded.QueueMusic,
+                    icon = Icons.AutoMirrored.Rounded.QueueMusic,
                     checked = settings.rememberQueue,
                     onCheckedChange = settingsViewModel::setRememberQueue
                 )
@@ -358,7 +358,7 @@ fun SettingsScreen(
                 SwitchSetting(
                     title = "Reprendre au branchement du casque",
                     subtitle = "La lecture repart quand tu connectes des écouteurs, filaires ou Bluetooth",
-                    icon = Icons.Rounded.VolumeUp,
+                    icon = Icons.AutoMirrored.Rounded.VolumeUp,
                     checked = settings.resumeOnHeadsetConnect,
                     onCheckedChange = settingsViewModel::setResumeOnHeadsetConnect
                 )
@@ -1246,7 +1246,7 @@ private fun NormalizationSetting(
             steps = 17,
             display = { "${it.toInt()} dB" },
             onChange = onTarget,
-            icon = Icons.Rounded.VolumeUp,
+            icon = Icons.AutoMirrored.Rounded.VolumeUp,
         )
     }
 }
@@ -1384,7 +1384,7 @@ private fun DiscordSection(onMessage: (String) -> Unit) {
             ClickableSetting(
                 title = if (state.testing) "Envoi…" else "Envoyer un message de test",
                 subtitle = "Vérifie que Synxio peut écrire dans le salon",
-                icon = Icons.Rounded.Send,
+                icon = Icons.AutoMirrored.Rounded.Send,
                 onClick = viewModel::sendTest,
             )
         }

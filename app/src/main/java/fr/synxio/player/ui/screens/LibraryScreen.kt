@@ -23,8 +23,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.PlaylistAdd
-import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
@@ -282,10 +282,10 @@ private fun SelectionBar(
                     Icon(Icons.Rounded.SkipNext, contentDescription = "Lire juste après")
                 }
                 IconButton(onClick = onAddToQueue) {
-                    Icon(Icons.Rounded.QueueMusic, contentDescription = "Ajouter à la file")
+                    Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = "Ajouter à la file")
                 }
                 IconButton(onClick = onAddToPlaylist) {
-                    Icon(Icons.Rounded.PlaylistAdd, contentDescription = "Ajouter à une playlist")
+                    Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, contentDescription = "Ajouter à une playlist")
                 }
                 IconButton(onClick = onFavorite) {
                     Icon(Icons.Rounded.Favorite, contentDescription = "Basculer les favoris")

@@ -14,9 +14,11 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.palette.graphics.Palette
-import coil.imageLoader
-import coil.request.ImageRequest
-import coil.size.Scale
+import coil3.asDrawable
+import coil3.imageLoader
+import coil3.request.ImageRequest
+import coil3.request.allowHardware
+import coil3.size.Scale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -62,7 +64,8 @@ fun rememberArtworkColors(uri: Uri?): State<ArtworkColors> {
                 .allowHardware(false)
                 .build()
 
-            val drawable = context.imageLoader.execute(request).drawable ?: return@withContext null
+            val drawable = context.imageLoader.execute(request).image?.asDrawable(context.resources)
+                ?: return@withContext null
             val bitmap = runCatching {
                 (drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
                     ?: Bitmap.createBitmap(128, 128, Bitmap.Config.ARGB_8888).also { bmp ->

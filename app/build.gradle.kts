@@ -2,7 +2,6 @@ import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
@@ -18,15 +17,16 @@ val keystoreProperties = Properties().apply {
 
 android {
     namespace = "fr.synxio.player"
-    compileSdk = 36
+    // Les bibliothèques AndroidX et Compose de 2026 exigent de compiler contre l'API 37.2.
+    compileSdk = 37
+    compileSdkMinor = 2
 
     defaultConfig {
         applicationId = "fr.synxio.player"
         // 26 = Android 8.0 : icônes adaptatives + canaux de notification natifs
         minSdk = 26
-        // 36 = Android 16. L'API 37 n'existe qu'en canal preview du SDK : on ne cible pas
-        // un SDK canary, ce serait impubliable et instable.
-        targetSdk = 36
+        // 37 = Android 17, désormais stable. Vérifié sur appareil (MagicOS, API 37).
+        targetSdk = 37
         versionCode = 20241015
         versionName = "2.4.1"
         vectorDrawables.useSupportLibrary = true
@@ -42,8 +42,11 @@ android {
 
         // Scrobbling Last.fm : renseigne lastfmApiKey / lastfmSecret dans
         // ~/.gradle/gradle.properties. Vides = fonctionnalité masquée dans les réglages.
-        buildConfigField("String", "LASTFM_API_KEY", "\"${properties["lastfmApiKey"] ?: ""}\"")
-        buildConfigField("String", "LASTFM_SECRET", "\"${properties["lastfmSecret"] ?: ""}\"")
+        // `providers.gradleProperty` : `project.properties` disparaît avec Gradle 10.
+        val lastfmApiKey = providers.gradleProperty("lastfmApiKey").orNull.orEmpty()
+        val lastfmSecret = providers.gradleProperty("lastfmSecret").orNull.orEmpty()
+        buildConfigField("String", "LASTFM_API_KEY", "\"$lastfmApiKey\"")
+        buildConfigField("String", "LASTFM_SECRET", "\"$lastfmSecret\"")
     }
 
     signingConfigs {
@@ -103,9 +106,10 @@ android {
     }
 }
 
+// Kotlin intégré à AGP 9 : plus de plugin kotlin-android, et jvmTarget suit
+// compileOptions.targetCompatibility.
 kotlin {
     compilerOptions {
-        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
         // UnstableApi de Media3 n'est pas un marqueur @RequiresOptIn : c'est du lint,
         // inutile de l'ajouter ici.
         optIn.addAll(
@@ -146,6 +150,7 @@ dependencies {
 
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.hilt.navigation.compose)
+    implementation(libs.androidx.hilt.lifecycle.viewmodel.compose)
 
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)

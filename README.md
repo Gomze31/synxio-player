@@ -16,7 +16,7 @@ dans `C:\Users\y.gomez\android-dev` :
 | | Chemin |
 |---|---|
 | JDK 17 (Temurin) | `C:\Users\y.gomez\android-dev\jdk\jdk-17.0.20.1+1` |
-| SDK Android 35 | `C:\Users\y.gomez\android-dev\sdk` |
+| SDK Android 37 | `C:\Users\y.gomez\android-dev\sdk` |
 | Dossiers `build/` | `C:\Users\y.gomez\android-dev\build` |
 | APK debug | `C:\Users\y.gomez\android-dev\build\app\outputs\apk\debug\app-debug.apk` |
 
@@ -45,13 +45,9 @@ minuterie de veille.
 `File > Open` sur ce dossier, puis `File > Project Structure > SDK Location` → pointe le
 **JDK 17** ci-dessus (Android Studio utilise sinon son JBR embarqué, qui convient aussi).
 
-**Prérequis** : JDK 17, SDK Android 36, Gradle 8.14.5 / AGP 8.13.2.
-`minSdk 26` (Android 8.0) → `targetSdk 36` (Android 16).
-
-> L'API 37 (Android 17) n'est distribuée qu'en canal *preview* du SDK. Cibler un SDK canary
-> rendrait l'app impubliable et casserait à chaque révision : on reste sur le dernier SDK
-> stable. Sur un appareil Android 17, l'app tourne alors dans les comportements Android 16,
-> ce qui est le fonctionnement normal et supporté.
+**Prérequis** : JDK 17, SDK Android 37.2, Gradle 9.8.2 / AGP 9.4.1 (Kotlin intégré à AGP,
+plus de plugin `kotlin-android`).
+`minSdk 26` (Android 8.0) → `targetSdk 37` (Android 17).
 
 ### ⚙️ Deux particularités de ce poste
 

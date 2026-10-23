@@ -62,9 +62,9 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil.compose.AsyncImage
+import coil3.compose.AsyncImage
 import fr.synxio.player.R
 import fr.synxio.player.core.util.asDuration
 import fr.synxio.player.data.model.PlayHistory
@@ -426,34 +426,16 @@ private fun HistoryItem(
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Artwork : un appui ouvre l'album, l'ancien bouton « ⋮ » ne faisait rien.
-            if (history.song.artworkUri != null) {
-                AsyncImage(
-                    model = history.song.artworkUri,
-                    contentDescription = "Ouvrir l'album",
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable(onClick = onOpenAlbum),
-                    contentScale = ContentScale.Crop
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainer)
-                        .clickable(onClick = onOpenAlbum),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Rounded.Album,
-                        contentDescription = null,
-                        modifier = Modifier.size(24.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-            
+            // `artworkUri` n'est jamais nul : Coil affiche sa propre image de repli.
+            AsyncImage(
+                model = history.song.artworkUri,
+                contentDescription = "Ouvrir l'album",
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(onClick = onOpenAlbum),
+                contentScale = ContentScale.Crop
+            )
             Spacer(modifier = Modifier.width(12.dp))
             
             // Informations

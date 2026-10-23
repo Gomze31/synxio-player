@@ -87,7 +87,7 @@ class LastFmScrobbler @Inject constructor(
         val request = Request.Builder().url(ENDPOINT).post(body).build()
 
         http.newCall(request).execute().use { response ->
-            val payload = response.body?.string().orEmpty()
+            val payload = response.body.string().orEmpty()
             val json = JSONObject(payload)
             if (json.has("error")) error("Last.fm ${json.optInt("error")}: ${json.optString("message")}")
             if (!response.isSuccessful) error("HTTP ${response.code}")

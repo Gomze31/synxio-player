@@ -25,9 +25,9 @@ import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material.icons.rounded.PlaylistAdd
+import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.rounded.PlaylistRemove
-import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.SkipNext
@@ -53,7 +53,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import fr.synxio.player.ui.viewmodel.SongInsightsViewModel
 import fr.synxio.player.core.util.asDuration
 import fr.synxio.player.core.util.asFileSize
@@ -112,7 +112,7 @@ fun SongOptionsSheet(
             SheetAction(Icons.Rounded.SkipNext, "Lire juste après") {
                 actions.onPlayNext(); onDismiss()
             }
-            SheetAction(Icons.Rounded.QueueMusic, "Ajouter à la file") {
+            SheetAction(Icons.AutoMirrored.Rounded.QueueMusic, "Ajouter à la file") {
                 actions.onAddToQueue(); onDismiss()
             }
             actions.onStartRadio?.let {
@@ -122,7 +122,7 @@ fun SongOptionsSheet(
                 icon = if (isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
                 label = if (isFavorite) "Retirer des favoris" else "Ajouter aux favoris",
             ) { actions.onToggleFavorite(); onDismiss() }
-            SheetAction(Icons.Rounded.PlaylistAdd, "Ajouter à une playlist") {
+            SheetAction(Icons.AutoMirrored.Rounded.PlaylistAdd, "Ajouter à une playlist") {
                 actions.onAddToPlaylist(); onDismiss()
             }
 
@@ -258,7 +258,7 @@ fun AddToPlaylistSheet(
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
             )
 
-            SheetAction(Icons.Rounded.PlaylistAdd, "Nouvelle playlist…") { creating = true }
+            SheetAction(Icons.AutoMirrored.Rounded.PlaylistAdd, "Nouvelle playlist…") { creating = true }
             HorizontalDivider(Modifier.padding(vertical = 4.dp))
 
             LazyColumn(Modifier.heightIn(max = 380.dp)) {

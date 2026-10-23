@@ -21,7 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
-import androidx.compose.material.icons.rounded.PlaylistPlay
+import androidx.compose.material.icons.automirrored.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
@@ -85,7 +85,7 @@ import fr.synxio.player.ui.viewmodel.AppViewModel
 enum class TopLevel(val route: String, val label: String, val icon: ImageVector) {
     HOME("home", "Accueil", Icons.Rounded.Home),
     LIBRARY("library", "Musique", Icons.Rounded.LibraryMusic),
-    PLAYLISTS("playlists", "Listes", Icons.Rounded.PlaylistPlay),
+    PLAYLISTS("playlists", "Listes", Icons.AutoMirrored.Rounded.PlaylistPlay),
     SEARCH("search", "Chercher", Icons.Rounded.Search),
     SETTINGS("settings", "Réglages", Icons.Rounded.Settings),
 }

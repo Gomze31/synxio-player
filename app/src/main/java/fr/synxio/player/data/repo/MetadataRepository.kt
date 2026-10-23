@@ -74,7 +74,7 @@ class MetadataRepository @Inject constructor(
 
             val body = http.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) error("HTTP ${response.code}")
-                response.body?.string().orEmpty()
+                response.body.string().orEmpty()
             }
 
             val json = JSONObject(body)
@@ -102,7 +102,7 @@ class MetadataRepository @Inject constructor(
 
             val body = http.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return@runCatching null
-                response.body?.string().orEmpty()
+                response.body.string().orEmpty()
             }
 
             val json = JSONObject(body)
@@ -123,7 +123,7 @@ class MetadataRepository @Inject constructor(
         runCatching {
             val request = Request.Builder().url(url).header("User-Agent", USER_AGENT).build()
             http.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) null else response.body?.bytes()
+                if (!response.isSuccessful) null else response.body.bytes()
             }
         }.getOrElse {
             Log.w(TAG, "Téléchargement de pochette échoué", it)

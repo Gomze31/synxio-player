@@ -38,7 +38,7 @@ import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -61,7 +61,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.synxio.player.R
 import fr.synxio.player.ui.viewmodel.AppViewModel
@@ -530,8 +530,8 @@ private fun BackupInfoDialog(
     onDismiss: () -> Unit,
     onConfirmImport: (Uri) -> Unit
 ) {
-    val date = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
-        .format(Date(info.exportedAt))
+    // Déjà formatée par le dépôt : la re-parser avec `Date(String)` échouait.
+    val date = info.exportedAt
     
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -555,28 +555,28 @@ private fun BackupInfoDialog(
                             value = date
                         )
                         
-                        Divider(modifier = Modifier.padding(vertical = 8.dp))
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                         
                         InfoRow(
                             label = "Version",
                             value = "${info.version}"
                         )
                         
-                        Divider(modifier = Modifier.padding(vertical = 8.dp))
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                         
                         InfoRow(
                             label = "Nombre de playlists",
                             value = "${info.playlistCount}"
                         )
                         
-                        Divider(modifier = Modifier.padding(vertical = 8.dp))
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                         
                         InfoRow(
                             label = "Nombre de favoris",
                             value = "${info.favoriteCount}"
                         )
                         
-                        Divider(modifier = Modifier.padding(vertical = 8.dp))
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                         
                         InfoRow(
                             label = "Nombre d'entrées d'historique",

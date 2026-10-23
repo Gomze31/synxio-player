@@ -75,7 +75,7 @@ class UpdateRepository @Inject constructor(
                 when {
                     response.code == 404 -> null  // Dépôt sans aucune release publiée.
                     !response.isSuccessful -> throw IllegalStateException("HTTP ${response.code}")
-                    else -> response.body?.string()
+                    else -> response.body.string()
                 }
             }
         }.getOrElse {
@@ -158,7 +158,7 @@ class UpdateRepository @Inject constructor(
 
                 http.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) error("HTTP ${response.code}")
-                    val body = response.body ?: error("Réponse vide")
+                    val body = response.body
                     val total = body.contentLength().takeIf { it > 0 } ?: release.sizeBytes
 
                     body.byteStream().use { input ->

@@ -22,7 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.FileUpload
-import androidx.compose.material.icons.rounded.PlaylistPlay
+import androidx.compose.material.icons.automirrored.rounded.PlaylistPlay
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -138,7 +138,7 @@ fun PlaylistsScreen(
                     EmptyState(
                         title = "Aucune playlist",
                         subtitle = "Crée ta première playlist ou importe un fichier M3U existant.",
-                        icon = Icons.Rounded.PlaylistPlay,
+                        icon = Icons.AutoMirrored.Rounded.PlaylistPlay,
                         modifier = Modifier.height(320.dp),
                     )
                 }

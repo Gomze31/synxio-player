@@ -616,9 +616,10 @@ class PlaybackService : MediaLibraryService() {
                 .add(SessionCommand(CMD_CANCEL_SLEEP_TIMER, Bundle.EMPTY))
                 .build()
 
-            return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
-                .setAvailableSessionCommands(commands)
-                .build()
+            return MediaSession.ConnectionResult.accept(
+                commands,
+                MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS,
+            )
         }
 
         override fun onCustomCommand(
@@ -726,6 +727,7 @@ class PlaybackService : MediaLibraryService() {
         override fun onPlaybackResumption(
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo,
+            isForPlayback: Boolean,
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
             val future = com.google.common.util.concurrent.SettableFuture
                 .create<MediaSession.MediaItemsWithStartPosition>()
@@ -749,9 +751,13 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
-    private fun favoriteButton(isFavorite: Boolean) = CommandButton.Builder()
+    // L'icône standard Media3 sert aux surfaces qui l'exigent (Auto, Wear) ; la nôtre
+    // reste utilisée dans la notification.
+    private fun favoriteButton(isFavorite: Boolean) = CommandButton.Builder(
+        if (isFavorite) CommandButton.ICON_HEART_FILLED else CommandButton.ICON_HEART_UNFILLED
+    )
         .setDisplayName(if (isFavorite) "Retirer des favoris" else "Ajouter aux favoris")
-        .setIconResId(if (isFavorite) R.drawable.ic_favorite else R.drawable.ic_favorite_border)
+        .setCustomIconResId(if (isFavorite) R.drawable.ic_favorite else R.drawable.ic_favorite_border)
         .setSessionCommand(SessionCommand(CMD_TOGGLE_FAVORITE, Bundle.EMPTY))
         .build()
 
