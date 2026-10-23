@@ -169,7 +169,7 @@ class LyricsRepository @Inject constructor(
         val body = runCatching {
             val request = Request.Builder().url(url).header("User-Agent", USER_AGENT).build()
             http.newCall(request).execute().use { r ->
-                if (r.isSuccessful) r.body?.string() else null
+                if (r.isSuccessful) r.body.string() else null
             }
         }.getOrElse {
             // Échec de transport (DNS filtré, pas de réseau, TLS refusé) : à distinguer
@@ -203,7 +203,7 @@ class LyricsRepository @Inject constructor(
         val request = Request.Builder().url(url).header("User-Agent", USER_AGENT).build()
         http.newCall(request).execute().use { response ->
             if (!response.isSuccessful) null
-            else JSONObject(response.body?.string().orEmpty())
+            else JSONObject(response.body.string().orEmpty())
         }
     }.getOrElse {
         Log.w(TAG, "LRCLIB injoignable sur /api/get", it)

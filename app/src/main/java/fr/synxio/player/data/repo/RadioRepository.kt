@@ -79,7 +79,7 @@ class RadioRepository @Inject constructor(
             val stations = runCatching {
                 client.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) return@use null
-                    val bodyString = response.body?.string() ?: return@use null
+                    val bodyString = response.body.string()
                     json.decodeFromString<List<RadioStation>>(bodyString)
                 }
             }.getOrNull()

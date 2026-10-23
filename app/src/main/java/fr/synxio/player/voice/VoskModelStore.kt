@@ -81,7 +81,7 @@ class VoskModelStore @Inject constructor(
         val client = http.newBuilder().readTimeout(java.time.Duration.ofSeconds(60)).build()
         client.newCall(Request.Builder().url(MODEL_URL).build()).execute().use { response ->
             check(response.isSuccessful) { "Serveur du modèle indisponible (${response.code})" }
-            val body = response.body ?: error("Réponse vide")
+            val body = response.body
             val total = body.contentLength().takeIf { it > 0 }
             body.byteStream().use { input ->
                 target.outputStream().use { output ->

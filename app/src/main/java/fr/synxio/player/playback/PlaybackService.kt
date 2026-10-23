@@ -1288,9 +1288,10 @@ class PlaybackService : MediaLibraryService() {
                 }
                 .build()
 
-            return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
-                .setAvailableSessionCommands(commands)
-                .build()
+            return MediaSession.ConnectionResult.accept(
+                commands,
+                MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS,
+            )
         }
 
         override fun onDisconnected(session: MediaSession, controller: MediaSession.ControllerInfo) {
@@ -1541,6 +1542,7 @@ class PlaybackService : MediaLibraryService() {
         override fun onPlaybackResumption(
             mediaSession: MediaSession,
             controller: MediaSession.ControllerInfo,
+            isForPlayback: Boolean,
         ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
             val future = com.google.common.util.concurrent.SettableFuture
                 .create<MediaSession.MediaItemsWithStartPosition>()

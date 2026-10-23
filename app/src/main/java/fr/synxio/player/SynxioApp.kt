@@ -1,10 +1,13 @@
 package fr.synxio.player
 
 import android.app.Application
-import coil.ImageLoader
-import coil.ImageLoaderFactory
-import coil.disk.DiskCache
-import coil.memory.MemoryCache
+import coil3.ImageLoader
+import coil3.PlatformContext
+import coil3.SingletonImageLoader
+import coil3.disk.DiskCache
+import coil3.memory.MemoryCache
+import coil3.request.crossfade
+import okio.Path.Companion.toOkioPath
 import dagger.hilt.android.HiltAndroidApp
 
 /**
@@ -13,25 +16,24 @@ import dagger.hilt.android.HiltAndroidApp
  * démarrage. `DownloadRepository` les initialise à la demande, sur IO.
  */
 @HiltAndroidApp
-class SynxioApp : Application(), ImageLoaderFactory {
+class SynxioApp : Application(), SingletonImageLoader.Factory {
 
     /**
      * Les pochettes viennent toutes de MediaStore : un cache disque généreux évite
      * de re-décoder les mêmes JPEG à chaque scroll de la bibliothèque.
      */
-    override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
+    override fun newImageLoader(context: PlatformContext): ImageLoader = ImageLoader.Builder(context)
         .memoryCache {
-            MemoryCache.Builder(this)
-                .maxSizePercent(0.25)
+            MemoryCache.Builder()
+                .maxSizePercent(context, 0.25)
                 .build()
         }
         .diskCache {
             DiskCache.Builder()
-                .directory(cacheDir.resolve("artwork"))
+                .directory(cacheDir.resolve("artwork").toOkioPath())
                 .maxSizeBytes(150L * 1024 * 1024)
                 .build()
         }
         .crossfade(true)
-        .respectCacheHeaders(false)
         .build()
 }

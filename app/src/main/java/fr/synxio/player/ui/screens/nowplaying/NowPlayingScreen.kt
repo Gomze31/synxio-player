@@ -1,5 +1,6 @@
 package fr.synxio.player.ui.screens.nowplaying
 
+import coil3.request.crossfade
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -101,7 +102,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
@@ -576,7 +577,7 @@ private fun BlurredArtworkBackdrop(model: Any?, placeholderSeed: Any?, enabled: 
     val amount by animateFloatAsState(if (drifting) 1f else 0f, tween(Motion.LONG * 3), label = "driftAmount")
     val context = androidx.compose.ui.platform.LocalContext.current
     val request = remember(model) {
-        coil.request.ImageRequest.Builder(context)
+        coil3.request.ImageRequest.Builder(context)
             .data(model)
             .size(64)
             .crossfade(Motion.LONG)
@@ -588,7 +589,7 @@ private fun BlurredArtworkBackdrop(model: Any?, placeholderSeed: Any?, enabled: 
             .fillMaxSize()
             .background(placeholderBrush(placeholderSeed, dark), alpha = 0.6f)
     ) {
-        coil.compose.AsyncImage(
+        coil3.compose.AsyncImage(
             model = request,
             contentDescription = null,
             contentScale = androidx.compose.ui.layout.ContentScale.Crop,

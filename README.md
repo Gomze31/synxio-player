@@ -73,7 +73,8 @@
 ### Prérequis
 - **JDK 17**
 - **Android Studio Ladybug ou version plus récente**
-- **Android SDK Platform 36** (Compatibilité de Android 8.0 `minSdk 26` à Android 16 `targetSdk 36`)
+- **Android SDK Platform 37.2** (Compatibilité de Android 8.0 `minSdk 26` à Android 17 `targetSdk 37`)
+- **Gradle 9.8 / AGP 9.4** : le Kotlin est intégré à AGP, aucun plugin `kotlin-android` à ajouter
 
 ### Cloner et compiler en local
 

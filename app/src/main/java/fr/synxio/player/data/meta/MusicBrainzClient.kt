@@ -89,7 +89,7 @@ class MusicBrainzClient @Inject constructor(
                 while (true) {
                     val (code, body) = musicBrainzLimiter.run {
                         http.newCall(request(url.toString())).execute().use { response ->
-                            response.code to response.body?.string().orEmpty()
+                            response.code to response.body.string().orEmpty()
                         }
                     }
                     if (code == 503 && attempt < MAX_RETRIES) {
@@ -114,7 +114,7 @@ class MusicBrainzClient @Inject constructor(
             val bytes = runCatching {
                 coverArtLimiter.run {
                     http.newCall(request(url)).execute().use { response ->
-                        if (response.isSuccessful) response.body?.bytes() else null
+                        if (response.isSuccessful) response.body.bytes() else null
                     }
                 }
             }.onFailure { Log.w(TAG, "Cover Art Archive injoignable", it) }.getOrNull()

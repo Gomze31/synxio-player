@@ -2,7 +2,6 @@ import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
@@ -18,17 +17,18 @@ val keystoreProperties = Properties().apply {
 
 android {
     namespace = "fr.synxio.player"
-    compileSdk = 36
+    // Les bibliothèques AndroidX et Compose de 2026 exigent de compiler contre l'API 37.2.
+    compileSdk = 37
+    compileSdkMinor = 2
 
     defaultConfig {
         applicationId = "fr.synxio.player"
         // 26 = Android 8.0 : icônes adaptatives + canaux de notification natifs
         minSdk = 26
-        // 36 = Android 16. L'API 37 n'existe qu'en canal preview du SDK : on ne cible pas
-        // un SDK canary, ce serait impubliable et instable.
-        targetSdk = 36
-        versionCode = 20261103
-        versionName = "5.2.1"
+        // 37 = Android 17, désormais stable. Vérifié sur appareil (MagicOS, API 37).
+        targetSdk = 37
+        versionCode = 20261104
+        versionName = "5.3.0"
         vectorDrawables.useSupportLibrary = true
 
         // Le dépôt devient public, l'app peut donc chercher ses mises à jour ici directement
@@ -40,8 +40,11 @@ android {
 
         // Scrobbling Last.fm : renseigne lastfmApiKey / lastfmSecret dans
         // ~/.gradle/gradle.properties. Vides = fonctionnalité masquée dans les réglages.
-        buildConfigField("String", "LASTFM_API_KEY", "\"${properties["lastfmApiKey"] ?: ""}\"")
-        buildConfigField("String", "LASTFM_SECRET", "\"${properties["lastfmSecret"] ?: ""}\"")
+        // `providers.gradleProperty` : `project.properties` disparaît avec Gradle 10.
+        val lastfmApiKey = providers.gradleProperty("lastfmApiKey").orNull.orEmpty()
+        val lastfmSecret = providers.gradleProperty("lastfmSecret").orNull.orEmpty()
+        buildConfigField("String", "LASTFM_API_KEY", "\"$lastfmApiKey\"")
+        buildConfigField("String", "LASTFM_SECRET", "\"$lastfmSecret\"")
     }
 
     signingConfigs {
@@ -104,20 +107,6 @@ android {
         isCoreLibraryDesugaringEnabled = true
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-        freeCompilerArgs += listOf(
-            // UnstableApi de Media3 n'est pas un marqueur @RequiresOptIn : c'est du lint,
-            // inutile de l'ajouter ici.
-            "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
-            "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi",
-            "-opt-in=androidx.compose.foundation.layout.ExperimentalLayoutApi",
-            "-opt-in=androidx.compose.animation.ExperimentalSharedTransitionApi",
-            "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
-            "-opt-in=kotlin.time.ExperimentalTime",
-        )
-    }
-
     buildFeatures {
         compose = true
         buildConfig = true
@@ -140,16 +129,34 @@ android {
     }
 }
 
+// Kotlin intégré à AGP 9 : plus de plugin kotlin-android, et jvmTarget suit
+// compileOptions.targetCompatibility.
+kotlin {
+    compilerOptions {
+        // UnstableApi de Media3 n'est pas un marqueur @RequiresOptIn : c'est du lint,
+        // inutile de l'ajouter ici.
+        optIn.addAll(
+            "androidx.compose.material3.ExperimentalMaterial3Api",
+            "androidx.compose.foundation.ExperimentalFoundationApi",
+            "androidx.compose.foundation.layout.ExperimentalLayoutApi",
+            "androidx.compose.animation.ExperimentalSharedTransitionApi",
+            "kotlinx.coroutines.ExperimentalCoroutinesApi",
+            "kotlinx.coroutines.FlowPreview",
+            "kotlin.time.ExperimentalTime",
+        )
+    }
+}
+
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
     arg("room.incremental", "true")
 }
 
 dependencies {
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.3")
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
 
     implementation(libs.androidx.core.ktx)
-    implementation("androidx.appcompat:appcompat:1.6.1")
+    implementation("androidx.appcompat:appcompat:1.8.0")
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
@@ -158,7 +165,7 @@ dependencies {
 
     // ML Kit Translate (+ Task.await(), fourni avant par Firebase en transitif)
     implementation("com.google.mlkit:translate:17.0.3")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.11.0")
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
@@ -175,6 +182,7 @@ dependencies {
 
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.hilt.navigation.compose)
+    implementation(libs.androidx.hilt.lifecycle.viewmodel.compose)
 
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
@@ -204,7 +212,7 @@ dependencies {
     
     // Synxio Party (Local Web Server & QR Code)
     implementation("org.nanohttpd:nanohttpd:2.3.1")
-    implementation("com.google.zxing:core:3.5.2")
+    implementation("com.google.zxing:core:3.5.4")
     
     // Youtube DL
     implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
@@ -212,7 +220,7 @@ dependencies {
 
     // Commande vocale mains libres : reconnaissance hors ligne (Vosk, via JNA)
     implementation("com.alphacephei:vosk-android:0.3.75")
-    implementation("net.java.dev.jna:jna:5.18.1@aar")
+    implementation("net.java.dev.jna:jna:5.19.1@aar")
 
     testImplementation(libs.junit)
 }

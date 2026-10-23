@@ -68,14 +68,14 @@ private fun Modifier.sharedElementIn(key: Any, scope: AnimatedVisibilityScope?, 
         val state = rememberSharedContentState(key)
         if (shape != null) {
             this@sharedElementIn.sharedElement(
-                state = state,
+                sharedContentState = state,
                 animatedVisibilityScope = scope,
                 boundsTransform = SharedBounds,
                 clipInOverlayDuringTransition = OverlayClip(shape),
             )
         } else {
             this@sharedElementIn.sharedElement(
-                state = state,
+                sharedContentState = state,
                 animatedVisibilityScope = scope,
                 boundsTransform = SharedBounds,
             )

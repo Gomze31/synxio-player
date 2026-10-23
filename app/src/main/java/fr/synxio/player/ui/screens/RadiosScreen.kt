@@ -64,7 +64,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil.compose.AsyncImage
+import coil3.compose.AsyncImage
 import fr.synxio.player.data.model.RadioStation
 import fr.synxio.player.ui.components.EmptyState
 import fr.synxio.player.ui.components.LumenChip
