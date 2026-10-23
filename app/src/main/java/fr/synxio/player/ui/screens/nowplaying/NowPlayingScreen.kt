@@ -113,6 +113,7 @@ import fr.synxio.player.data.model.Song
 import fr.synxio.player.playback.AudioOutput
 import fr.synxio.player.playback.AudioOutputKind
 import fr.synxio.player.playback.openSystemOutputSwitcher
+import fr.synxio.player.ui.components.AddToPlaylistHost
 import fr.synxio.player.ui.components.Artwork
 import fr.synxio.player.ui.components.AudioVisualizer
 import fr.synxio.player.ui.components.BrandPlayButton
@@ -177,6 +178,9 @@ fun NowPlayingScreen(
     var showSleepTimer by remember { mutableStateOf(false) }
     var showSpeed by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
+    // Le titre est figé à l'ouverture du sélecteur : si la piste change pendant qu'on
+    // choisit la playlist, c'est bien celle qu'on écoutait qui est ajoutée.
+    var playlistSong by remember { mutableStateOf<Song?>(null) }
 
     val song = state.currentSong
 
@@ -476,6 +480,7 @@ fun NowPlayingScreen(
             onEditTags = { onEditTags(song.id) },
             onRefreshLyrics = { lyricsViewModel.load(song, force = true); showLyrics = true },
             onShare = { viewModel.shareSong(song) },
+            onAddToPlaylist = { playlistSong = song },
             onOpenDriveMode = onOpenDriveMode,
             onOpenPartyMode = onOpenPartyMode,
             onShowLyrics = { showLyrics = !showLyrics },
@@ -490,6 +495,8 @@ fun NowPlayingScreen(
             onDismiss = { showMenu = false },
         )
     }
+
+    AddToPlaylistHost(viewModel, playlistSong?.let(::listOf)) { playlistSong = null }
 }
 
 /** Bouton rond en verre de la barre du haut (réduire, menu). */

@@ -28,7 +28,6 @@ fun SongMenuHost(
     if (song == null) return
 
     val context = LocalContext.current
-    val playlists by viewModel.playlists.collectAsStateWithLifecycle()
     val favorites by viewModel.favoriteIds.collectAsStateWithLifecycle()
     // Réinitialisés à chaque nouveau titre ouvert.
     var showOptions by remember(song.id) { mutableStateOf(true) }
@@ -69,11 +68,26 @@ fun SongMenuHost(
     )
 
     if (showPlaylistPicker) {
-        AddToPlaylistSheet(
-            playlists = playlists,
-            onSelect = { viewModel.addToPlaylist(it.id, listOf(song)) },
-            onCreate = { viewModel.createPlaylist(it, listOf(song)) },
-            onDismiss = { showPlaylistPicker = false; onDismiss() },
-        )
+        AddToPlaylistHost(viewModel, listOf(song)) { showPlaylistPicker = false; onDismiss() }
     }
+}
+
+/**
+ * Sélecteur « Ajouter à une playlist » pour une liste de titres (un titre, une sélection,
+ * un album, un artiste…). Rien n'est affiché tant que [songs] est vide ou nul.
+ */
+@Composable
+fun AddToPlaylistHost(
+    viewModel: AppViewModel,
+    songs: List<Song>?,
+    onDismiss: () -> Unit,
+) {
+    if (songs.isNullOrEmpty()) return
+    val playlists by viewModel.playlists.collectAsStateWithLifecycle()
+    AddToPlaylistSheet(
+        playlists = playlists,
+        onSelect = { viewModel.addToPlaylist(it.id, songs) },
+        onCreate = { viewModel.createPlaylist(it, songs) },
+        onDismiss = onDismiss,
+    )
 }

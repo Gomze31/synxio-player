@@ -32,6 +32,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Delete
@@ -98,6 +99,7 @@ import fr.synxio.player.core.util.pluralAlbums
 import fr.synxio.player.core.util.pluralSongs
 import fr.synxio.player.data.model.Playlist
 import fr.synxio.player.data.model.Song
+import fr.synxio.player.ui.components.AddToPlaylistHost
 import fr.synxio.player.ui.components.AlbumCard
 import fr.synxio.player.ui.components.Artwork
 import fr.synxio.player.ui.components.ArtworkMosaic
@@ -650,6 +652,7 @@ fun AlbumDetailScreen(
     }
     LaunchedEffect(album) { album?.let { knownSongIds = it.songs.mapTo(HashSet()) { song -> song.id } } }
     val metadataProgress by viewModel.metadataProgress.collectAsStateWithLifecycle()
+    var pickPlaylist by remember { mutableStateOf(false) }
 
     if (album == null) {
         DetailMessageScreen(
@@ -687,6 +690,9 @@ fun AlbumDetailScreen(
         eyebrow = "Album",
         heroSharedKey = SharedKeys.albumArt(album.id),
         topBarActions = {
+            IconButton(onClick = { pickPlaylist = true }) {
+                Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, contentDescription = "Ajouter l'album à une playlist")
+            }
             IconButton(
                 onClick = { viewModel.refetchMetadata(album.songs, album.title) },
                 enabled = !metadataProgress.manual,
@@ -695,6 +701,8 @@ fun AlbumDetailScreen(
             }
         },
     )
+
+    if (pickPlaylist) AddToPlaylistHost(viewModel, album.songs) { pickPlaylist = false }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -711,6 +719,7 @@ fun ArtistDetailScreen(
     val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
     val favorites by viewModel.favoriteIds.collectAsStateWithLifecycle()
     var menuSong by remember { mutableStateOf<Song?>(null) }
+    var pickPlaylist by remember { mutableStateOf(false) }
 
     if (artist == null) {
         DetailMessageScreen(
@@ -740,6 +749,14 @@ fun ArtistDetailScreen(
                 onBack = onBack,
                 listState = listState,
                 scrollBehavior = scrollBehavior,
+                actions = {
+                    IconButton(onClick = { pickPlaylist = true }) {
+                        Icon(
+                            Icons.AutoMirrored.Rounded.PlaylistAdd,
+                            contentDescription = "Ajouter tous les titres de l'artiste à une playlist",
+                        )
+                    }
+                },
             )
         },
     ) { padding ->
@@ -828,6 +845,8 @@ fun ArtistDetailScreen(
         onDismiss = { menuSong = null },
         onOpenAlbum = onOpenAlbum,
     )
+
+    if (pickPlaylist) AddToPlaylistHost(viewModel, artist.songs) { pickPlaylist = false }
 }
 
 /** Distingue « pas encore reçu » de « reçu, mais la playlist n'existe pas ». */

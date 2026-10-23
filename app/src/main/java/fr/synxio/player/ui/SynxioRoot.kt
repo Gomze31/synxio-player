@@ -86,8 +86,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -275,6 +277,16 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
 
     LaunchedEffect(Unit) {
         viewModel.messages.collect { snackbarHost.showSnackbar(it) }
+    }
+    LaunchedEffect(Unit) {
+        viewModel.actionMessages.collect { message ->
+            val result = snackbarHost.showSnackbar(
+                message = message.text,
+                actionLabel = message.actionLabel,
+                duration = SnackbarDuration.Long,
+            )
+            if (result == SnackbarResult.ActionPerformed) message.onAction()
+        }
     }
 
     // Le partage est collecté ici et non dans l'écran du lecteur : la carte doit pouvoir

@@ -34,7 +34,13 @@ abstract class PlaylistDao {
     abstract suspend fun insertPlaylist(playlist: PlaylistEntity): Long
 
     @Insert
-    abstract suspend fun insertEntries(entries: List<PlaylistSongEntity>)
+    abstract suspend fun insertEntries(entries: List<PlaylistSongEntity>): List<Long>
+
+    @Query("SELECT songId FROM playlist_songs WHERE playlistId = :id")
+    abstract suspend fun songIds(id: Long): List<Long>
+
+    @Query("DELETE FROM playlist_songs WHERE rowId IN (:rowIds)")
+    abstract suspend fun deleteEntries(rowIds: List<Long>)
 
     @Query("DELETE FROM playlists WHERE id = :id")
     abstract suspend fun deletePlaylist(id: Long)
@@ -53,6 +59,25 @@ abstract class PlaylistDao {
 
     @Query("SELECT COALESCE(MAX(position), -1) FROM playlist_songs WHERE playlistId = :id")
     abstract suspend fun lastPosition(id: Long): Int
+
+    /**
+     * Ajoute des titres en fin de playlist, en une seule transaction : deux ajouts
+     * rapprochés lisaient la même dernière position, et leurs titres s'entremêlaient.
+     * [build] reçoit la première position libre et les ids déjà présents ; on rend les
+     * `rowId` créés, de quoi annuler l'ajout exactement.
+     */
+    @Transaction
+    open suspend fun appendEntries(
+        playlistId: Long,
+        now: Long,
+        build: (start: Int, present: Set<Long>) -> List<PlaylistSongEntity>,
+    ): List<Long> {
+        val entries = build(lastPosition(playlistId) + 1, songIds(playlistId).toHashSet())
+        if (entries.isEmpty()) return emptyList()
+        val rowIds = insertEntries(entries)
+        touch(playlistId, now)
+        return rowIds
+    }
 
     /** Réécrit l'ordre complet d'une playlist (glisser-déposer, tri, suppression). */
     @Transaction

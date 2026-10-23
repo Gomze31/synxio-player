@@ -33,6 +33,7 @@ import fr.synxio.player.playback.PlayerUiState
 import fr.synxio.player.playback.SleepTimer
 import fr.synxio.player.playback.SleepTimerState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -162,6 +163,10 @@ class AppViewModel @Inject constructor(
 
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val messages: SharedFlow<String> = _messages
+
+    /** Messages porteurs d'une action (« Annuler »…), affichés plus longtemps. */
+    private val _actionMessages = MutableSharedFlow<ActionMessage>(extraBufferCapacity = 4)
+    val actionMessages: SharedFlow<ActionMessage> = _actionMessages
 
     /**
      * Intents de partage à lancer.
@@ -421,13 +426,38 @@ class AppViewModel @Inject constructor(
     // --- Playlists -----------------------------------------------------------------------
 
     fun createPlaylist(name: String, songs: List<Song> = emptyList()) = viewModelScope.launch {
-        playlistRepository.create(playlistRepository.uniqueName(name), songs)
-        _messages.emit("Playlist « $name » créée")
+        // Le nom réellement retenu : « Mix (2) » si « Mix » existait déjà.
+        val unique = playlistRepository.uniqueName(name)
+        playlistRepository.create(unique, songs)
+        _messages.emit("Playlist « $unique » créée")
     }
 
-    fun addToPlaylist(playlistId: Long, songs: List<Song>) = viewModelScope.launch {
-        playlistRepository.addSongs(playlistId, songs)
-        _messages.emit(if (songs.size == 1) "Titre ajouté" else "${songs.size} titres ajoutés")
+    /**
+     * Ajoute [songs] à une playlist en sautant ceux qui y sont déjà. Le message propose
+     * d'annuler l'ajout, ou, si tout était déjà là, de l'ajouter quand même.
+     */
+    fun addToPlaylist(playlistId: Long, songs: List<Song>, skipExisting: Boolean = true): Job = viewModelScope.launch {
+        if (songs.isEmpty()) return@launch
+        val name = playlists.value.firstOrNull { it.id == playlistId }?.name ?: "la playlist"
+        val result = playlistRepository.addSongs(playlistId, songs, skipExisting)
+        if (result.added == 0) {
+            _actionMessages.emit(
+                ActionMessage(
+                    text = if (result.skipped == 1) "Déjà dans « $name »" else "Déjà tous dans « $name »",
+                    actionLabel = "Ajouter quand même",
+                ) { addToPlaylist(playlistId, songs, skipExisting = false) }
+            )
+            return@launch
+        }
+        val text = buildString {
+            append(if (result.added == 1) "Ajouté à « $name »" else "${result.added} titres ajoutés à « $name »")
+            if (result.skipped > 0) append(" · ${result.skipped} déjà présent${if (result.skipped > 1) "s" else ""}")
+        }
+        _actionMessages.emit(
+            ActionMessage(text, actionLabel = "Annuler") {
+                viewModelScope.launch { playlistRepository.undoAdd(playlistId, result) }
+            }
+        )
     }
 
     fun moveInPlaylist(playlistId: Long, from: Int, to: Int) = viewModelScope.launch {
@@ -633,3 +663,6 @@ internal fun refetchMessage(label: String, result: fr.synxio.player.data.meta.Re
     return "« $label » : ${result.withArtwork}/${result.total} pochettes, " +
         "${result.withArtist}/${result.total} artistes$online"
 }
+
+/** Message de snackbar avec un bouton d'action ; [onAction] n'est appelé que si on le touche. */
+class ActionMessage(val text: String, val actionLabel: String, val onAction: () -> Unit)

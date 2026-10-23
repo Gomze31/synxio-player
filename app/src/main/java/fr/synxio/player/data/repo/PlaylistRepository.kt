@@ -64,15 +64,24 @@ class PlaylistRepository @Inject constructor(
     suspend fun create(name: String, songs: List<Song> = emptyList()): Long {
         val now = System.currentTimeMillis()
         val id = dao.insertPlaylist(PlaylistEntity(name = name, createdAt = now, updatedAt = now))
-        if (songs.isNotEmpty()) addSongs(id, songs)
+        // Copie ou import M3U : on garde la liste telle quelle, doublons voulus compris.
+        if (songs.isNotEmpty()) addSongs(id, songs, skipExisting = false)
         return id
     }
 
-    suspend fun addSongs(playlistId: Long, songs: List<Song>) {
-        if (songs.isEmpty()) return
-        val start = dao.lastPosition(playlistId) + 1
-        dao.insertEntries(
-            songs.mapIndexed { i, song ->
+    /**
+     * Ajoute [songs] en fin de playlist, dans l'ordre donné. Avec [skipExisting], un titre
+     * déjà présent (ou répété dans [songs]) n'est pas ajouté une seconde fois.
+     */
+    suspend fun addSongs(playlistId: Long, songs: List<Song>, skipExisting: Boolean = true): AddResult {
+        if (songs.isEmpty()) return AddResult(emptyList(), 0)
+        var skipped = 0
+        val rowIds = dao.appendEntries(playlistId, System.currentTimeMillis()) { start, present ->
+            val fresh = if (skipExisting) {
+                val distinct = songs.distinctBy { it.id }
+                distinct.filter { it.id !in present }.also { skipped = distinct.size - it.size }
+            } else songs
+            fresh.mapIndexed { i, song ->
                 PlaylistSongEntity(
                     playlistId = playlistId,
                     songId = song.id,
@@ -80,7 +89,14 @@ class PlaylistRepository @Inject constructor(
                     position = start + i,
                 )
             }
-        )
+        }
+        return AddResult(rowIds, skipped)
+    }
+
+    /** Annule un ajout : retire exactement les lignes qu'il avait créées. */
+    suspend fun undoAdd(playlistId: Long, result: AddResult) {
+        if (result.rowIds.isEmpty()) return
+        dao.deleteEntries(result.rowIds)
         dao.touch(playlistId, System.currentTimeMillis())
     }
 
@@ -194,6 +210,11 @@ class PlaylistRepository @Inject constructor(
     }
 
     val playlistNames: Flow<List<String>> = playlists.map { list -> list.map { it.name } }
+}
+
+/** Bilan d'un ajout à une playlist : lignes créées (pour l'annuler) et titres déjà présents. */
+data class AddResult(val rowIds: List<Long>, val skipped: Int) {
+    val added: Int get() = rowIds.size
 }
 
 /**

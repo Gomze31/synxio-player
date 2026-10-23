@@ -117,7 +117,7 @@ import fr.synxio.player.data.model.Song
 import fr.synxio.player.data.model.SongSort
 import fr.synxio.player.data.repo.Mood
 import fr.synxio.player.data.repo.SmartPlaylistId
-import fr.synxio.player.ui.components.AddToPlaylistSheet
+import fr.synxio.player.ui.components.AddToPlaylistHost
 import fr.synxio.player.ui.components.AlbumCard
 import fr.synxio.player.ui.components.ArtistCard
 import fr.synxio.player.ui.components.BrandButton
@@ -779,14 +779,18 @@ private fun SongsTab(
     val favorites by viewModel.favoriteIds.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     var menuSong by remember { mutableStateOf<Song?>(null) }
-    val playlists by viewModel.playlists.collectAsStateWithLifecycle()
 
     // Sélection multiple : l'appui long bascule en mode sélection au lieu d'ouvrir
     // le menu, et les appuis suivants cochent/décochent.
     var selected by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var showPlaylistPicker by remember { mutableStateOf(false) }
     val selectionMode = selected.isNotEmpty()
-    val selectedSongs = remember(selected, songs) { songs.filter { it.id in selected } }
+    // Dans l'ordre où l'on a coché les titres (un Set Kotlin le conserve) : c'est cet ordre
+    // qu'on retrouve dans la playlist ou la file, pas celui du tri de la liste.
+    val selectedSongs = remember(selected, songs) {
+        val byId = songs.associateBy { it.id }
+        selected.mapNotNull { byId[it] }
+    }
 
     BackHandler(enabled = selectionMode) { selected = emptySet() }
 
@@ -894,15 +898,10 @@ private fun SongsTab(
     )
 
     if (showPlaylistPicker) {
-        AddToPlaylistSheet(
-            playlists = playlists,
-            onSelect = { viewModel.addToPlaylist(it.id, selectedSongs) },
-            onCreate = { viewModel.createPlaylist(it, selectedSongs) },
-            onDismiss = {
-                showPlaylistPicker = false
-                selected = emptySet()
-            },
-        )
+        AddToPlaylistHost(viewModel, selectedSongs) {
+            showPlaylistPicker = false
+            selected = emptySet()
+        }
     }
 }
 

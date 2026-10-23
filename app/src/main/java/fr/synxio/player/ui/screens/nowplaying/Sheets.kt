@@ -43,6 +43,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.ArrowDownward
@@ -754,6 +755,7 @@ fun NowPlayingMenuSheet(
     onEditTags: () -> Unit,
     onRefreshLyrics: () -> Unit,
     onShare: () -> Unit,
+    onAddToPlaylist: () -> Unit,
     onOpenDriveMode: () -> Unit,
     onOpenPartyMode: () -> Unit,
     onShowLyrics: () -> Unit,
@@ -871,6 +873,7 @@ fun NowPlayingMenuSheet(
 
             Spacer(Modifier.height(Space.sm))
 
+            MenuRow(Icons.AutoMirrored.Rounded.PlaylistAdd, "Ajouter à une playlist") { onAddToPlaylist(); onDismiss() }
             MenuRow(Icons.Rounded.Album, "Aller à l'album") { onOpenAlbum(); onDismiss() }
             MenuRow(Icons.Rounded.Person, "Aller à l'artiste") { onOpenArtist(); onDismiss() }
             MenuRow(Icons.Rounded.Edit, "Modifier les tags") { onEditTags(); onDismiss() }
