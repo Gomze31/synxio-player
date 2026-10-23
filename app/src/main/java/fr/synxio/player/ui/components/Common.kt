@@ -1,7 +1,11 @@
 package fr.synxio.player.ui.components
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.Arrangement
@@ -23,12 +27,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -36,6 +42,20 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import androidx.compose.ui.platform.LocalContext
+import fr.synxio.player.data.model.Song
+import fr.synxio.player.data.model.splitArtistTag
+
+/**
+ * Nom sous lequel ce titre est rangé dans l'index des artistes.
+ *
+ * La bibliothèque indexe les artistes à partir du tag « artiste d'album » quand il
+ * existe, découpé par [splitArtistTag]. « Aller à l'artiste » doit suivre la même
+ * règle : passer l'artiste affiché du titre ouvrait une page « Artiste introuvable »
+ * dès que le tag contenait plusieurs noms ou différait de l'artiste d'album.
+ */
+val Song.primaryArtistName: String
+    get() = splitArtistTag(albumArtist?.takeIf { it.isNotBlank() } ?: displayArtist)
+        .firstOrNull() ?: displayArtist
 
 /**
  * Pochette d'album. MediaStore renvoie souvent `null` : dans ce cas on affiche un
@@ -49,17 +69,27 @@ fun Artwork(
     contentDescription: String? = null,
 ) {
     val scheme = MaterialTheme.colorScheme
+    val context = LocalContext.current
+    // Ces deux objets sont immuables : les reconstruire à chaque recomposition faisait
+    // repartir Coil sur une requête neuve et réallouait un dégradé par ligne de liste.
+    val placeholder = remember(scheme.surfaceContainerHighest, scheme.surfaceContainerHigh) {
+        Brush.linearGradient(
+            listOf(
+                scheme.surfaceContainerHighest,
+                scheme.surfaceContainerHigh,
+            )
+        )
+    }
+    val request = remember(model, context) {
+        ImageRequest.Builder(context)
+            .data(model)
+            .crossfade(220)
+            .build()
+    }
     Box(
         modifier = modifier
             .clip(shape)
-            .background(
-                Brush.linearGradient(
-                    listOf(
-                        scheme.surfaceContainerHighest,
-                        scheme.surfaceContainerHigh,
-                    )
-                )
-            ),
+            .background(placeholder),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
@@ -69,10 +99,7 @@ fun Artwork(
             modifier = Modifier.fillMaxSize(0.4f),
         )
         AsyncImage(
-            model = ImageRequest.Builder(LocalContext.current)
-                .data(model)
-                .crossfade(220)
-                .build(),
+            model = request,
             contentDescription = contentDescription,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
@@ -185,43 +212,59 @@ fun EmptyState(
     }
 }
 
-/** Barres animées indiquant qu'un titre est en cours de lecture. */
+/**
+ * Barres animées indiquant qu'un titre est en cours de lecture.
+ *
+ * L'animation infinie n'existe que pendant la lecture : en pause, l'ancienne version
+ * continuait de tourner et recomposait chaque ligne à chaque frame pour afficher des
+ * barres immobiles. La hauteur est lue dans `graphicsLayer`, hors composition, pour
+ * que l'animation ne coûte qu'un redessin.
+ */
 @Composable
 fun PlayingIndicator(
     isPlaying: Boolean,
     modifier: Modifier = Modifier,
     color: Color = MaterialTheme.colorScheme.primary,
 ) {
-    val transition = androidx.compose.animation.core.rememberInfiniteTransition(label = "bars")
     Row(
         modifier = modifier.height(16.dp),
         verticalAlignment = Alignment.Bottom,
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        repeat(4) { index ->
-            val animated by transition.animateFloat(
-                initialValue = 0.25f,
-                targetValue = 1f,
-                animationSpec = androidx.compose.animation.core.infiniteRepeatable(
-                    animation = androidx.compose.animation.core.tween(
-                        durationMillis = 420 + index * 130,
-                        easing = androidx.compose.animation.core.FastOutSlowInEasing,
+        if (isPlaying) {
+            val transition = rememberInfiniteTransition(label = "bars")
+            repeat(4) { index ->
+                val animated = transition.animateFloat(
+                    initialValue = 0.25f,
+                    targetValue = 1f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(
+                            durationMillis = 420 + index * 130,
+                            easing = FastOutSlowInEasing,
+                        ),
+                        repeatMode = RepeatMode.Reverse,
                     ),
-                    repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
-                ),
-                label = "bar$index",
-            )
-            val fraction by animateFloatAsState(
-                targetValue = if (isPlaying) animated else 0.25f,
-                label = "barHeight$index",
-            )
-            Box(
-                Modifier
-                    .width(3.dp)
-                    .height(16.dp * fraction)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(color)
-            )
+                    label = "bar$index",
+                )
+                IndicatorBar(color) { animated.value }
+            }
+        } else {
+            repeat(4) { IndicatorBar(color) { 0.25f } }
         }
     }
+}
+
+@Composable
+private fun IndicatorBar(color: Color, fraction: () -> Float) {
+    Box(
+        Modifier
+            .width(3.dp)
+            .height(16.dp)
+            .graphicsLayer {
+                scaleY = fraction()
+                transformOrigin = TransformOrigin(0.5f, 1f)
+            }
+            .clip(RoundedCornerShape(2.dp))
+            .background(color)
+    )
 }

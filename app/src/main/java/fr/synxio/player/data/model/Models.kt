@@ -4,8 +4,13 @@ import android.content.ContentUris
 import android.net.Uri
 import android.provider.MediaStore
 
-/** URI de base des pochettes d'album exposées par MediaStore. */
-private val ALBUM_ART_BASE: Uri = Uri.parse("content://media/external/audio/albumart")
+/**
+ * URI de base des pochettes d'album exposées par MediaStore.
+ *
+ * Paresseuse : les modèles sont aussi exercés par les tests JVM, où `Uri` n'existe
+ * qu'en coquille vide. Rien ne la touche tant qu'aucune pochette n'est demandée.
+ */
+private val ALBUM_ART_BASE: Uri by lazy { Uri.parse("content://media/external/audio/albumart") }
 
 /**
  * Un morceau tel qu'indexé depuis MediaStore.
@@ -163,15 +168,33 @@ data class Lyrics(
 ) {
     val plainText: String get() = lines.joinToString("\n") { it.text }
 
-    /** Index de la ligne active à [positionMs], ou -1 avant la première. */
+    /** Indices des lignes horodatées, et leurs instants, pour la recherche dichotomique. */
+    private val timedIndices: IntArray by lazy {
+        lines.indices.filter { lines[it].timeMs != null }.toIntArray()
+    }
+    private val timedValues: LongArray by lazy {
+        LongArray(timedIndices.size) { k -> lines[timedIndices[k]].timeMs!! }
+    }
+
+    /**
+     * Index de la ligne active à [positionMs], ou -1 avant la première.
+     *
+     * Recherche dichotomique sur les seules lignes horodatées : la position est
+     * interrogée plusieurs fois par seconde pendant l'affichage des paroles, et un
+     * parcours linéaire de plusieurs centaines de lignes à cette cadence finissait par
+     * se voir. Les instants sont supposés croissants, comme dans un fichier .lrc.
+     */
     fun indexAt(positionMs: Long): Int {
         if (!synced) return -1
-        var result = -1
-        for ((i, line) in lines.withIndex()) {
-            val t = line.timeMs ?: continue
-            if (t <= positionMs) result = i else break
+        val values = timedValues
+        if (values.isEmpty() || values[0] > positionMs) return -1
+        var low = 0
+        var high = values.size - 1
+        while (low < high) {
+            val mid = (low + high + 1) ushr 1
+            if (values[mid] <= positionMs) low = mid else high = mid - 1
         }
-        return result
+        return timedIndices[low]
     }
 
     companion object {

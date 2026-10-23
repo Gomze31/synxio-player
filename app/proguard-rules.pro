@@ -1,5 +1,5 @@
-# Media3 / ExoPlayer
--keep class androidx.media3.** { *; }
+# Media3 / ExoPlayer embarque ses propres règles consommateur : garder tout le paquet
+# gonflait l'APK et empêchait R8 d'optimiser le chemin de lecture.
 -dontwarn androidx.media3.**
 
 # jaudiotagger (édition de tags) utilise de la réflexion + des logs JUL

@@ -4,6 +4,7 @@ import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -72,15 +73,24 @@ class PcmDecoder @Inject constructor() {
                 start()
             }
 
+            // Capacité attendue d'une fenêtre, pour ne pas réallouer en cours de route.
+            val expectedSamples = (sampleRate * windowMs / 1000L).toInt() + sampleRate / 10
+
             starts(durationUs, windowCount, windowMs).map { start ->
                 coroutineContext.ensureActive()
                 extractor.seekTo(start, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
                 codec.flush()
                 PcmWindow(
-                    samples = decodeWindow(extractor, codec, start + windowMs * 1000L, channels),
+                    samples = decodeWindow(
+                        extractor, codec, start + windowMs * 1000L, channels, expectedSamples
+                    ),
                     sampleRate = sampleRate,
                 )
             }.filter { it.samples.isNotEmpty() }
+        } catch (error: CancellationException) {
+            // L'annulation doit remonter : l'avaler ferait continuer l'analyse de la
+            // bibliothèque après que l'utilisateur l'a arrêtée.
+            throw error
         } catch (error: Throwable) {
             // Un fichier corrompu ou un codec exotique ne doit pas interrompre l'analyse
             // de toute la bibliothèque : on le signale et on passe au suivant.
@@ -112,9 +122,10 @@ class PcmDecoder @Inject constructor() {
         codec: MediaCodec,
         untilUs: Long,
         channels: Int,
+        expectedSamples: Int,
     ): ShortArray {
         val info = MediaCodec.BufferInfo()
-        val collected = ArrayList<Short>()
+        val collected = SampleBuffer(expectedSamples)
         var inputDone = false
         var outputDone = false
 
@@ -151,7 +162,25 @@ class PcmDecoder @Inject constructor() {
             }
         }
 
-        return ShortArray(collected.size) { collected[it] }
+        return collected.toArray()
+    }
+
+    /**
+     * Tableau de `short` à croissance géométrique.
+     *
+     * Une `ArrayList<Short>` emballait chaque échantillon dans un objet : près de cent
+     * mille allocations par fenêtre, pour un simple tampon de PCM.
+     */
+    private class SampleBuffer(initialCapacity: Int) {
+        private var data = ShortArray(initialCapacity.coerceAtLeast(1024))
+        private var count = 0
+
+        fun add(value: Short) {
+            if (count == data.size) data = data.copyOf(data.size + data.size / 2)
+            data[count++] = value
+        }
+
+        fun toArray(): ShortArray = data.copyOf(count)
     }
 
     /** Replie les canaux en mono par moyenne, en PCM 16 bits signé. */
@@ -160,7 +189,7 @@ class PcmDecoder @Inject constructor() {
         offset: Int,
         size: Int,
         channels: Int,
-        out: ArrayList<Short>,
+        out: SampleBuffer,
     ) {
         val shorts = buffer.duplicate()
             .order(ByteOrder.nativeOrder())

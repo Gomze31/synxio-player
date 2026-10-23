@@ -20,17 +20,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Backup
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Folder
-import androidx.compose.material.icons.rounded.FormatListBulleted
 import androidx.compose.material.icons.rounded.Info
-import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Restore
@@ -112,13 +111,13 @@ fun BackupScreen(
             navigationIcon = {
                 IconButton(onClick = onBack) {
                     Icon(
-                        imageVector = Icons.Rounded.ArrowBack,
+                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                         contentDescription = "Retour"
                     )
                 }
             }
         )
-        
+
         // Contenu avec scroll
         LazyColumn(
             modifier = Modifier
@@ -147,18 +146,6 @@ fun BackupScreen(
                 )
             }
             
-            item { Spacer(Modifier.height(8.dp)) }
-            
-            item {
-                BackupActionCard(
-                    title = "Exporter une playlist (M3U8)",
-                    description = "Exporte une playlist au format M3U8 compatible avec d'autres lecteurs",
-                    icon = Icons.Rounded.FormatListBulleted,
-                    onClick = { /* TODO: Implement playlist export */ },
-                    enabled = viewModel.playlists.value.isNotEmpty()
-                )
-            }
-            
             item { Spacer(Modifier.height(24.dp)) }
             
             item {
@@ -178,18 +165,6 @@ fun BackupScreen(
                     description = "Importe les playlists, favoris, historique et paramètres",
                     icon = Icons.Rounded.Restore,
                     onClick = { importLauncher.launch(arrayOf("application/json")) },
-                    enabled = true
-                )
-            }
-            
-            item { Spacer(Modifier.height(8.dp)) }
-            
-            item {
-                BackupActionCard(
-                    title = "Importer une playlist (M3U8)",
-                    description = "Importe une playlist depuis un fichier M3U8",
-                    icon = Icons.Rounded.InsertDriveFile,
-                    onClick = { /* TODO: Implement playlist import */ },
                     enabled = true
                 )
             }
@@ -228,59 +203,40 @@ fun BackupScreen(
         }
     }
     
-    // Gestion des états
+    // Les états terminaux sont annoncés dans le bandeau partagé de l'application, puis
+    // remis à zéro : sans cela, le même message réapparaîtrait en revenant sur l'écran.
+    // Un fichier valide n'est jamais importé d'office : seule la confirmation du
+    // dialogue lance l'import, sinon il partait deux fois (ici et depuis le bouton).
     when (val state = backupState) {
-        is BackupViewModel.BackupState.Exporting -> {
-            // Afficher un indicateur de chargement
+        is BackupViewModel.BackupState.ExportSuccess -> LaunchedEffect(state) {
+            viewModel.showMessage(state.message)
+            backupViewModel.resetState()
         }
-        is BackupViewModel.BackupState.ExportSuccess -> {
-            LaunchedEffect(state) {
-                // Afficher un message de succès
-            }
+        is BackupViewModel.BackupState.ExportFailed -> LaunchedEffect(state) {
+            viewModel.showMessage("Export impossible : ${state.message}")
+            backupViewModel.resetState()
         }
-        is BackupViewModel.BackupState.ExportFailed -> {
-            LaunchedEffect(state) {
-                // Afficher un message d'erreur
-            }
+        is BackupViewModel.BackupState.ImportSuccess -> LaunchedEffect(state) {
+            viewModel.showMessage(state.message)
+            backupViewModel.resetState()
         }
-        is BackupViewModel.BackupState.Importing -> {
-            // Afficher un indicateur de chargement
+        is BackupViewModel.BackupState.ImportFailed -> LaunchedEffect(state) {
+            viewModel.showMessage("Import impossible : ${state.message}")
+            backupViewModel.resetState()
         }
-        is BackupViewModel.BackupState.ImportSuccess -> {
-            LaunchedEffect(state) {
-                // Afficher un message de succès
-                backupViewModel.resetState()
-            }
+        is BackupViewModel.BackupState.InvalidFile -> LaunchedEffect(state) {
+            viewModel.showMessage(state.message)
+            backupViewModel.resetState()
         }
-        is BackupViewModel.BackupState.ImportFailed -> {
-            LaunchedEffect(state) {
-                // Afficher un message d'erreur
-            }
+        is BackupViewModel.BackupState.ClearSuccess -> LaunchedEffect(state) {
+            viewModel.showMessage(state.message)
+            backupViewModel.resetState()
         }
-        is BackupViewModel.BackupState.Checking -> {
-            // Afficher un indicateur de vérification
+        is BackupViewModel.BackupState.ClearFailed -> LaunchedEffect(state) {
+            viewModel.showMessage("Effacement impossible : ${state.message}")
+            backupViewModel.resetState()
         }
-        is BackupViewModel.BackupState.ValidFile -> {
-            // Le fichier est valide, on peut maintenant l'importer
-            // Le Uri est déjà disponible dans backupInfo
-            if (backupInfo != null) {
-                LaunchedEffect(state) {
-                    backupViewModel.importData(backupInfo!!.uri)
-                }
-            }
-        }
-        is BackupViewModel.BackupState.InvalidFile -> {
-            LaunchedEffect(state) {
-                // Afficher un message que le fichier n'est pas valide
-            }
-        }
-        is BackupViewModel.BackupState.ClearSuccess -> {
-            LaunchedEffect(state) {
-                // Afficher un message de succès
-                backupViewModel.resetState()
-            }
-        }
-        else -> {}
+        else -> Unit
     }
     
     // Dialog de confirmation d'effacement
@@ -323,14 +279,14 @@ fun BackupScreen(
         )
     }
     
-    // Afficher les infos du backup si disponible
-    backupInfo?.let { info ->
+    // Le dialogue n'est lié qu'à l'état « fichier valide » : pendant l'import, les infos
+    // restent en mémoire mais le dialogue doit disparaître.
+    val info = backupInfo
+    if (backupState is BackupViewModel.BackupState.ValidFile && info != null) {
         BackupInfoDialog(
             info = info,
             onDismiss = { backupViewModel.resetState() },
-            onConfirmImport = { uri ->
-                backupViewModel.importData(uri)
-            }
+            onConfirmImport = { uri -> backupViewModel.importData(uri) }
         )
     }
 }
@@ -450,7 +406,7 @@ private fun BackupActionCard(
             
             if (enabled) {
                 Icon(
-                    Icons.Rounded.ArrowBack,
+                    Icons.Rounded.ChevronRight,
                     contentDescription = "Accéder",
                     modifier = Modifier.size(20.dp),
                     tint = MaterialTheme.colorScheme.primary

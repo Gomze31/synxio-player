@@ -45,6 +45,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -57,7 +58,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.synxio.player.core.util.asDuration
+import fr.synxio.player.playback.PlaybackPosition
+import kotlinx.coroutines.flow.StateFlow
 import fr.synxio.player.data.model.LyricLine
 import fr.synxio.player.data.model.Lyrics
 import fr.synxio.player.data.model.Song
@@ -74,7 +78,7 @@ import fr.synxio.player.ui.theme.LyricsTextStyle
 fun LyricsPane(
     lyrics: Lyrics,
     loading: Boolean,
-    positionMs: Long,
+    position: StateFlow<PlaybackPosition>,
     onSeek: (Long) -> Unit,
     modifier: Modifier = Modifier,
     offsetMs: Long = 0L,
@@ -104,8 +108,14 @@ fun LyricsPane(
     val listState = rememberLazyListState()
     // Le décalage déplace la *lecture des paroles*, pas la lecture audio : on interroge
     // la timeline des paroles à une position décalée plutôt que de réécrire les temps.
-    val adjustedPosition = positionMs + offsetMs
-    val activeIndex = remember(adjustedPosition, lyrics) { lyrics.indexAt(adjustedPosition) }
+    //
+    // `derivedStateOf` : la position change quatre fois par seconde, mais la ligne
+    // active ne change que quelques fois par minute. Seuls ces changements-là
+    // recomposent la liste.
+    val current by position.collectAsStateWithLifecycle()
+    val activeIndex by remember(lyrics, offsetMs) {
+        derivedStateOf { lyrics.indexAt(current.positionMs + offsetMs) }
+    }
 
     LaunchedEffect(activeIndex) {
         if (activeIndex >= 0) {
@@ -248,7 +258,13 @@ fun QueueSheet(
             }
             HorizontalDivider()
 
+            // Ouvre la liste sur le titre en cours : sur une longue file, l'utilisateur
+            // devait sinon la faire défiler pour retrouver où il en était.
+            val listState = rememberLazyListState(
+                initialFirstVisibleItemIndex = (currentIndex - 2).coerceIn(0, (queue.size - 1).coerceAtLeast(0)),
+            )
             LazyColumn(
+                state = listState,
                 modifier = Modifier.heightIn(max = 520.dp),
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
             ) {

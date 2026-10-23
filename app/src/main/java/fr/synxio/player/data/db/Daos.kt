@@ -38,6 +38,10 @@ abstract class PlaylistDao {
     @Query("DELETE FROM playlists WHERE id = :id")
     abstract suspend fun deletePlaylist(id: Long)
 
+    /** Vide toutes les playlists ; les entrées suivent par cascade de la clé étrangère. */
+    @Query("DELETE FROM playlists")
+    abstract suspend fun clearAll()
+
     @Query("DELETE FROM playlist_songs WHERE playlistId = :id")
     abstract suspend fun clearEntries(id: Long)
 
@@ -75,8 +79,14 @@ interface FavoriteDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun add(favorite: FavoriteEntity)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun addAll(favorites: List<FavoriteEntity>)
+
     @Query("DELETE FROM favorites WHERE songId = :songId")
     suspend fun remove(songId: Long)
+
+    @Query("DELETE FROM favorites")
+    suspend fun clear()
 
     @Query("SELECT EXISTS(SELECT 1 FROM favorites WHERE songId = :songId)")
     suspend fun isFavorite(songId: Long): Boolean
@@ -102,6 +112,9 @@ abstract class PlayStatDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun upsert(stat: PlayStatEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun upsertAll(stats: List<PlayStatEntity>)
 
     @Query("DELETE FROM play_stats")
     abstract suspend fun clear()
@@ -258,6 +271,10 @@ interface PlayHistoryDao {
 
     @Query("SELECT * FROM play_history ORDER BY playedAt DESC LIMIT :limit")
     suspend fun recent(limit: Int): List<PlayHistoryEntity>
+
+    /** Horodatage (secondes) de la toute première écoute, ou null si l'historique est vide. */
+    @Query("SELECT MIN(playedAt) FROM play_history")
+    suspend fun firstPlayedAt(): Long?
 }
 
 @Dao
@@ -288,6 +305,9 @@ interface LoudnessDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun put(entry: LoudnessEntity)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putAll(entries: List<LoudnessEntity>)
+
     @Query("DELETE FROM loudness")
     suspend fun clear()
 }
@@ -303,6 +323,9 @@ interface AudioFeatureDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun put(entry: AudioFeatureEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun putAll(entries: List<AudioFeatureEntity>)
 
     @Query("DELETE FROM audio_features")
     suspend fun clear()

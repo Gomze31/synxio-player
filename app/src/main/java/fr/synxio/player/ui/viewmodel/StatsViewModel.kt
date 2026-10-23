@@ -110,8 +110,8 @@ class StatsViewModel @Inject constructor(
             val hours = ms / (1000 * 60 * 60)
             val minutes = (ms % (1000 * 60 * 60)) / (1000 * 60)
             when {
-                hours > 0 -> String.format("%d h %02d min", hours, minutes)
-                minutes > 0 -> String.format("%d min", minutes)
+                hours > 0 -> String.format(java.util.Locale.getDefault(), "%d h %02d min", hours, minutes)
+                minutes > 0 -> String.format(java.util.Locale.getDefault(), "%d min", minutes)
                 else -> "0 min"
             }
         }
@@ -138,22 +138,35 @@ class StatsViewModel @Inject constructor(
     }
     .stateIn(viewModelScope, SharingStarted.Eagerly, 0f)
 
+    // Ces fonctions sont appelées depuis la composition, donc à chaque recomposition :
+    // le flux partagé est mémorisé par limite, sinon chaque appel repartirait d'une
+    // liste vide et relancerait une collecte. Accès depuis le fil principal uniquement.
+    private val mostPlayedByLimit = HashMap<Int, StateFlow<List<Song>>>()
+    private val recentlyPlayedByLimit = HashMap<Int, StateFlow<List<Song>>>()
+    private val topGenresByLimit = HashMap<Int, StateFlow<List<Pair<String, Int>>>>()
+
     /**
      * Récupère les morceaux les plus écoutés.
      */
     fun getMostPlayedSongs(limit: Int = 20): StateFlow<List<Song>> =
-        statsRepository.getMostPlayedSongs(limit)
+        mostPlayedByLimit.getOrPut(limit) {
+            statsRepository.getMostPlayedSongs(limit)
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        }
 
     /**
      * Récupère les morceaux récemment écoutés.
      */
     fun getRecentlyPlayedSongs(limit: Int = 20): StateFlow<List<Song>> =
-        statsRepository.getRecentlyPlayedSongs(limit)
+        recentlyPlayedByLimit.getOrPut(limit) {
+            statsRepository.getRecentlyPlayedSongs(limit)
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        }
 
     /**
      * Récupère les morceaux jamais écoutés.
      */
-    val neverPlayedSongs: StateFlow<List<Song>> = statsRepository.getNeverPlayedSongs()
+    val neverPlayedSongs: StateFlow<List<Song>> = statsRepository.neverPlayedSongs
 
     /**
      * Récupère les statistiques par jour pour la dernière semaine.
@@ -177,7 +190,10 @@ class StatsViewModel @Inject constructor(
      * Récupère les top genres.
      */
     fun getTopGenres(limit: Int = 10): StateFlow<List<Pair<String, Int>>> =
-        statsRepository.getTopGenres(limit)
+        topGenresByLimit.getOrPut(limit) {
+            statsRepository.getTopGenres(limit)
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        }
 
     /**
      * Récupère le temps moyen d'écoute par morceau.
@@ -188,8 +204,8 @@ class StatsViewModel @Inject constructor(
                 val avgMs = summary.totalPlayTimeMs / summary.totalPlayCount
                 val minutes = avgMs / (1000 * 60)
                 val seconds = (avgMs % (1000 * 60)) / 1000
-                if (minutes > 0) String.format("%d min %02d s", minutes, seconds)
-                else String.format("%d s", seconds)
+                if (minutes > 0) String.format(java.util.Locale.getDefault(), "%d min %02d s", minutes, seconds)
+                else String.format(java.util.Locale.getDefault(), "%d s", seconds)
             } else {
                 "0 s"
             }

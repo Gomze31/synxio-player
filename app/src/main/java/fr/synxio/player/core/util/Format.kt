@@ -1,5 +1,6 @@
 package fr.synxio.player.core.util
 
+import java.text.Normalizer
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
@@ -38,13 +39,30 @@ fun Int.pluralSongs(): String = if (this <= 1) "$this titre" else "$this titres"
 fun Int.pluralAlbums(): String = if (this <= 1) "$this album" else "$this albums"
 
 /**
+ * Compilée une seule fois : la recherche appelle [normalizeForSearch] sur chaque titre,
+ * artiste et album de la bibliothèque à chaque frappe. Recompiler l'expression à chaque
+ * appel coûtait plus cher que la normalisation elle-même.
+ */
+private val COMBINING_MARKS = Regex("\\p{InCombiningDiacriticalMarks}+")
+
+/**
  * Normalise pour la recherche : minuscules, accents retirés.
  * `Édith Piaf` doit matcher `edith`.
+ *
+ * Une chaîne purement ASCII — l'immense majorité des titres — n'a pas d'accent à
+ * retirer : on se contente alors de la passer en minuscules, sans décomposition Unicode.
  */
-fun String.normalizeForSearch(): String =
-    java.text.Normalizer.normalize(this, java.text.Normalizer.Form.NFD)
-        .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
-        .lowercase(Locale.getDefault())
+fun String.normalizeForSearch(): String {
+    if (isAscii()) return lowercase(Locale.ROOT)
+    return Normalizer.normalize(this, Normalizer.Form.NFD)
+        .replace(COMBINING_MARKS, "")
+        .lowercase(Locale.ROOT)
+}
+
+private fun String.isAscii(): Boolean {
+    for (c in this) if (c.code > 0x7F) return false
+    return true
+}
 
 /**
  * Score de correspondance floue : 0 = aucun match.
@@ -52,16 +70,38 @@ fun String.normalizeForSearch(): String =
  */
 fun fuzzyScore(haystack: String, needle: String): Int {
     if (needle.isEmpty()) return 0
+    return fuzzyScoreNormalized(haystack.normalizeForSearch(), needle.normalizeForSearch())
+}
+
+/**
+ * Variante pour une requête déjà normalisée.
+ *
+ * La recherche compare une même requête à des milliers de chaînes : la normaliser
+ * une fois en amont, plutôt qu'à chaque comparaison, divise le travail par deux.
+ */
+fun fuzzyScoreNormalized(haystack: String, normalizedNeedle: String): Int {
+    val n = normalizedNeedle
+    if (n.isEmpty()) return 0
     val h = haystack.normalizeForSearch()
-    val n = needle.normalizeForSearch()
     return when {
         h == n -> 1000
         h.startsWith(n) -> 800 - (h.length - n.length).coerceAtMost(200)
-        h.split(' ', '-', '_', '(', ')').any { it.startsWith(n) } -> 600
+        wordStartsWith(h, n) -> 600
         h.contains(n) -> 400
         subsequenceMatch(h, n) -> 150
         else -> 0
     }
+}
+
+/** Un mot de [haystack] (séparé par espace, tiret, soulignement ou parenthèse) commence par [needle]. */
+private fun wordStartsWith(haystack: String, needle: String): Boolean {
+    var wordStart = true
+    for (i in haystack.indices) {
+        val c = haystack[i]
+        if (wordStart && haystack.startsWith(needle, i)) return true
+        wordStart = c == ' ' || c == '-' || c == '_' || c == '(' || c == ')'
+    }
+    return false
 }
 
 /** Toutes les lettres de [needle] apparaissent dans l'ordre dans [haystack]. */

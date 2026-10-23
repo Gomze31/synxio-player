@@ -12,6 +12,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.conflate
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -162,7 +163,12 @@ class MediaStoreScanner @Inject constructor(
         return songs.map { song -> genreBySongId[song.id]?.let { song.copy(genre = it) } ?: song }
     }
 
-    /** Émet à chaque modification de la table audio (ajout, suppression, édition de tag). */
+    /**
+     * Émet à chaque modification de la table audio (ajout, suppression, édition de tag).
+     *
+     * Conflaté : un import de plusieurs centaines de fichiers notifie en rafale, et
+     * une seule émission en attente suffit à déclencher le rescan.
+     */
     fun observeChanges(): Flow<Unit> = callbackFlow {
         val observer = object : ContentObserver(null) {
             override fun onChange(selfChange: Boolean) {
@@ -175,7 +181,7 @@ class MediaStoreScanner @Inject constructor(
             observer,
         )
         awaitClose { context.contentResolver.unregisterContentObserver(observer) }
-    }
+    }.conflate()
 
     val contentResolver: ContentResolver get() = context.contentResolver
 

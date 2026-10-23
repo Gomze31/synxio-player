@@ -43,6 +43,10 @@ class StatsRepository @Inject constructor(
     ) { library, statsEntities, history ->
         // Calculer les statistiques
         val statsMap = statsEntities.associateBy { it.songId }
+        // Index construits une fois par émission : une recherche linéaire par entrée
+        // du classement rendait le calcul quadratique sur une grande bibliothèque.
+        val artistsByName = library.artists.associateBy { it.name }
+        val albumsById = library.albumsById
 
         // Top artistes
         val artistPlayCounts = mutableMapOf<String, Pair<Int, Long>>()
@@ -59,7 +63,7 @@ class StatsRepository @Inject constructor(
             .sortedByDescending { it.value.first }
             .take(10)
             .mapNotNull { entry ->
-                library.artists.find { it.name == entry.key }?.let { artist ->
+                artistsByName[entry.key]?.let { artist ->
                     ArtistStats(
                         artist = artist,
                         playCount = entry.value.first,
@@ -81,7 +85,7 @@ class StatsRepository @Inject constructor(
             .sortedByDescending { it.value }
             .take(10)
             .mapNotNull { entry ->
-                library.albums.find { it.id == entry.key }?.let { album ->
+                albumsById[entry.key]?.let { album ->
                     AlbumStats(
                         album = album,
                         playCount = entry.value
@@ -120,18 +124,29 @@ class StatsRepository @Inject constructor(
 
     /**
      * Récupère les statistiques pour une période spécifique.
+     *
+     * Flux froid : c'est le ViewModel qui le partage, une seule fois. Un `stateIn` ici
+     * créerait un collecteur à chaque changement de période.
      */
-    fun getStatsForPeriod(period: StatsPeriod): StateFlow<StatsSummary> = combine(
+    fun getStatsForPeriod(period: StatsPeriod): Flow<StatsSummary> = combine(
         musicRepository.library,
         playStatDao.observeAll(),
         historyRepository.getHistoryForPeriod(period)
     ) { library, statsEntities, history ->
+        // Le début de période et les index sont calculés une fois par émission : les
+        // recalculer par entrée (un Calendar par test, une recherche linéaire par
+        // morceau) rendait l'écran des statistiques perceptiblement lent.
+        val periodStart = periodStartMs(period)
         val statsMap = statsEntities.associateBy { it.songId }
+        val librarySongIds = library.songs.mapTo(HashSet(library.songs.size)) { it.id }
+        val artistsByName = library.artists.associateBy { it.name }
+        val albumsById = library.albumsById
+
+        fun PlayStatEntity.inPeriod(): Boolean = lastPlayedAt >= periodStart
 
         // Filtrer les statistiques pour la période
         val periodStats = statsEntities.filter { entity ->
-            val song = library.songs.find { it.id == entity.songId }
-            song != null && isInPeriod(entity.lastPlayedAt, period)
+            entity.songId in librarySongIds && entity.inPeriod()
         }
 
         // Top artistes pour la période
@@ -139,10 +154,10 @@ class StatsRepository @Inject constructor(
         library.artists.forEach { artist ->
             val artistSongs = artist.songs
             val artistPeriodPlays = artistSongs.sumOf { song ->
-                statsMap[song.id]?.takeIf { isInPeriod(it.lastPlayedAt, period) }?.playCount ?: 0
+                statsMap[song.id]?.takeIf { it.inPeriod() }?.playCount ?: 0
             }
             val artistPeriodTime = artistSongs.sumOf { song ->
-                statsMap[song.id]?.takeIf { isInPeriod(it.lastPlayedAt, period) }?.totalListenedMs ?: 0L
+                statsMap[song.id]?.takeIf { it.inPeriod() }?.totalListenedMs ?: 0L
             }
             if (artistPeriodPlays > 0) {
                 artistPlayCounts[artist.name] = artistPeriodPlays to artistPeriodTime
@@ -153,7 +168,7 @@ class StatsRepository @Inject constructor(
             .sortedByDescending { it.value.first }
             .take(10)
             .mapNotNull { entry ->
-                library.artists.find { it.name == entry.key }?.let { artist ->
+                artistsByName[entry.key]?.let { artist ->
                     ArtistStats(
                         artist = artist,
                         playCount = entry.value.first,
@@ -166,7 +181,7 @@ class StatsRepository @Inject constructor(
         val albumPlayCounts = mutableMapOf<Long, Int>()
         library.albums.forEach { album ->
             val albumPeriodPlays = album.songs.sumOf { song ->
-                statsMap[song.id]?.takeIf { isInPeriod(it.lastPlayedAt, period) }?.playCount ?: 0
+                statsMap[song.id]?.takeIf { it.inPeriod() }?.playCount ?: 0
             }
             if (albumPeriodPlays > 0) {
                 albumPlayCounts[album.id] = albumPeriodPlays
@@ -177,7 +192,7 @@ class StatsRepository @Inject constructor(
             .sortedByDescending { it.value }
             .take(10)
             .mapNotNull { entry ->
-                library.albums.find { it.id == entry.key }?.let { album ->
+                albumsById[entry.key]?.let { album ->
                     AlbumStats(
                         album = album,
                         playCount = entry.value
@@ -189,7 +204,7 @@ class StatsRepository @Inject constructor(
         val genrePlayCounts = mutableMapOf<String, Int>()
         library.genres.forEach { genre ->
             val genrePeriodPlays = genre.songs.sumOf { song ->
-                statsMap[song.id]?.takeIf { isInPeriod(it.lastPlayedAt, period) }?.playCount ?: 0
+                statsMap[song.id]?.takeIf { it.inPeriod() }?.playCount ?: 0
             }
             if (genrePeriodPlays > 0) {
                 genrePlayCounts[genre.name] = genrePeriodPlays
@@ -211,43 +226,25 @@ class StatsRepository @Inject constructor(
             recentActivity = history.take(20)
         )
     }
-    .stateIn(scope, SharingStarted.WhileSubscribed(5000), StatsSummary())
 
     /**
-     * Vérifie si un timestamp est dans une période.
+     * Début d'une période, en millisecondes. Zéro pour « depuis toujours ».
      */
-    private fun isInPeriod(timestamp: Long, period: StatsPeriod): Boolean {
-        val now = System.currentTimeMillis()
-        val periodStart = when (period) {
+    private fun periodStartMs(period: StatsPeriod): Long {
+        if (period == StatsPeriod.ALL_TIME) return 0L
+        val calendar = java.util.Calendar.getInstance()
+        when (period) {
             StatsPeriod.TODAY -> {
-                val calendar = java.util.Calendar.getInstance()
-                calendar.timeInMillis = now
                 calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
                 calendar.set(java.util.Calendar.MINUTE, 0)
                 calendar.set(java.util.Calendar.SECOND, 0)
-                calendar.timeInMillis
             }
-            StatsPeriod.WEEK -> {
-                val calendar = java.util.Calendar.getInstance()
-                calendar.timeInMillis = now
-                calendar.add(java.util.Calendar.DAY_OF_YEAR, -7)
-                calendar.timeInMillis
-            }
-            StatsPeriod.MONTH -> {
-                val calendar = java.util.Calendar.getInstance()
-                calendar.timeInMillis = now
-                calendar.add(java.util.Calendar.MONTH, -1)
-                calendar.timeInMillis
-            }
-            StatsPeriod.YEAR -> {
-                val calendar = java.util.Calendar.getInstance()
-                calendar.timeInMillis = now
-                calendar.add(java.util.Calendar.YEAR, -1)
-                calendar.timeInMillis
-            }
-            StatsPeriod.ALL_TIME -> 0L
+            StatsPeriod.WEEK -> calendar.add(java.util.Calendar.DAY_OF_YEAR, -7)
+            StatsPeriod.MONTH -> calendar.add(java.util.Calendar.MONTH, -1)
+            StatsPeriod.YEAR -> calendar.add(java.util.Calendar.YEAR, -1)
+            StatsPeriod.ALL_TIME -> Unit
         }
-        return timestamp >= periodStart
+        return calendar.timeInMillis
     }
 
     /**
@@ -319,33 +316,38 @@ class StatsRepository @Inject constructor(
         return allSongs.count { it.id !in playedSongIds }
     }
 
+    // Les flux paramétrés ci-dessous sont froids : partagés par le ViewModel, une fois
+    // par paramètre. Un `stateIn(scope, Eagerly)` à chaque appel laissait un collecteur
+    // éternel par ouverture d'écran. Ils croisent la base avec `songsById` plutôt que
+    // d'appeler `songById` : l'index est vide avant le scan MediaStore, et une liste
+    // construite avant resterait vide jusqu'à la prochaine écriture en base.
+
     /**
      * Récupère les morceaux les plus écoutés.
      */
-    fun getMostPlayedSongs(limit: Int = 50): StateFlow<List<Song>> = playStatDao.observeMostPlayed(limit)
-        .map { entities ->
-            entities.mapNotNull { musicRepository.songById(it.songId) }
-        }
-        .stateIn(scope, SharingStarted.Eagerly, emptyList())
+    fun getMostPlayedSongs(limit: Int = 50): Flow<List<Song>> = combine(
+        playStatDao.observeMostPlayed(limit),
+        musicRepository.songsById,
+    ) { entities, index -> entities.mapNotNull { index[it.songId] } }
 
     /**
      * Récupère les morceaux récemment écoutés.
      */
-    fun getRecentlyPlayedSongs(limit: Int = 50): StateFlow<List<Song>> = playStatDao.observeRecentlyPlayed(limit)
-        .map { entities ->
-            entities.mapNotNull { musicRepository.songById(it.songId) }
-        }
-        .stateIn(scope, SharingStarted.Eagerly, emptyList())
+    fun getRecentlyPlayedSongs(limit: Int = 50): Flow<List<Song>> = combine(
+        playStatDao.observeRecentlyPlayed(limit),
+        musicRepository.songsById,
+    ) { entities, index -> entities.mapNotNull { index[it.songId] } }
 
     /**
-     * Récupère les morceaux jamais écoutés.
+     * Morceaux jamais écoutés.
      */
-    fun getNeverPlayedSongs(): StateFlow<List<Song>> = musicRepository.library
-        .map { library ->
-            val statsEntities = playStatDao.observeAll().first()
-            val playedSongIds = statsEntities.map { it.songId }.toSet()
-            library.songs.filter { it.id !in playedSongIds }
-        }
+    val neverPlayedSongs: StateFlow<List<Song>> = combine(
+        musicRepository.library,
+        playStatDao.observeAll(),
+    ) { library, statsEntities ->
+        val playedSongIds = statsEntities.mapTo(HashSet()) { it.songId }
+        library.songs.filter { it.id !in playedSongIds }
+    }
         .stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     /**
@@ -428,21 +430,21 @@ class StatsRepository @Inject constructor(
     /**
      * Récupère les genres les plus écoutés.
      */
-    fun getTopGenres(limit: Int = 10): StateFlow<List<Pair<String, Int>>> = musicRepository.library
-        .map { library ->
-            val statsEntities = playStatDao.observeAll().first()
-            val statsMap = statsEntities.associateBy { it.songId }
+    fun getTopGenres(limit: Int = 10): Flow<List<Pair<String, Int>>> = combine(
+        musicRepository.library,
+        playStatDao.observeAll(),
+    ) { library, statsEntities ->
+        val statsMap = statsEntities.associateBy { it.songId }
 
-            library.genres
-                .map { genre ->
-                    val playCount = genre.songs.sumOf { statsMap[it.id]?.playCount ?: 0 }
-                    genre.name to playCount
-                }
-                .filter { it.second > 0 }
-                .sortedByDescending { it.second }
-                .take(limit)
-        }
-        .stateIn(scope, SharingStarted.Eagerly, emptyList())
+        library.genres
+            .map { genre ->
+                val playCount = genre.songs.sumOf { statsMap[it.id]?.playCount ?: 0 }
+                genre.name to playCount
+            }
+            .filter { it.second > 0 }
+            .sortedByDescending { it.second }
+            .take(limit)
+    }
 
     /**
      * Récupère le temps moyen d'écoute par morceau.
@@ -463,30 +465,29 @@ class StatsRepository @Inject constructor(
 
     /**
      * Flux du nombre de chansons jouées au moins une fois.
+     *
+     * Combine les deux sources au lieu d'attendre une table non vide : sur une
+     * installation neuve, l'attente ne se terminait jamais et le compteur restait figé.
      */
-    val playedSongsCount: StateFlow<Int> = musicRepository.library
-        .map { library ->
-            val allSongs = library.songs
-            val playedSongIds = playStatDao.observeAll()
-                .first { it.isNotEmpty() }
-                .map { it.songId }
-                .toSet()
-            allSongs.count { it.id in playedSongIds }
-        }
+    val playedSongsCount: StateFlow<Int> = combine(
+        musicRepository.library,
+        playStatDao.observeAll(),
+    ) { library, statsEntities ->
+        val playedSongIds = statsEntities.mapTo(HashSet()) { it.songId }
+        library.songs.count { it.id in playedSongIds }
+    }
         .stateIn(scope, SharingStarted.Eagerly, 0)
 
     /**
      * Flux du nombre de chansons jamais écoutées.
      */
-    val unplayedSongsCount: StateFlow<Int> = musicRepository.library
-        .map { library ->
-            val allSongs = library.songs
-            val playedSongIds = playStatDao.observeAll()
-                .first { it.isNotEmpty() }
-                .map { it.songId }
-                .toSet()
-            allSongs.count { it.id !in playedSongIds }
-        }
+    val unplayedSongsCount: StateFlow<Int> = combine(
+        musicRepository.library,
+        playStatDao.observeAll(),
+    ) { library, statsEntities ->
+        val playedSongIds = statsEntities.mapTo(HashSet()) { it.songId }
+        library.songs.count { it.id !in playedSongIds }
+    }
         .stateIn(scope, SharingStarted.Eagerly, 0)
 
     /**

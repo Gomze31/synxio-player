@@ -191,12 +191,26 @@ class UpdateRepository @Inject constructor(
      */
     fun hasMatchingSignature(apk: File): Boolean = runCatching {
         val pm = context.packageManager
-        val flags = PackageManager.GET_SIGNING_CERTIFICATES
 
-        val downloaded = pm.getPackageArchiveInfo(apk.absolutePath, flags)
-            ?.signingInfo?.apkContentsSigners.orEmpty()
-        val installed = pm.getPackageInfo(context.packageName, flags)
-            .signingInfo?.apkContentsSigners.orEmpty()
+        // `signingInfo` n'existe qu'à partir d'Android 9 ; en dessous, on lit l'ancien
+        // tableau `signatures`. Sans cette branche, l'app plantait sur Android 8 au
+        // moment de vérifier une mise à jour.
+        val downloaded: Array<out android.content.pm.Signature>
+        val installed: Array<out android.content.pm.Signature>
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val flags = PackageManager.GET_SIGNING_CERTIFICATES
+            downloaded = pm.getPackageArchiveInfo(apk.absolutePath, flags)
+                ?.signingInfo?.apkContentsSigners.orEmpty()
+            installed = pm.getPackageInfo(context.packageName, flags)
+                .signingInfo?.apkContentsSigners.orEmpty()
+        } else {
+            @Suppress("DEPRECATION")
+            val flags = PackageManager.GET_SIGNATURES
+            @Suppress("DEPRECATION")
+            downloaded = pm.getPackageArchiveInfo(apk.absolutePath, flags)?.signatures.orEmpty()
+            @Suppress("DEPRECATION")
+            installed = pm.getPackageInfo(context.packageName, flags).signatures.orEmpty()
+        }
 
         if (downloaded.isEmpty() || installed.isEmpty()) return false
 
@@ -213,12 +227,7 @@ class UpdateRepository @Inject constructor(
     }
 
     /** Vrai si l'utilisateur a autorisé l'installation d'applications depuis Synxio. */
-    fun canInstall(): Boolean =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.packageManager.canRequestPackageInstalls()
-        } else {
-            true
-        }
+    fun canInstall(): Boolean = context.packageManager.canRequestPackageInstalls()
 
     /** Intent menant au réglage système « Installer des applications inconnues ». */
     fun installPermissionIntent(): Intent =

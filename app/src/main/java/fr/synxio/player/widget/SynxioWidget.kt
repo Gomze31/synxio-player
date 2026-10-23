@@ -62,6 +62,7 @@ import fr.synxio.player.data.repo.SimilarityRepository
 import fr.synxio.player.playback.PlaybackService
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Widget d'écran d'accueil.
@@ -100,7 +101,15 @@ class SynxioWidget : GlanceAppWidget() {
         val queue = entryPoint.queueDao().queue().sortedBy { it.position }
         val song = state?.currentIndex
             ?.let { queue.getOrNull(it) }
-            ?.let { entryPoint.musicRepository().resolveSong(it.songId) }
+            ?.let { entry ->
+                // On laisse au scan MediaStore une chance d'aboutir avant de se rabattre
+                // sur `resolveSong`, qui relit toute la table pour un seul morceau. Au
+                // démarrage à froid, le widget est redessiné pendant que la bibliothèque
+                // se charge : attendre un peu évite deux scans complets en parallèle.
+                val music = entryPoint.musicRepository()
+                withTimeoutOrNull(LIBRARY_WAIT_MS) { music.library.first { it.hasScanned } }
+                music.songById(entry.songId) ?: music.resolveSong(entry.songId)
+            }
         val isPlaying = state?.isPlaying == true
         val artwork = song?.let { loadArtwork(context, it) }
 
@@ -311,6 +320,8 @@ class SynxioWidget : GlanceAppWidget() {
         /** En dessous, la pochette prendrait la place des commandes. */
         val ARTWORK_MIN_WIDTH = 220.dp
         const val ARTWORK_PIXELS = 256
+        /** Délai maximal accordé au scan de la bibliothèque avant le repli coûteux. */
+        const val LIBRARY_WAIT_MS = 2_000L
     }
 }
 

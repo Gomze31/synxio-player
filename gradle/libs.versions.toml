@@ -19,6 +19,10 @@ accompanistPermissions = "0.36.0"
 jaudiotagger = "2.3.15"
 okhttp = "4.12.0"
 kotlinxSerialization = "1.7.3"
+desugar = "2.1.5"
+junit = "4.13.2"
+coroutinesTest = "1.9.0"
+mockitoKotlin = "5.4.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -63,6 +67,13 @@ accompanist-permissions = { group = "com.google.accompanist", name = "accompanis
 jaudiotagger = { group = "com.github.Adonai", name = "jaudiotagger", version.ref = "jaudiotagger" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
+desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugar" }
+
+# Tests unitaires (JVM)
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+kotlin-test = { group = "org.jetbrains.kotlin", name = "kotlin-test", version.ref = "kotlin" }
+kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutinesTest" }
+mockito-kotlin = { group = "org.mockito.kotlin", name = "mockito-kotlin", version.ref = "mockitoKotlin" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

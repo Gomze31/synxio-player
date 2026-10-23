@@ -81,20 +81,6 @@ android {
         isCoreLibraryDesugaringEnabled = true
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-        freeCompilerArgs += listOf(
-            // UnstableApi de Media3 n'est pas un marqueur @RequiresOptIn : c'est du lint,
-            // inutile de l'ajouter ici.
-            "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
-            "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi",
-            "-opt-in=androidx.compose.foundation.layout.ExperimentalLayoutApi",
-            "-opt-in=androidx.compose.animation.ExperimentalSharedTransitionApi",
-            "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
-            "-opt-in=kotlin.time.ExperimentalTime",
-        )
-    }
-
     buildFeatures {
         compose = true
         buildConfig = true
@@ -108,6 +94,30 @@ android {
             "META-INF/NOTICE*",
         )
     }
+
+    testOptions {
+        // Les tests unitaires tournent sur la JVM : les classes Android (Uri, Log…)
+        // sont des coquilles vides qui renvoient des valeurs par défaut au lieu de
+        // lever. La logique testée (tri, recherche, modèles) n'en dépend pas.
+        unitTests.isReturnDefaultValues = true
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        // UnstableApi de Media3 n'est pas un marqueur @RequiresOptIn : c'est du lint,
+        // inutile de l'ajouter ici.
+        optIn.addAll(
+            "androidx.compose.material3.ExperimentalMaterial3Api",
+            "androidx.compose.foundation.ExperimentalFoundationApi",
+            "androidx.compose.foundation.layout.ExperimentalLayoutApi",
+            "androidx.compose.animation.ExperimentalSharedTransitionApi",
+            "kotlinx.coroutines.ExperimentalCoroutinesApi",
+            "kotlinx.coroutines.FlowPreview",
+            "kotlin.time.ExperimentalTime",
+        )
+    }
 }
 
 ksp {
@@ -116,7 +126,7 @@ ksp {
 }
 
 dependencies {
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.3")
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -160,4 +170,9 @@ dependencies {
     implementation(libs.jaudiotagger)
     implementation(libs.okhttp)
     implementation(libs.kotlinx.serialization.json)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlin.test)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.mockito.kotlin)
 }

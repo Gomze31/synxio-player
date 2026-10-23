@@ -4,11 +4,11 @@ import android.content.Context
 import android.net.Uri
 import fr.synxio.player.core.prefs.Settings
 import fr.synxio.player.core.prefs.SettingsRepository
+import androidx.room.withTransaction
 import fr.synxio.player.data.db.FavoriteEntity
 import fr.synxio.player.data.db.PlayHistoryEntity
 import fr.synxio.player.data.db.PlayStatEntity
-import fr.synxio.player.data.db.PlaylistEntity
-import fr.synxio.player.data.db.PlaylistSongEntity
+import fr.synxio.player.data.db.SynxioDatabase
 import fr.synxio.player.data.model.BackupData
 import fr.synxio.player.data.model.BackupFavorite
 import fr.synxio.player.data.model.BackupPlayHistory
@@ -37,6 +37,7 @@ import javax.inject.Singleton
 @Singleton
 class BackupRepository @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val db: SynxioDatabase,
     private val playlistRepository: PlaylistRepository,
     private val musicRepository: MusicRepository,
     private val favoriteDao: fr.synxio.player.data.db.FavoriteDao,
@@ -138,53 +139,64 @@ class BackupRepository @Inject constructor(
 
                 val backupData = json.decodeFromString<BackupData>(jsonString)
 
-                // Restaurer les playlists
-                backupData.playlists.forEach { backupPlaylist ->
-                    // Trouver les chansons correspondantes dans la bibliothèque
-                    val songs = backupPlaylist.songs.mapNotNull { backupSong ->
-                        musicRepository.library.value.songs.find { it.id == backupSong.songId }
+                // Index construits une fois : une recherche linéaire par entrée rendait
+                // la restauration quadratique. Le chemin sert de repli, car MediaStore
+                // réattribue les identifiants après une réindexation complète.
+                val songsById = musicRepository.songsById.value
+                val songsByPath = songsById.values.associateBy { it.path }
+
+                // Une seule transaction : des milliers d'insertions unitaires coûtent un
+                // commit chacune, et une restauration interrompue à mi-chemin laisserait
+                // des données à moitié importées.
+                db.withTransaction {
+                    // Restaurer les playlists
+                    backupData.playlists.forEach { backupPlaylist ->
+                        // Trouver les chansons correspondantes dans la bibliothèque
+                        val songs = backupPlaylist.songs.mapNotNull { backupSong ->
+                            songsById[backupSong.songId] ?: songsByPath[backupSong.songPath]
+                        }
+                        playlistRepository.create(
+                            name = backupPlaylist.name,
+                            songs = songs
+                        )
                     }
-                    val playlistId = playlistRepository.create(
-                        name = backupPlaylist.name,
-                        songs = songs
-                    )
-                }
 
-                // Restaurer les favoris
-                backupData.favorites.forEach { backupFavorite ->
-                    favoriteDao.add(
-                        FavoriteEntity(
-                            songId = backupFavorite.songId,
-                            songPath = backupFavorite.songPath,
-                            addedAt = backupFavorite.addedAt
-                        )
+                    // Restaurer les favoris
+                    favoriteDao.addAll(
+                        backupData.favorites.map { backupFavorite ->
+                            FavoriteEntity(
+                                songId = backupFavorite.songId,
+                                songPath = backupFavorite.songPath,
+                                addedAt = backupFavorite.addedAt
+                            )
+                        }
                     )
-                }
 
-                // Restaurer les statistiques
-                backupData.stats.forEach { backupStat ->
-                    playStatDao.upsert(
-                        PlayStatEntity(
-                            songId = backupStat.songId,
-                            songPath = backupStat.songPath,
-                            playCount = backupStat.playCount,
-                            skipCount = backupStat.skipCount,
-                            lastPlayedAt = backupStat.lastPlayedAt,
-                            totalListenedMs = backupStat.totalListenedMs
-                        )
+                    // Restaurer les statistiques
+                    playStatDao.upsertAll(
+                        backupData.stats.map { backupStat ->
+                            PlayStatEntity(
+                                songId = backupStat.songId,
+                                songPath = backupStat.songPath,
+                                playCount = backupStat.playCount,
+                                skipCount = backupStat.skipCount,
+                                lastPlayedAt = backupStat.lastPlayedAt,
+                                totalListenedMs = backupStat.totalListenedMs
+                            )
+                        }
                     )
-                }
 
-                // Restaurer l'historique
-                backupData.history.forEach { backupHistory ->
-                    playHistoryDao.add(
-                        PlayHistoryEntity(
-                            songId = backupHistory.songId,
-                            songPath = backupHistory.songPath,
-                            playedAt = backupHistory.playedAt,
-                            listenedMs = backupHistory.listenedMs,
-                            durationMs = 0 // On ne peut pas restaurer la durée
-                        )
+                    // Restaurer l'historique
+                    playHistoryDao.addAll(
+                        backupData.history.map { backupHistory ->
+                            PlayHistoryEntity(
+                                songId = backupHistory.songId,
+                                songPath = backupHistory.songPath,
+                                playedAt = backupHistory.playedAt,
+                                listenedMs = backupHistory.listenedMs,
+                                durationMs = 0 // On ne peut pas restaurer la durée
+                            )
+                        }
                     )
                 }
 
@@ -319,15 +331,12 @@ class BackupRepository @Inject constructor(
     suspend fun clearAllData(): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             // Supprimer toutes les playlists
-            playlistRepository.playlists.value.forEach { playlist ->
-                playlistRepository.delete(playlist.id)
-            }
+            playlistRepository.clearAll()
 
-            // Supprimer tous les favoris
-            val favorites = favoriteDao.observeAll().first { it.isNotEmpty() }
-            favorites.forEach { favorite ->
-                favoriteDao.remove(favorite.songId)
-            }
+            // Supprimer tous les favoris. Un DELETE direct, et non une lecture suivie
+            // de suppressions unitaires : attendre une liste non vide ne se terminait
+            // jamais quand il n'y avait aucun favori.
+            favoriteDao.clear()
 
             // Supprimer toutes les statistiques
             playStatDao.clear()
@@ -374,22 +383,17 @@ class BackupRepository @Inject constructor(
         runCatching {
             context.contentResolver.openInputStream(uri)?.use { inputStream ->
                 val songs = mutableListOf<fr.synxio.player.data.model.Song>()
-                var currentSong: fr.synxio.player.data.model.Song? = null
+                // Index par chemin construit une fois pour tout le fichier.
+                val songsByPath = musicRepository.songsById.value.values.associateBy { it.path }
 
                 inputStream.bufferedReader().useLines { lines ->
                     lines.forEach { line ->
                         if (line.startsWith("#EXTINF:")) {
-                            // Parse EXTINF: duration, artist - title
-                            val durationPart = line.substringAfter("#EXTINF:").substringBefore(",")
-                            val infoPart = line.substringAfter(",")
-                            // On ne peut pas créer un Song sans ID, donc on va juste stocker les paths
-                            // et les résoudre plus tard
+                            // On ne peut pas créer un Song sans ID : seuls les chemins
+                            // comptent, résolus contre la bibliothèque.
                         } else if (!line.startsWith("#") && line.isNotBlank()) {
                             // C'est un chemin de fichier
-                            // On va essayer de trouver le morceau dans la bibliothèque
-                            val library = musicRepository.library.value
-                            val song = library.songs.find { it.path == line }
-                            song?.let { songs.add(it) }
+                            songsByPath[line]?.let { songs.add(it) }
                         }
                     }
                 }

@@ -25,8 +25,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Album
-import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArtTrack
 import androidx.compose.material.icons.rounded.Audiotrack
 import androidx.compose.material.icons.rounded.CalendarToday
@@ -61,7 +61,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -73,7 +72,6 @@ import coil.compose.AsyncImage
 import fr.synxio.player.R
 import fr.synxio.player.data.model.StatsPeriod
 import fr.synxio.player.ui.components.SongRow
-import fr.synxio.player.ui.theme.SynxioTheme
 import fr.synxio.player.ui.viewmodel.AppViewModel
 import fr.synxio.player.ui.viewmodel.StatsViewModel
 import java.text.SimpleDateFormat
@@ -94,8 +92,7 @@ fun StatsScreen(
     onPlaySong: (List<fr.synxio.player.data.model.Song>, Int) -> Unit
 ) {
     val statsViewModel: StatsViewModel = hiltViewModel()
-    val context = LocalContext.current
-    
+
     val statsSummary by statsViewModel.statsSummary.collectAsStateWithLifecycle()
     val selectedPeriod by statsViewModel.selectedPeriod.collectAsStateWithLifecycle()
     val topArtists by statsViewModel.topArtists.collectAsStateWithLifecycle()
@@ -105,8 +102,12 @@ fun StatsScreen(
     val playedSongsCount by statsViewModel.playedSongsCount.collectAsStateWithLifecycle()
     val unplayedSongsCount by statsViewModel.unplayedSongsCount.collectAsStateWithLifecycle()
     val playedPercentage by statsViewModel.playedPercentage.collectAsStateWithLifecycle()
-    val mostPlayedSongs by statsViewModel.getMostPlayedSongs(20).collectAsStateWithLifecycle(emptyList())
-    val recentlyPlayedSongs by statsViewModel.getRecentlyPlayedSongs(10).collectAsStateWithLifecycle(emptyList())
+    // Instances de flux stables entre deux recompositions : sinon chaque passage
+    // recréait un flux et relançait la collecte depuis zéro.
+    val mostPlayedFlow = remember(statsViewModel) { statsViewModel.getMostPlayedSongs(20) }
+    val recentlyPlayedFlow = remember(statsViewModel) { statsViewModel.getRecentlyPlayedSongs(10) }
+    val mostPlayedSongs by mostPlayedFlow.collectAsStateWithLifecycle(emptyList())
+    val recentlyPlayedSongs by recentlyPlayedFlow.collectAsStateWithLifecycle(emptyList())
     val dailyStats by statsViewModel.dailyStats.collectAsStateWithLifecycle()
     val weekdayStats by statsViewModel.weekdayStats.collectAsStateWithLifecycle()
     
@@ -123,7 +124,7 @@ fun StatsScreen(
             navigationIcon = {
                 IconButton(onClick = onBack) {
                     Icon(
-                        imageVector = Icons.Rounded.ArrowBack,
+                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                         contentDescription = "Retour"
                     )
                 }

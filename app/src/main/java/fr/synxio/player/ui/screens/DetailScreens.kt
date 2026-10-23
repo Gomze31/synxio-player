@@ -49,6 +49,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.synxio.player.core.util.asLongDuration
+import fr.synxio.player.core.util.pluralAlbums
 import fr.synxio.player.core.util.pluralSongs
 import fr.synxio.player.data.model.Playlist
 import fr.synxio.player.data.model.Song
@@ -83,7 +84,7 @@ fun SongListScreen(
     topBarActions: @Composable () -> Unit = {},
     headerExtras: @Composable () -> Unit = {},
 ) {
-    val playerState by viewModel.playerState.collectAsStateWithLifecycle()
+    val nowPlaying by viewModel.nowPlaying.collectAsStateWithLifecycle()
     val favorites by viewModel.favoriteIds.collectAsStateWithLifecycle()
     var menuSong by remember { mutableStateOf<Song?>(null) }
     val listState = rememberLazyListState()
@@ -130,8 +131,8 @@ fun SongListScreen(
                 SongRow(
                     song = song,
                     onClick = { viewModel.playSong(song, songs) },
-                    isCurrent = playerState.currentSong?.id == song.id,
-                    isPlaying = playerState.isPlaying,
+                    isCurrent = nowPlaying.songId == song.id,
+                    isPlaying = nowPlaying.isPlaying,
                     isFavorite = song.id in favorites,
                     showArtwork = !showTrackNumbers,
                     trackNumber = song.track.takeIf { showTrackNumbers },
@@ -281,7 +282,7 @@ fun ArtistDetailScreen(
 ) {
     val library by viewModel.library.collectAsStateWithLifecycle()
     val artist = remember(artistName, library) { viewModel.artistByName(artistName) }
-    val playerState by viewModel.playerState.collectAsStateWithLifecycle()
+    val nowPlaying by viewModel.nowPlaying.collectAsStateWithLifecycle()
     val favorites by viewModel.favoriteIds.collectAsStateWithLifecycle()
     var menuSong by remember { mutableStateOf<Song?>(null) }
 
@@ -315,7 +316,7 @@ fun ArtistDetailScreen(
                     artworkModel = artist.artworkUri,
                     title = artist.name,
                     subtitle = "",
-                    stats = "${artist.albumCount} albums · ${artist.songCount.pluralSongs()} · ${artist.durationMs.asLongDuration()}",
+                    stats = "${artist.albumCount.pluralAlbums()} · ${artist.songCount.pluralSongs()} · ${artist.durationMs.asLongDuration()}",
                     onPlay = { viewModel.play(artist.songs) },
                     onShuffle = { viewModel.shufflePlay(artist.songs) },
                 )
@@ -326,8 +327,8 @@ fun ArtistDetailScreen(
                 SongRow(
                     song = song,
                     onClick = { viewModel.playSong(song, artist.songs) },
-                    isCurrent = playerState.currentSong?.id == song.id,
-                    isPlaying = playerState.isPlaying,
+                    isCurrent = nowPlaying.songId == song.id,
+                    isPlaying = nowPlaying.isPlaying,
                     isFavorite = song.id in favorites,
                     modifier = Modifier.padding(horizontal = 8.dp),
                     onLongClick = { menuSong = song },
@@ -370,6 +371,12 @@ fun ArtistDetailScreen(
     )
 }
 
+/** Distingue « pas encore chargée » de « absente » pour l'écran d'une playlist. */
+private sealed interface PlaylistLoad {
+    data object Loading : PlaylistLoad
+    data class Loaded(val playlist: Playlist?) : PlaylistLoad
+}
+
 @Composable
 fun PlaylistDetailScreen(
     viewModel: AppViewModel,
@@ -377,13 +384,18 @@ fun PlaylistDetailScreen(
     onBack: () -> Unit,
     onEditTags: (Long) -> Unit,
 ) {
-    val playlist by produceState<Playlist?>(initialValue = null, playlistId) {
-        viewModel.observePlaylist(playlistId).collect { value = it }
+    // Tant que la base n'a rien émis, on ne sait pas si la playlist manque : afficher
+    // « introuvable » pendant ce premier frame faisait clignoter l'écran à l'ouverture.
+    val playlist by produceState<PlaylistLoad>(initialValue = PlaylistLoad.Loading, playlistId) {
+        viewModel.observePlaylist(playlistId).collect { value = PlaylistLoad.Loaded(it) }
     }
     var renaming by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
 
-    val current = playlist
+    val current = when (val load = playlist) {
+        PlaylistLoad.Loading -> return
+        is PlaylistLoad.Loaded -> load.playlist
+    }
     if (current == null) {
         EmptyState("Playlist introuvable", "Elle a peut-être été supprimée.")
         return

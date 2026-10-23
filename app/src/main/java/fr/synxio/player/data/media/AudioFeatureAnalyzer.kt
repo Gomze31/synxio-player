@@ -59,12 +59,27 @@ class AudioFeatureAnalyzer @Inject constructor(
         val crossings = ArrayList<Float>()
         val fluxes = ArrayList<Float>()
 
+        // Tampons alloués une fois par analyse et réutilisés d'une trame à l'autre :
+        // plusieurs centaines de trames par morceau, chacune allouait quatre tableaux
+        // de deux mille flottants. Deux spectres alternent pour que le flux spectral
+        // puisse comparer la trame courante à la précédente.
+        val frame = FloatArray(FRAME_SIZE)
+        val real = FloatArray(FRAME_SIZE)
+        val imaginary = FloatArray(FRAME_SIZE)
+        val spectra = arrayOf(FloatArray(FRAME_SIZE / 2), FloatArray(FRAME_SIZE / 2))
+
         windows.forEach { window ->
             val edges = bandEdges(window.sampleRate)
-            var previous: FloatArray? = null
+            var hasPrevious = false
+            var current = 0
 
-            frames(window.samples).forEach { frame ->
-                val spectrum = magnitudeSpectrum(frame)
+            // Trames se recouvrant de moitié : sans recouvrement, un transitoire à cheval
+            // sur deux trames serait compté deux fois à moitié et perdrait sa signature.
+            var offset = 0
+            while (offset + FRAME_SIZE <= window.samples.size) {
+                fillFrame(window.samples, offset, frame)
+                val spectrum = spectra[current]
+                magnitudeSpectrum(frame, real, imaginary, spectrum)
 
                 edges.forEachIndexed { index, range ->
                     var sum = 0f
@@ -77,8 +92,11 @@ class AudioFeatureAnalyzer @Inject constructor(
                 centroids.add(centroid(spectrum))
                 flatnesses.add(flatness(spectrum))
                 crossings.add(zeroCrossingRate(frame))
-                previous?.let { fluxes.add(flux(it, spectrum)) }
-                previous = spectrum
+                if (hasPrevious) fluxes.add(flux(spectra[1 - current], spectrum))
+
+                hasPrevious = true
+                current = 1 - current
+                offset += FRAME_SIZE / 2
             }
         }
 
@@ -99,20 +117,10 @@ class AudioFeatureAnalyzer @Inject constructor(
 
     // --- Découpage -------------------------------------------------------------------
 
-    /** Trames se recouvrant de moitié : sans recouvrement, un transitoire à cheval sur
-     *  deux trames serait compté deux fois à moitié et perdrait sa signature. */
-    private fun frames(samples: ShortArray): Sequence<FloatArray> = sequence {
-        var offset = 0
-        while (offset + FRAME_SIZE <= samples.size) {
-            val frame = FloatArray(FRAME_SIZE)
-            for (i in 0 until FRAME_SIZE) {
-                // Fenêtre de Hann : couper net un signal périodique créerait de fausses
-                // raies spectrales sur toute la bande.
-                val hann = 0.5f * (1f - kotlin.math.cos(2.0 * Math.PI * i / (FRAME_SIZE - 1)).toFloat())
-                frame[i] = samples[offset + i] / PCM16_FULL_SCALE * hann
-            }
-            yield(frame)
-            offset += FRAME_SIZE / 2
+    /** Copie une trame normalisée et pondérée par la fenêtre de Hann dans [out]. */
+    private fun fillFrame(samples: ShortArray, offset: Int, out: FloatArray) {
+        for (i in 0 until FRAME_SIZE) {
+            out[i] = samples[offset + i] / PCM16_FULL_SCALE * HANN_WINDOW[i]
         }
     }
 
@@ -186,11 +194,20 @@ class AudioFeatureAnalyzer @Inject constructor(
      *
      * Écrite ici plutôt qu'importée : une dépendance DSP complète pour une seule FFT
      * alourdirait l'APK sans rien apporter d'autre.
+     *
+     * [real] et [imaginary] sont des tampons de travail de la taille de [frame], et le
+     * module est écrit dans [out] (moitié de la taille) : l'appelant les fournit pour
+     * ne pas réallouer à chaque trame.
      */
-    private fun magnitudeSpectrum(frame: FloatArray): FloatArray {
+    private fun magnitudeSpectrum(
+        frame: FloatArray,
+        real: FloatArray,
+        imaginary: FloatArray,
+        out: FloatArray,
+    ) {
         val n = frame.size
-        val real = frame.copyOf()
-        val imaginary = FloatArray(n)
+        frame.copyInto(real)
+        imaginary.fill(0f)
 
         // Permutation binaire inversée : réordonne les échantillons pour que les
         // papillons suivants s'appliquent sur des voisins contigus.
@@ -237,7 +254,9 @@ class AudioFeatureAnalyzer @Inject constructor(
 
         // Seule la moitié basse porte de l'information : au-delà de Nyquist le spectre
         // d'un signal réel est le miroir conjugué de la première moitié.
-        return FloatArray(n / 2) { sqrt(real[it] * real[it] + imaginary[it] * imaginary[it]) }
+        for (i in 0 until n / 2) {
+            out[i] = sqrt(real[i] * real[i] + imaginary[i] * imaginary[i])
+        }
     }
 
     private fun List<Float>.mean(): Float = if (isEmpty()) 0f else sum() / size
@@ -268,5 +287,14 @@ class AudioFeatureAnalyzer @Inject constructor(
         private const val PCM16_FULL_SCALE = 32768f
         private const val LOWEST_HZ = 40f
         private const val EPSILON = 1e-10f
+
+        /**
+         * Fenêtre de Hann, calculée une fois : couper net un signal périodique créerait
+         * de fausses raies spectrales sur toute la bande. La recalculer par trame
+         * coûtait deux mille cosinus pour chacune des centaines de trames d'un morceau.
+         */
+        private val HANN_WINDOW = FloatArray(FRAME_SIZE) { i ->
+            0.5f * (1f - kotlin.math.cos(2.0 * Math.PI * i / (FRAME_SIZE - 1)).toFloat())
+        }
     }
 }

@@ -1,9 +1,8 @@
 package fr.synxio.player.ui.components
 
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -27,10 +26,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import fr.synxio.player.playback.PlaybackPosition
 import fr.synxio.player.playback.PlayerUiState
 import fr.synxio.player.ui.theme.MiniPlayerShape
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Barre de lecture compacte posée au-dessus de la navigation.
@@ -41,13 +44,13 @@ import fr.synxio.player.ui.theme.MiniPlayerShape
 @Composable
 fun MiniPlayer(
     state: PlayerUiState,
+    position: StateFlow<PlaybackPosition>,
     onExpand: () -> Unit,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val song = state.currentSong ?: return
-    val progress by animateFloatAsState(state.progress, label = "miniProgress")
 
     Surface(
         modifier = modifier
@@ -96,19 +99,32 @@ fun MiniPlayer(
                 }
             }
 
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(3.dp)
-                    .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-            ) {
-                Box(
-                    Modifier
-                        .fillMaxWidth(progress)
-                        .height(3.dp)
-                        .background(MaterialTheme.colorScheme.primary)
-                )
-            }
+            MiniProgressBar(position)
         }
+    }
+}
+
+/**
+ * Barre de progression isolée dans sa propre recomposition.
+ *
+ * La position est le seul état qui change en continu : l'observer ici, et non dans
+ * [MiniPlayer], évite de redessiner pochette, textes et boutons quatre fois par seconde.
+ */
+@Composable
+private fun MiniProgressBar(position: StateFlow<PlaybackPosition>) {
+    val current by position.collectAsStateWithLifecycle()
+    val progress by animateFloatAsState(current.progress, label = "miniProgress")
+    val track = MaterialTheme.colorScheme.surfaceContainerHighest
+    val fill = MaterialTheme.colorScheme.primary
+
+    // Dessin direct : la valeur animée n'est lue qu'à la phase de dessin, pas en
+    // composition ni en mise en page.
+    Canvas(
+        Modifier
+            .fillMaxWidth()
+            .height(3.dp)
+    ) {
+        drawRect(track)
+        drawRect(fill, size = Size(size.width * progress, size.height))
     }
 }

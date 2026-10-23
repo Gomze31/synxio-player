@@ -20,7 +20,7 @@ import androidx.room.RoomDatabase
         LoudnessEntity::class,
         AudioFeatureEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class SynxioDatabase : RoomDatabase() {

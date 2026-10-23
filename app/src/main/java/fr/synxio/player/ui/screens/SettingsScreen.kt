@@ -39,10 +39,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ColorLens
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DataSaverOn
-import androidx.compose.material.icons.rounded.DeveloperMode
 import androidx.compose.material.icons.rounded.Equalizer
-import androidx.compose.material.icons.rounded.FilterList
-import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.History
@@ -54,7 +51,6 @@ import androidx.compose.material.icons.rounded.Loop
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material.icons.rounded.PhonelinkSetup
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Radio
@@ -66,15 +62,11 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Speaker
-import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.SurroundSound
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.Timer
-import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.VolumeUp
-import androidx.compose.material.icons.rounded.SystemSecurityUpdate
 import androidx.compose.material.icons.rounded.SmartDisplay
 import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material3.Button
@@ -97,6 +89,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -122,9 +115,7 @@ import fr.synxio.player.data.model.AccentSource
 import fr.synxio.player.data.model.AlbumSort
 import fr.synxio.player.data.model.LibraryTab
 import fr.synxio.player.data.model.NowPlayingSkin
-import fr.synxio.player.data.model.PlaylistSort
 import fr.synxio.player.data.model.SongSort
-import fr.synxio.player.data.model.StatsPeriod
 import fr.synxio.player.data.model.TextSize
 import fr.synxio.player.data.model.ThemeColor
 import fr.synxio.player.data.model.ThemeMode
@@ -140,10 +131,8 @@ import fr.synxio.player.ui.viewmodel.UpdateViewModel
 // Fonctions utilitaires pour convertir String en enum
 private fun String.toThemeColor(): ThemeColor = ThemeColor.entries.firstOrNull { it.value == this } ?: ThemeColor.DEFAULT
 private fun String.toTextSize(): TextSize = TextSize.entries.firstOrNull { it.name == this } ?: TextSize.NORMAL
-private fun String.toPlaylistSort(): PlaylistSort = PlaylistSort.entries.firstOrNull { it.name == this } ?: PlaylistSort.NAME
 private fun String.toAlbumSort(): AlbumSort = AlbumSort.entries.firstOrNull { it.name == this } ?: AlbumSort.TITLE
 private fun String.toSongSort(): SongSort = SongSort.entries.firstOrNull { it.name == this } ?: SongSort.TITLE
-private fun String.toStatsPeriod(): StatsPeriod = StatsPeriod.entries.firstOrNull { it.name == this } ?: StatsPeriod.ALL_TIME
 
 /**
  * Écran des paramètres complet.
@@ -169,22 +158,12 @@ fun SettingsScreen(
     
     var showThemeSheet by remember { mutableStateOf(false) }
     var showColorSheet by remember { mutableStateOf(false) }
-    var showTextSizeSheet by remember { mutableStateOf(false) }
     
     Column(
         modifier = modifier.fillMaxSize()
     ) {
-        // Top App Bar
-        TopAppBar(
-            title = { Text("Paramètres") },
-            actions = {
-                IconButton(
-                    onClick = { /* Accès rapide */ }
-                ) {
-                    Icon(Icons.Rounded.Tune, contentDescription = "Paramètres rapides")
-                }
-            }
-        )
+        // Pas d'action à droite : le bouton « Paramètres rapides » ne faisait rien.
+        TopAppBar(title = { Text("Paramètres") })
         
         // Contenu
         LazyColumn(
@@ -325,11 +304,15 @@ fun SettingsScreen(
             
             item {
                 val progress by settingsViewModel.loudnessProgress.collectAsStateWithLifecycle()
+                // Compté par un flux et non à chaque recomposition : pendant une analyse,
+                // chaque fichier mesuré recomposait l'écran, qui reparcourait toute la
+                // bibliothèque pour recompter.
+                val pending by settingsViewModel.pendingLoudness.collectAsStateWithLifecycle()
                 NormalizationSetting(
                     enabled = settings.normalizeVolume,
                     targetDbfs = settings.normalizeTargetDbfs,
                     progress = progress,
-                    pendingCount = settingsViewModel.pendingLoudnessCount(),
+                    pendingCount = pending,
                     onToggle = settingsViewModel::setNormalizeVolume,
                     onTarget = settingsViewModel::setNormalizeTargetDbfs,
                     onAnalyse = settingsViewModel::analyseLoudness,
@@ -341,9 +324,10 @@ fun SettingsScreen(
             item {
                 val fingerprints by settingsViewModel.similarityProgress
                     .collectAsStateWithLifecycle()
+                val pending by settingsViewModel.pendingFingerprints.collectAsStateWithLifecycle()
                 FingerprintSetting(
                     progress = fingerprints,
-                    pendingCount = settingsViewModel.pendingFingerprintCount(),
+                    pendingCount = pending,
                     onAnalyse = settingsViewModel::analyseFingerprints,
                     onCancel = settingsViewModel::cancelFingerprints,
                     onReset = settingsViewModel::resetFingerprints,
@@ -380,20 +364,12 @@ fun SettingsScreen(
                 )
             }
 
-            item {
-                SwitchSetting(
-                    title = "Reprendre après un appel",
-                    subtitle = "La lecture reprend automatiquement après un appel téléphonique",
-                    icon = Icons.Rounded.PhonelinkSetup,
-                    checked = settings.resumeAfterCall,
-                    onCheckedChange = settingsViewModel::setResumeAfterCall
-                )
-            }
-            
+            // « Reprendre après un appel » a été retiré : ExoPlayer gère déjà la perte de
+            // focus transitoire d'un appel, et le réglage n'avait jamais été branché.
             item {
                 SwitchSetting(
                     title = "Arrêter après inactivité",
-                    subtitle = "Arrête la lecture après une période d'inactivité",
+                    subtitle = "Libère le lecteur après un temps donné en pause",
                     icon = Icons.Rounded.Timer,
                     checked = settings.stopAfterInactivityMin > 0,
                     onCheckedChange = { enabled ->
@@ -426,54 +402,9 @@ fun SettingsScreen(
                 )
             }
             
-            // ========================================================================
-            // SECTION : VOLUME
-            // ========================================================================
-            item { 
-                SettingsSectionHeader(
-                    title = "Volume",
-                    icon = Icons.Rounded.VolumeUp
-                )
-            }
-            
-            item {
-                SliderSetting(
-                    title = "Volume par défaut",
-                    subtitle = "Volume de démarrage de l'application",
-                    icon = Icons.Rounded.VolumeUp,
-                    value = settings.defaultVolume,
-                    valueRange = 0f..1f,
-                    steps = 10,
-                    display = { "${(it * 100).toInt()}%" },
-                    onChange = { settingsViewModel.setDefaultVolume(it) }
-                )
-            }
-            
-            item {
-                SwitchSetting(
-                    title = "Limiter le volume",
-                    subtitle = "Empêche de dépasser un volume maximum",
-                    icon = Icons.Rounded.Speaker,
-                    checked = settings.maxVolumeLimit,
-                    onCheckedChange = settingsViewModel::setMaxVolumeLimit
-                )
-            }
-            
-            if (settings.maxVolumeLimit) {
-                item {
-                    SliderSetting(
-                        title = "Volume maximum",
-                        subtitle = "Niveau de volume maximum autorisé",
-                        icon = Icons.Rounded.LinearScale,
-                        value = settings.maxVolumeValue,
-                        valueRange = 0.5f..1f,
-                        steps = 5,
-                        display = { "${(it * 100).toInt()}%" },
-                        onChange = { settingsViewModel.setMaxVolumeValue(it) }
-                    )
-                }
-            }
-            
+            // La section « Volume » (volume par défaut, limite) a été retirée : ses
+            // réglages étaient enregistrés mais jamais appliqués au lecteur.
+
             // ========================================================================
             // SECTION : BIBLIOTHÈQUE
             // ========================================================================
@@ -506,49 +437,10 @@ fun SettingsScreen(
                 )
             }
             
-            item {
-                ChipSetting(
-                    title = "Tri des playlists",
-                    options = PlaylistSort.entries.map { entry -> entry.label },
-                    selectedIndex = PlaylistSort.entries.indexOf(settings.defaultPlaylistSort.toPlaylistSort()),
-                    onSelect = { settingsViewModel.setDefaultPlaylistSort(PlaylistSort.entries[it]) }
-                )
-            }
-            
-            item {
-                SwitchSetting(
-                    title = "Afficher les albums vides",
-                    subtitle = "Affiche les albums même s'ils ne contiennent aucun morceau",
-                    icon = Icons.Rounded.Folder,
-                    checked = settings.showEmptyAlbums,
-                    onCheckedChange = settingsViewModel::setShowEmptyAlbums
-                )
-            }
-            
-            item {
-                SwitchSetting(
-                    title = "Grouper les albums par artiste",
-                    subtitle = "Regroupe les albums par artiste dans la bibliothèque",
-                    icon = Icons.Rounded.Person,
-                    checked = settings.groupAlbumsByArtist,
-                    onCheckedChange = settingsViewModel::setGroupAlbumsByArtist
-                )
-            }
-            
-            item {
-                SwitchSetting(
-                    // Trois réglages parlaient de « doublons » pour trois choses
-                    // différentes. Les deux filtres d'affichage disent désormais
-                    // « masquer les copies », l'opération sur les fichiers dit
-                    // « supprimer les fichiers ».
-                    title = "Masquer les copies dans la bibliothèque",
-                    subtitle = "N'affiche qu'un exemplaire par morceau, sans rien supprimer",
-                    icon = Icons.Rounded.DataSaverOn,
-                    checked = settings.hideDuplicates,
-                    onCheckedChange = settingsViewModel::setHideDuplicates
-                )
-            }
-            
+            // Retirés : « Tri des playlists », « Afficher les albums vides », « Grouper
+            // les albums par artiste » et « Masquer les copies » n'étaient lus par aucun
+            // écran. Un interrupteur sans effet est pire qu'un interrupteur absent.
+
             item {
                 ClickableSetting(
                     title = "Relancer le scan",
@@ -577,28 +469,9 @@ fun SettingsScreen(
             }
 
 
-            item {
-                SwitchSetting(
-                    title = "Scan automatique",
-                    subtitle = "Démarre automatiquement le scan au démarrage de l'application",
-                    icon = Icons.Rounded.SystemSecurityUpdate,
-                    checked = settings.autoScan,
-                    onCheckedChange = settingsViewModel::setAutoScan
-                )
-            }
-            
-            if (settings.autoScan) {
-                item {
-                    SwitchSetting(
-                        title = "Scan en arrière-plan",
-                        subtitle = "Permet de continuer le scan même quand l'application est en arrière-plan",
-                        icon = Icons.Rounded.DataSaverOn,
-                        checked = settings.scanInBackground,
-                        onCheckedChange = settingsViewModel::setScanInBackground
-                    )
-                }
-            }
-            
+            // « Scan automatique » et « Scan en arrière-plan » retirés : la bibliothèque
+            // suit MediaStore en permanence, ces interrupteurs ne changeaient rien.
+
             // ========================================================================
             // SECTION : PAROLES ET SCROBBLING
             // ========================================================================
@@ -654,16 +527,6 @@ fun SettingsScreen(
                 )
             }
             
-            item {
-                SwitchSetting(
-                    title = "Afficher les copies dans la recherche",
-                    subtitle = "Montre chaque exemplaire d'un même morceau dans les résultats",
-                    icon = Icons.Rounded.FilterList,
-                    checked = settings.allowDuplicateSongs,
-                    onCheckedChange = settingsViewModel::setAllowDuplicateSongs
-                )
-            }
-            
             // ========================================================================
             // SECTION : STATISTIQUES ET HISTORIQUE
             // ========================================================================
@@ -692,15 +555,6 @@ fun SettingsScreen(
                 )
             }
             
-            item {
-                ChipSetting(
-                    title = "Période par défaut pour les stats",
-                    options = StatsPeriod.entries.map { entry -> entry.label },
-                    selectedIndex = StatsPeriod.entries.indexOf(settings.defaultStatsPeriod.toStatsPeriod()),
-                    onSelect = { settingsViewModel.setDefaultStatsPeriod(StatsPeriod.entries[it]) }
-                )
-            }
-            
             // ========================================================================
             // SECTION : SAUVEGARDE
             // ========================================================================
@@ -720,36 +574,9 @@ fun SettingsScreen(
                 )
             }
             
-            // ========================================================================
-            // SECTION : PERFORMANCES
-            // ========================================================================
-            item { 
-                SettingsSectionHeader(
-                    title = "Performances",
-                    icon = Icons.Rounded.Speed
-                )
-            }
-            
-            item {
-                SwitchSetting(
-                    title = "Réduire les animations",
-                    subtitle = "Désactive certaines animations pour améliorer les performances",
-                    icon = Icons.Rounded.DataSaverOn,
-                    checked = settings.reduceAnimations,
-                    onCheckedChange = settingsViewModel::setReduceAnimations
-                )
-            }
-            
-            item {
-                SwitchSetting(
-                    title = "Mode développeur",
-                    subtitle = "Active des options de débogage avancées",
-                    icon = Icons.Rounded.DeveloperMode,
-                    checked = settings.developerMode,
-                    onCheckedChange = settingsViewModel::setDeveloperMode
-                )
-            }
-            
+            // La section « Performances » (animations réduites, mode développeur) a été
+            // retirée : aucun écran ne lisait ces réglages.
+
             // ========================================================================
             // SECTION : À PROPOS
             // ========================================================================
@@ -791,14 +618,6 @@ fun SettingsScreen(
             onDismiss = { showColorSheet = false },
             onPrimaryChange = settingsViewModel::setPrimaryColor,
             onSecondaryChange = settingsViewModel::setSecondaryColor
-        )
-    }
-    
-    if (showTextSizeSheet) {
-        TextSizeSettingsSheet(
-            currentSize = settings.textSize.toTextSize(),
-            onDismiss = { showTextSizeSheet = false },
-            onSizeChange = settingsViewModel::setTextSize
         )
     }
 }
@@ -970,6 +789,13 @@ private fun SliderSetting(
     subtitle: String? = null,
     icon: androidx.compose.ui.graphics.vector.ImageVector? = null
 ) {
+    // Valeur locale pendant le glissement, enregistrée au relâchement seulement.
+    // Brancher le curseur directement sur DataStore déclenchait une écriture par
+    // image, et le pouce suivait la valeur relue avec un temps de retard.
+    var dragging by remember { mutableStateOf(false) }
+    var dragValue by remember(value) { mutableFloatStateOf(value) }
+    val shown = if (dragging) dragValue else value
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1013,7 +839,7 @@ private fun SliderSetting(
                     )
                     Spacer(Modifier.width(12.dp))
                     Text(
-                        text = display(value),
+                        text = display(shown),
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.primary,
                         maxLines = 1,
@@ -1031,8 +857,12 @@ private fun SliderSetting(
         }
         
         Slider(
-            value = value,
-            onValueChange = onChange,
+            value = shown,
+            onValueChange = { dragging = true; dragValue = it },
+            onValueChangeFinished = {
+                dragging = false
+                if (dragValue != value) onChange(dragValue)
+            },
             valueRange = valueRange,
             steps = steps,
             modifier = Modifier.padding(start = if (icon != null) 48.dp else 0.dp)
@@ -1336,90 +1166,6 @@ private fun ColorOption(
                     modifier = Modifier.size(16.dp),
                     tint = color.toColor()
                 )
-            }
-        }
-    }
-}
-
-/**
- * Sheet de paramètres de taille de texte.
- */
-@Composable
-private fun TextSizeSettingsSheet(
-    currentSize: TextSize,
-    onDismiss: () -> Unit,
-    onSizeChange: (TextSize) -> Unit
-) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp)
-        ) {
-            Text(
-                text = "Taille du texte",
-                style = MaterialTheme.typography.headlineSmall.copy(
-                    fontWeight = FontWeight.Bold
-                ),
-                color = MaterialTheme.colorScheme.onBackground
-            )
-            
-            Spacer(Modifier.height(20.dp))
-            
-            Text(
-                text = "Choisissez la taille qui vous convient",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            
-            Spacer(Modifier.height(16.dp))
-            
-            TextSize.entries.forEach { size ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onSizeChange(size) }
-                        .padding(vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    RadioButton(
-                        selected = size == currentSize,
-                        onClick = { onSizeChange(size) }
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = size.label,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        modifier = Modifier.padding(end = 8.dp)
-                    )
-                    
-                    // Aperçu de la taille
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(30.dp),
-                        contentAlignment = Alignment.CenterStart
-                    ) {
-                        Text(
-                            text = "Aperçu ${size.label}",
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                fontSize = MaterialTheme.typography.bodyMedium.fontSize * size.scale
-                            )
-                        )
-                    }
-                }
-            }
-            
-            Spacer(Modifier.height(24.dp))
-            
-            Button(
-                onClick = onDismiss,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Terminé")
             }
         }
     }

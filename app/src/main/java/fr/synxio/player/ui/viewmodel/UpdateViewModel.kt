@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -37,6 +38,9 @@ class UpdateViewModel @Inject constructor(
     private val settings: SettingsRepository,
 ) : ViewModel() {
 
+    // Toutes les écritures passent par `update` : la progression du téléchargement est
+    // rapportée depuis un fil d'E/S, et un `value = value.copy(...)` concurrent d'une
+    // action de l'utilisateur perdait l'une des deux modifications.
     private val _state = MutableStateFlow(UpdateUiState())
     val state: StateFlow<UpdateUiState> = _state.asStateFlow()
 
@@ -63,7 +67,7 @@ class UpdateViewModel @Inject constructor(
 
         settings.setLastUpdateCheck(System.currentTimeMillis())
         when (val result = updates.check()) {
-            is UpdateCheck.Available -> _state.value = _state.value.copy(available = result.release)
+            is UpdateCheck.Available -> _state.update { it.copy(available = result.release) }
             else -> Unit
         }
     }
@@ -71,23 +75,25 @@ class UpdateViewModel @Inject constructor(
     /** Vérification déclenchée par l'utilisateur : celle-ci rapporte tout, succès comme échec. */
     fun checkNow() {
         if (_state.value.checking) return
-        _state.value = _state.value.copy(checking = true, message = null)
+        _state.update { it.copy(checking = true, message = null) }
 
         viewModelScope.launch {
             settings.setLastUpdateCheck(System.currentTimeMillis())
             val result = updates.check()
-            _state.value = when (result) {
-                is UpdateCheck.Available ->
-                    _state.value.copy(checking = false, available = result.release)
+            _state.update { current ->
+                when (result) {
+                    is UpdateCheck.Available ->
+                        current.copy(checking = false, available = result.release)
 
-                UpdateCheck.UpToDate -> _state.value.copy(
-                    checking = false,
-                    available = null,
-                    message = "Synxio est à jour (version ${BuildConfig.VERSION_NAME})",
-                )
+                    UpdateCheck.UpToDate -> current.copy(
+                        checking = false,
+                        available = null,
+                        message = "Synxio est à jour (version ${BuildConfig.VERSION_NAME})",
+                    )
 
-                is UpdateCheck.Failed ->
-                    _state.value.copy(checking = false, message = result.reason)
+                    is UpdateCheck.Failed ->
+                        current.copy(checking = false, message = result.reason)
+                }
             }
         }
     }
@@ -98,52 +104,68 @@ class UpdateViewModel @Inject constructor(
 
         // Sans l'autorisation système, le téléchargement serait perdu : on la demande avant.
         if (!updates.canInstall()) {
-            _state.value = _state.value.copy(
-                needsPermission = true,
-                pendingIntent = updates.installPermissionIntent(),
-                message = "Autorise Synxio à installer des applications, puis relance la mise à jour",
-            )
+            _state.update {
+                it.copy(
+                    needsPermission = true,
+                    pendingIntent = updates.installPermissionIntent(),
+                    message = "Autorise Synxio à installer des applications, puis relance la mise à jour",
+                )
+            }
             return
         }
 
-        _state.value = _state.value.copy(downloading = true, progress = 0f, message = null)
+        _state.update { it.copy(downloading = true, progress = 0f, message = null) }
         job = viewModelScope.launch {
+            // La progression n'est publiée qu'au changement de pourcentage entier : le
+            // téléchargement rapporte chaque tampon lu, soit des milliers de
+            // recompositions pour une barre qui n'en affiche que cent.
+            var lastPercent = -1
             updates.download(release) { fraction ->
-                _state.value = _state.value.copy(progress = fraction)
+                val percent = (fraction * 100).toInt()
+                if (percent != lastPercent) {
+                    lastPercent = percent
+                    _state.update { it.copy(progress = fraction) }
+                }
             }.onSuccess { apk ->
                 if (!updates.hasMatchingSignature(apk)) {
                     apk.delete()
-                    _state.value = _state.value.copy(
-                        downloading = false,
-                        message = "Signature différente de l'app installée : mise à jour refusée",
-                    )
+                    _state.update {
+                        it.copy(
+                            downloading = false,
+                            message = "Signature différente de l'app installée : mise à jour refusée",
+                        )
+                    }
                     return@onSuccess
                 }
-                _state.value = _state.value.copy(
-                    downloading = false,
-                    progress = 1f,
-                    pendingIntent = updates.installIntent(apk),
-                )
-            }.onFailure {
-                _state.value = _state.value.copy(
-                    downloading = false,
-                    message = "Téléchargement interrompu : ${it.message}",
-                )
+                _state.update {
+                    it.copy(
+                        downloading = false,
+                        progress = 1f,
+                        pendingIntent = updates.installIntent(apk),
+                    )
+                }
+            }.onFailure { error ->
+                _state.update {
+                    it.copy(
+                        downloading = false,
+                        message = "Téléchargement interrompu : ${error.message}",
+                    )
+                }
             }
         }
     }
 
     fun cancel() {
         job?.cancel()
-        _state.value = _state.value.copy(downloading = false, progress = 0f)
+        _state.update { it.copy(downloading = false, progress = 0f) }
     }
 
     fun consumeIntent() {
-        _state.value = _state.value.copy(pendingIntent = null, needsPermission = false)
+        _state.update { it.copy(pendingIntent = null, needsPermission = false) }
     }
 
     fun consumeMessage() {
-        _state.value = _state.value.copy(message = null)
+        _state.update { it.copy(message = null) }
     }
 
     fun setAutoCheck(value: Boolean) = viewModelScope.launch {

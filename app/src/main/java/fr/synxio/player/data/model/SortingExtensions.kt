@@ -1,10 +1,12 @@
 package fr.synxio.player.data.model
 
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
+import java.text.DateFormat
+import java.time.Instant
+import java.util.Date
 
 // ============================================================================
-// NOUVEAUX MODÈLES POUR LES STATISTIQUES ET L'HISTORIQUE
+// STATISTIQUES ET HISTORIQUE
 // ============================================================================
 
 /** Période pour les statistiques */
@@ -38,18 +40,12 @@ enum class PlaylistSort(val label: String) {
     TOTAL_DURATION("Durée totale")
 }
 
-// ============================================================================
-// STATISTIQUES
-// ============================================================================
-
 /** Statistiques pour un artiste */
 data class ArtistStats(
     val artist: Artist,
     val playCount: Int,
     val totalListenedMs: Long
-) {
-    val percentage: Float get() = if (playCount > 0) 1f else 0f
-}
+)
 
 /** Statistiques pour un album */
 data class AlbumStats(
@@ -68,14 +64,10 @@ data class StatsSummary(
     val recentActivity: List<PlayHistory> = emptyList()
 )
 
-// ============================================================================
-// HISTORIQUE
-// ============================================================================
-
 /** Élément d'historique de lecture */
 data class PlayHistory(
     val song: Song,
-    val playedAt: java.time.Instant,
+    val playedAt: Instant,
     val listenedMs: Long
 )
 
@@ -188,66 +180,26 @@ enum class TextSize(val label: String, val scale: Float) {
 }
 
 // ============================================================================
-// FILTRES DE RECHERCHE
-// ============================================================================
-
-/** Filtre pour la recherche avancée */
-data class SearchFilter(
-    val query: String = "",
-    val artists: Set<String> = emptySet(),
-    val albums: Set<String> = emptySet(),
-    val genres: Set<String> = emptySet(),
-    val minDurationMs: Long = 0,
-    val maxDurationMs: Long = Long.MAX_VALUE,
-    val yearFrom: Int? = null,
-    val yearTo: Int? = null,
-    val favoriteOnly: Boolean = false
-)
-
-// ============================================================================
-// NOTIFICATIONS
-// ============================================================================
-
-/** Type de notification */
-enum class NotificationType {
-    PLAYBACK,
-    SLEEP_TIMER,
-    BACKUP
-}
-
-// ============================================================================
 // UTILITAIRES
 // ============================================================================
 
-/** Convertit des millisecondes en durée lisible */
-fun Long.asDuration(): String {
-    val hours = this / (1000 * 60 * 60)
-    val minutes = (this % (1000 * 60 * 60)) / (1000 * 60)
-    val seconds = (this % (1000 * 60)) / 1000
-    return when {
-        hours > 0 -> String.format("%dh %02dmin %02ds", hours, minutes, seconds)
-        minutes > 0 -> String.format("%dmin %02ds", minutes, seconds)
-        else -> String.format("%ds", seconds)
-    }
+/**
+ * Formateurs de date réutilisés par fil d'exécution.
+ *
+ * `DateFormat` n'est pas sûr entre fils, mais en créer un par ligne d'historique —
+ * l'ancien comportement — allouait et analysait le motif de la locale à chaque
+ * recomposition de chaque ligne.
+ */
+private val DATE_FORMAT = object : ThreadLocal<DateFormat>() {
+    override fun initialValue(): DateFormat = DateFormat.getDateInstance()
 }
 
-/** Formate un nombre de chansons */
-fun Int.pluralSongs(): String = when {
-    this == 0 -> "Aucun titre"
-    this == 1 -> "1 titre"
-    else -> "$this titres"
+private val DATE_TIME_FORMAT = object : ThreadLocal<DateFormat>() {
+    override fun initialValue(): DateFormat = DateFormat.getDateTimeInstance()
 }
 
 /** Formate une date */
-fun java.time.Instant.formatDate(): String {
-    val date = java.util.Date(this.toEpochMilli())
-    val format = java.text.SimpleDateFormat.getDateInstance()
-    return format.format(date)
-}
+fun Instant.formatDate(): String = DATE_FORMAT.get()!!.format(Date(toEpochMilli()))
 
 /** Formate une date et heure */
-fun java.time.Instant.formatDateTime(): String {
-    val date = java.util.Date(this.toEpochMilli())
-    val format = java.text.SimpleDateFormat.getDateTimeInstance()
-    return format.format(date)
-}
+fun Instant.formatDateTime(): String = DATE_TIME_FORMAT.get()!!.format(Date(toEpochMilli()))

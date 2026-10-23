@@ -1,7 +1,8 @@
 package fr.synxio.player.data.repo
 
 import fr.synxio.player.core.prefs.SettingsRepository
-import fr.synxio.player.core.util.fuzzyScore
+import fr.synxio.player.core.util.fuzzyScoreNormalized
+import fr.synxio.player.core.util.normalizeForSearch
 import fr.synxio.player.data.db.ExcludedFolderDao
 import fr.synxio.player.data.db.ExcludedFolderEntity
 import fr.synxio.player.data.db.FavoriteDao
@@ -28,12 +29,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.Collator
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -48,7 +52,12 @@ data class Library(
     val hasScanned: Boolean = false,
 ) {
     val isEmpty: Boolean get() = songs.isEmpty()
-    val totalDurationMs: Long get() = songs.sumOf { it.durationMs }
+
+    /** Calculée une fois : l'écran des réglages la relit à chaque recomposition. */
+    val totalDurationMs: Long by lazy { songs.sumOf { it.durationMs } }
+
+    /** Index id → album, pour ouvrir un détail sans parcourir toute la liste. */
+    val albumsById: Map<Long, Album> by lazy { albums.associateBy { it.id } }
 }
 
 data class SearchResults(
@@ -56,6 +65,14 @@ data class SearchResults(
     val albums: List<Album> = emptyList(),
     val artists: List<Artist> = emptyList(),
     val genres: List<Genre> = emptyList(),
+    /**
+     * Requête dont ces résultats proviennent.
+     *
+     * La recherche est temporisée : pendant les 180 ms qui suivent une frappe, les
+     * résultats affichés sont ceux de la requête précédente. L'écran compare ce champ à
+     * la saisie courante pour ne pas annoncer « aucun résultat » prématurément.
+     */
+    val query: String = "",
 ) {
     val isEmpty: Boolean
         get() = songs.isEmpty() && albums.isEmpty() && artists.isEmpty() && genres.isEmpty()
@@ -211,7 +228,7 @@ class MusicRepository @Inject constructor(
         return ids.mapNotNull { index[it] }
     }
 
-    fun albumById(id: Long): Album? = _library.value.albums.firstOrNull { it.id == id }
+    fun albumById(id: Long): Album? = _library.value.albumsById[id]
 
     fun artistByName(name: String): Artist? =
         _library.value.artists.firstOrNull { it.name.equals(name, ignoreCase = true) }
@@ -262,6 +279,7 @@ class MusicRepository @Inject constructor(
     /** Les 25 derniers ajouts, base de la section « Nouveautés » de l'accueil. */
     val recentlyAdded: StateFlow<List<Song>> = _library
         .map { lib -> lib.songs.sortedByDescending { it.dateAddedSec }.take(25) }
+        .flowOn(Dispatchers.Default)
         .stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     /**
@@ -307,13 +325,27 @@ class MusicRepository @Inject constructor(
 
     // --- Recherche -------------------------------------------------------------------
 
+    /**
+     * Recherche floue dans toute la bibliothèque.
+     *
+     * Appelée à chaque frappe : la requête est normalisée une seule fois, et le travail
+     * (quelques milliers de comparaisons de chaînes) doit tourner hors du fil principal —
+     * c'est à l'appelant de s'en charger, voir `AppViewModel.searchResults`.
+     */
     fun search(query: String, limitPerSection: Int = 20): SearchResults {
-        if (query.isBlank()) return SearchResults()
+        if (query.isBlank()) return SearchResults(query = query)
         val lib = _library.value
+        val needle = query.trim().normalizeForSearch()
 
-        fun <T> rank(items: List<T>, key: (T) -> String, extra: (T) -> String = { "" }): List<T> =
+        fun <T> rank(items: List<T>, key: (T) -> String, extra: ((T) -> String)? = null): List<T> =
             items.asSequence()
-                .map { it to maxOf(fuzzyScore(key(it), query), fuzzyScore(extra(it), query) - 100) }
+                .map { item ->
+                    var score = fuzzyScoreNormalized(key(item), needle)
+                    if (extra != null) {
+                        score = maxOf(score, fuzzyScoreNormalized(extra(item), needle) - 100)
+                    }
+                    item to score
+                }
                 .filter { it.second > 0 }
                 .sortedByDescending { it.second }
                 .take(limitPerSection)
@@ -325,6 +357,7 @@ class MusicRepository @Inject constructor(
             albums = rank(lib.albums, { it.title }, { it.artist }),
             artists = rank(lib.artists, { it.name }),
             genres = rank(lib.genres, { it.name }),
+            query = query,
         )
     }
 
@@ -333,9 +366,11 @@ class MusicRepository @Inject constructor(
     fun sortSongs(songs: List<Song>, sort: SongSort, descending: Boolean): List<Song> {
         val stats = allStats.value
         val comparator: Comparator<Song> = when (sort) {
-            SongSort.TITLE -> compareBy { it.title.lowercase() }
-            SongSort.ARTIST -> compareBy({ it.displayArtist.lowercase() }, { it.title.lowercase() })
-            SongSort.ALBUM -> compareBy({ it.displayAlbum.lowercase() }, { it.disc }, { it.track })
+            SongSort.TITLE -> compareBy(TEXT_ORDER) { it.title }
+            SongSort.ARTIST -> compareBy<Song, String>(TEXT_ORDER) { it.displayArtist }
+                .thenBy(TEXT_ORDER) { it.title }
+            SongSort.ALBUM -> compareBy<Song, String>(TEXT_ORDER) { it.displayAlbum }
+                .thenBy { it.disc }.thenBy { it.track }
             SongSort.DURATION -> compareBy { it.durationMs }
             SongSort.DATE_ADDED -> compareBy { it.dateAddedSec }
             SongSort.DATE_MODIFIED -> compareBy { it.dateModifiedSec }
@@ -349,8 +384,8 @@ class MusicRepository @Inject constructor(
 
     fun sortAlbums(albums: List<Album>, sort: AlbumSort, descending: Boolean): List<Album> {
         val comparator: Comparator<Album> = when (sort) {
-            AlbumSort.TITLE -> compareBy { it.title.lowercase() }
-            AlbumSort.ARTIST -> compareBy({ it.artist.lowercase() }, { it.year })
+            AlbumSort.TITLE -> compareBy(TEXT_ORDER) { it.title }
+            AlbumSort.ARTIST -> compareBy<Album, String>(TEXT_ORDER) { it.artist }.thenBy { it.year }
             AlbumSort.YEAR -> compareBy { it.year }
             AlbumSort.SONG_COUNT -> compareBy { it.songCount }
             AlbumSort.DATE_ADDED -> compareBy { it.dateAddedSec }
@@ -360,15 +395,30 @@ class MusicRepository @Inject constructor(
 
     fun sortArtists(artists: List<Artist>, sort: ArtistSort, descending: Boolean): List<Artist> {
         val comparator: Comparator<Artist> = when (sort) {
-            ArtistSort.NAME -> compareBy { it.name.lowercase() }
+            ArtistSort.NAME -> compareBy(TEXT_ORDER) { it.name }
             ArtistSort.ALBUM_COUNT -> compareBy { it.albumCount }
             ArtistSort.SONG_COUNT -> compareBy { it.songCount }
         }
         return artists.sortedWith(if (descending) comparator.reversed() else comparator)
     }
 
-    private companion object {
+    companion object {
         /** En dessous, filtrer l'aléatoire appauvrirait trop la file. */
-        const val MIN_SHUFFLE_POOL = 10
+        private const val MIN_SHUFFLE_POOL = 10
+
+        /**
+         * Ordre alphabétique des titres, artistes et albums.
+         *
+         * Un collateur à force secondaire ignore la casse et range « Édith » avec les E,
+         * là où `lowercase()` laissait les accents en fin de liste. Il compare sans
+         * allouer, alors que l'ancien tri créait deux chaînes à chaque comparaison —
+         * soit plusieurs dizaines de milliers d'allocations pour trier une bibliothèque.
+         */
+        val TEXT_ORDER: Comparator<String> = run {
+            val collator = Collator.getInstance(Locale.getDefault()).apply {
+                strength = Collator.SECONDARY
+            }
+            Comparator { a, b -> collator.compare(a, b) }
+        }
     }
 }

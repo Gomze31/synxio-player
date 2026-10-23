@@ -9,10 +9,12 @@ import fr.synxio.player.di.ApplicationScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -56,8 +58,14 @@ class LoudnessRepository @Inject constructor(
 
     private var job: Job? = null
 
-    /** Niveau mesuré par chemin de fichier, tenu à jour depuis la base. */
+    /**
+     * Niveau mesuré par chemin de fichier, tenu à jour depuis la base.
+     *
+     * Le délai regroupe les écritures de l'analyse : sans lui, chaque lot inséré
+     * déclenchait une relecture complète de la table.
+     */
     val levels: StateFlow<Map<String, Float>> = dao.observeAll()
+        .debounce(TABLE_DEBOUNCE_MS)
         .map { list -> list.associate { it.songPath to it.dbfs } }
         .stateIn(scope, SharingStarted.Eagerly, emptyMap())
 
@@ -104,24 +112,37 @@ class LoudnessRepository @Inject constructor(
             _progress.value = LoudnessProgress(0, todo.size, running = true)
             val measured = mutableListOf<Float>()
 
-            todo.forEachIndexed { index, song ->
-                // Un fichier illisible est enregistré avec une valeur sentinelle plutôt
-                // qu'ignoré : sans ça il repasserait dans « à analyser » à chaque
-                // ouverture des réglages, et le compteur ne tomberait jamais à zéro.
-                val dbfs = replayGainDbfs(song)
-                    ?: analyzer.analyse(song.path)
-                    ?: UNMEASURABLE_DBFS
+            // Écritures par lots : une insertion par morceau réveillait les observateurs
+            // de la table à chaque fois, qui relisaient tout — coût quadratique.
+            val pending = ArrayList<LoudnessEntity>(WRITE_BATCH)
+            try {
+                todo.forEachIndexed { index, song ->
+                    // Un fichier illisible est enregistré avec une valeur sentinelle plutôt
+                    // qu'ignoré : sans ça il repasserait dans « à analyser » à chaque
+                    // ouverture des réglages, et le compteur ne tomberait jamais à zéro.
+                    val dbfs = replayGainDbfs(song)
+                        ?: analyzer.analyse(song.path)
+                        ?: UNMEASURABLE_DBFS
 
-                if (dbfs != UNMEASURABLE_DBFS) measured += dbfs
-                dao.put(
-                    LoudnessEntity(
+                    if (dbfs != UNMEASURABLE_DBFS) measured += dbfs
+                    pending += LoudnessEntity(
                         songPath = song.path,
                         dbfs = dbfs,
                         fileModifiedSec = song.dateModifiedSec,
                         analysedAt = System.currentTimeMillis(),
                     )
-                )
-                _progress.value = LoudnessProgress(index + 1, todo.size, running = true)
+                    if (pending.size >= WRITE_BATCH) {
+                        dao.putAll(pending)
+                        pending.clear()
+                    }
+                    _progress.value = LoudnessProgress(index + 1, todo.size, running = true)
+                }
+            } finally {
+                // Le reliquat est écrit même sur annulation : chaque mesure a coûté un
+                // décodage, la perdre obligerait à la refaire.
+                if (pending.isNotEmpty()) {
+                    withContext(NonCancellable) { dao.putAll(pending) }
+                }
             }
 
             if (measured.isNotEmpty()) {
@@ -191,6 +212,8 @@ class LoudnessRepository @Inject constructor(
         const val UNMEASURABLE_DBFS = 1f
         /** En dessous, on n'atténue plus : le morceau deviendrait inaudible. */
         const val MIN_GAIN = 0.15f
+        const val WRITE_BATCH = 20
+        const val TABLE_DEBOUNCE_MS = 500L
         val REPLAY_GAIN_KEYS = listOf("REPLAYGAIN_TRACK_GAIN", "replaygain_track_gain")
     }
 }

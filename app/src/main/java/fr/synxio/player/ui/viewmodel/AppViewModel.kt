@@ -7,7 +7,9 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import fr.synxio.player.core.prefs.Settings
 import fr.synxio.player.core.prefs.SettingsRepository
+import fr.synxio.player.data.model.Album
 import fr.synxio.player.data.model.AlbumSort
+import fr.synxio.player.data.model.Artist
 import fr.synxio.player.data.model.ArtistSort
 import fr.synxio.player.data.model.Playlist
 import fr.synxio.player.data.model.Song
@@ -22,10 +24,12 @@ import fr.synxio.player.data.repo.SmartPlaylist
 import fr.synxio.player.data.repo.SmartPlaylistId
 import fr.synxio.player.data.repo.SmartPlaylistRepository
 import fr.synxio.player.playback.AbLoopState
+import fr.synxio.player.playback.PlaybackPosition
 import fr.synxio.player.playback.PlayerConnection
 import fr.synxio.player.playback.PlayerUiState
 import fr.synxio.player.playback.SleepTimer
 import fr.synxio.player.playback.SleepTimerState
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -35,12 +39,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+/** Identité du titre en cours et état de lecture, seuls champs utiles aux listes. */
+data class NowPlayingMarker(val songId: Long? = null, val isPlaying: Boolean = false)
 
 /**
  * ViewModel partagé par tout le graphe de navigation.
@@ -64,6 +71,26 @@ class AppViewModel @Inject constructor(
 
     val library: StateFlow<Library> = musicRepository.library
     val playerState: StateFlow<PlayerUiState> = player.state
+
+    /**
+     * Position de lecture, séparée de [playerState].
+     *
+     * Elle change quatre fois par seconde : la garder dans l'état principal
+     * recomposait chaque écran qui l'observe (bibliothèque, recherche, détails…) à
+     * cette cadence, alors que seuls la barre de progression et les paroles en ont besoin.
+     */
+    val position: StateFlow<PlaybackPosition> = player.position
+
+    /**
+     * Ce que les listes ont besoin de savoir du lecteur : quel titre joue, et s'il joue.
+     *
+     * Les écrans de bibliothèque n'observent que ce marqueur, et non [playerState]
+     * entier : ils ne se recomposent ainsi qu'au changement de piste ou à la pause.
+     */
+    val nowPlaying: StateFlow<NowPlayingMarker> = playerState
+        .map { NowPlayingMarker(it.currentSong?.id, it.isPlaying) }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), NowPlayingMarker())
     val playlists: StateFlow<List<Playlist>> = playlistRepository.playlists
     val favoriteIds: StateFlow<Set<Long>> = musicRepository.favoriteIds
     val favoriteSongs: StateFlow<List<Song>> = musicRepository.favoriteSongs
@@ -87,28 +114,59 @@ class AppViewModel @Inject constructor(
     private val _shareIntents = MutableSharedFlow<Intent>(extraBufferCapacity = 1)
     val shareIntents: SharedFlow<Intent> = _shareIntents
 
-    /** Titres triés selon la préférence courante, recalculés à chaque changement. */
-    val sortedSongs: StateFlow<List<Song>> = combine(library, settings) { lib, s ->
-        musicRepository.sortSongs(lib.songs, s.songSort, s.songSortDescending)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    /**
+     * Titres triés selon la préférence courante.
+     *
+     * Le tri ne dépend que du critère et de son sens : on n'écoute que ces deux champs,
+     * sinon chaque réglage modifié (thème, égaliseur…) retriait toute la bibliothèque.
+     * Le travail tourne hors du fil principal : trier plusieurs milliers de titres
+     * pendant qu'une liste défile faisait sauter des images.
+     */
+    val sortedSongs: StateFlow<List<Song>> = combine(
+        library,
+        settings.map { it.songSort to it.songSortDescending }.distinctUntilChanged(),
+        musicRepository.allStats.map { it.isNotEmpty() }.distinctUntilChanged(),
+    ) { lib, (sort, descending), _ ->
+        musicRepository.sortSongs(lib.songs, sort, descending)
+    }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val sortedAlbums = combine(library, settings) { lib, s ->
-        musicRepository.sortAlbums(lib.albums, s.albumSort, s.albumSortDescending)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val sortedAlbums: StateFlow<List<Album>> = combine(
+        library,
+        settings.map { it.albumSort to it.albumSortDescending }.distinctUntilChanged(),
+    ) { lib, (sort, descending) ->
+        musicRepository.sortAlbums(lib.albums, sort, descending)
+    }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    val sortedArtists = combine(library, settings) { lib, s ->
-        musicRepository.sortArtists(lib.artists, s.artistSort, s.artistSortDescending)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val sortedArtists: StateFlow<List<Artist>> = combine(
+        library,
+        settings.map { it.artistSort to it.artistSortDescending }.distinctUntilChanged(),
+    ) { lib, (sort, descending) ->
+        musicRepository.sortArtists(lib.artists, sort, descending)
+    }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // --- Recherche -----------------------------------------------------------------------
 
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query.asStateFlow()
 
-    val searchResults: StateFlow<SearchResults> = _query
-        .debounce(180)
-        .distinctUntilChanged()
-        .flatMapLatest { q -> flowOf(musicRepository.search(q)) }
+    /**
+     * Résultats de la recherche, recalculés hors du fil principal.
+     *
+     * `mapLatest` abandonne un calcul dépassé dès qu'une nouvelle frappe arrive ; la
+     * bibliothèque est aussi observée pour que les résultats suivent un rescan.
+     */
+    val searchResults: StateFlow<SearchResults> = combine(
+        _query.debounce(180).distinctUntilChanged(),
+        library.map { it.hasScanned }.distinctUntilChanged(),
+    ) { q, _ -> q }
+        .mapLatest { q -> musicRepository.search(q) }
+        .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SearchResults())
 
     fun onQueryChange(value: String) { _query.value = value }
@@ -230,6 +288,26 @@ class AppViewModel @Inject constructor(
     fun toggleFavorite(song: Song) = viewModelScope.launch {
         val added = musicRepository.toggleFavorite(song)
         _messages.emit(if (added) "Ajouté aux favoris" else "Retiré des favoris")
+    }
+
+    /**
+     * Bascule les favoris d'une sélection, avec un seul message.
+     *
+     * Appeler [toggleFavorite] titre par titre empilait un bandeau de quatre secondes
+     * par titre : dix titres sélectionnés, quarante secondes de messages.
+     */
+    fun toggleFavorites(songs: List<Song>) = viewModelScope.launch {
+        if (songs.isEmpty()) return@launch
+        var added = 0
+        songs.forEach { if (musicRepository.toggleFavorite(it)) added++ }
+        val removed = songs.size - added
+        _messages.emit(
+            when {
+                removed == 0 -> "${songs.size} titres ajoutés aux favoris"
+                added == 0 -> "${songs.size} titres retirés des favoris"
+                else -> "$added ajoutés, $removed retirés des favoris"
+            }
+        )
     }
 
     fun isFavorite(song: Song?): Boolean = song != null && song.id in favoriteIds.value

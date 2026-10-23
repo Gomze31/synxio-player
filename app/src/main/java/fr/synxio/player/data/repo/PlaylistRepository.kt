@@ -117,6 +117,9 @@ class PlaylistRepository @Inject constructor(
 
     suspend fun delete(playlistId: Long) = dao.deletePlaylist(playlistId)
 
+    /** Supprime toutes les playlists d'un coup (remise à zéro des données). */
+    suspend fun clearAll() = dao.clearAll()
+
     suspend fun duplicate(playlist: Playlist) =
         create("${playlist.name} (copie)", playlist.songs)
 

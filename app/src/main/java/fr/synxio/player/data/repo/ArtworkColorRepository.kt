@@ -1,9 +1,9 @@
 package fr.synxio.player.data.repo
 
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Color as AndroidColor
 import android.net.Uri
+import android.util.LruCache
 import androidx.palette.graphics.Palette
 import fr.synxio.player.data.db.ArtworkColorDao
 import fr.synxio.player.data.db.ArtworkColorEntity
@@ -30,17 +30,22 @@ class ArtworkColorRepository @Inject constructor(
     @ApplicationScope private val scope: CoroutineScope
 ) {
 
-    private val memoryCache = mutableMapOf<String, PaletteColors>()
+    /**
+     * Cache mémoire borné et synchronisé.
+     *
+     * Lu depuis le fil principal et écrit depuis les fils d'E/S : une HashMap nue se
+     * corrompait silencieusement sous accès concurrent. Borné, car une bibliothèque
+     * de plusieurs milliers d'albums finirait par y garder toutes ses palettes.
+     */
+    private val memoryCache = LruCache<String, PaletteColors>(MEMORY_CACHE_SIZE)
 
     fun getColors(artworkUri: Uri?): Flow<PaletteColors?> {
         if (artworkUri == null) return flowOf(null)
-        
+
         val uriString = artworkUri.toString()
-        
-        if (uriString in memoryCache) {
-            return flowOf(memoryCache[uriString])
-        }
-        
+
+        memoryCache.get(uriString)?.let { return flowOf(it) }
+
         return flow {
             val cachedEntity = withContext(Dispatchers.IO) {
                 artworkColorDao.get(uriString)
@@ -55,7 +60,7 @@ class ArtworkColorRepository @Inject constructor(
                     onSecondary = cachedEntity.onSecondaryColor,
                     onBackground = cachedEntity.onBackgroundColor
                 )
-                memoryCache[uriString] = colors
+                memoryCache.put(uriString, colors)
                 emit(colors)
                 return@flow
             }
@@ -65,7 +70,7 @@ class ArtworkColorRepository @Inject constructor(
             }
             
             colors?.let { paletteColors ->
-                memoryCache[uriString] = paletteColors
+                memoryCache.put(uriString, paletteColors)
                 artworkColorDao.put(
                     ArtworkColorEntity(
                         artworkUri = uriString,
@@ -86,7 +91,11 @@ class ArtworkColorRepository @Inject constructor(
     private suspend fun extractColors(uri: Uri): PaletteColors? = withContext(Dispatchers.IO) {
         runCatching {
             val bitmap = getBitmapFromUri(uri) ?: return@runCatching null
-            extractColorsFromBitmap(bitmap)
+            try {
+                extractColorsFromBitmap(bitmap)
+            } finally {
+                bitmap.recycle()
+            }
         }.getOrNull()
     }
 
@@ -111,15 +120,9 @@ class ArtworkColorRepository @Inject constructor(
         )
     }
 
-    private fun getBitmapFromUri(uri: Uri): Bitmap? {
-        return try {
-            context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                BitmapFactory.decodeStream(inputStream)
-            }
-        } catch (e: Exception) {
-            null
-        }
-    }
+    /** Réduite avant décodage : Palette quantifie de toute façon à quelques milliers de pixels. */
+    private fun getBitmapFromUri(uri: Uri): Bitmap? =
+        context.contentResolver.decodeSampledArtwork(uri, PALETTE_PIXELS)
 
     private fun getContrastColor(color: Int): Int {
         val r = AndroidColor.red(color)
@@ -130,7 +133,7 @@ class ArtworkColorRepository @Inject constructor(
     }
 
     suspend fun clearCache() = withContext(Dispatchers.IO) {
-        memoryCache.clear()
+        memoryCache.evictAll()
         artworkColorDao.clear()
     }
 
@@ -141,7 +144,7 @@ class ArtworkColorRepository @Inject constructor(
     }
 
     suspend fun cleanupUnusedColors(usedUris: Set<String>) = withContext(Dispatchers.IO) {
-        val cachedUris = memoryCache.keys + artworkColorDao.getAllUris()
+        val cachedUris = memoryCache.snapshot().keys + artworkColorDao.getAllUris()
         val toRemove = cachedUris - usedUris
         toRemove.forEach { uri ->
             memoryCache.remove(uri)
@@ -151,7 +154,7 @@ class ArtworkColorRepository @Inject constructor(
 
     suspend fun getAllCachedUris(): Set<String> = withContext(Dispatchers.IO) {
         runCatching {
-            (memoryCache.keys + artworkColorDao.getAllUris()).toSet()
+            (memoryCache.snapshot().keys + artworkColorDao.getAllUris()).toSet()
         }.getOrDefault(emptySet())
     }
 
@@ -163,4 +166,9 @@ class ArtworkColorRepository @Inject constructor(
         val onSecondary: Int,
         val onBackground: Int
     )
+
+    private companion object {
+        const val MEMORY_CACHE_SIZE = 200
+        const val PALETTE_PIXELS = 256
+    }
 }

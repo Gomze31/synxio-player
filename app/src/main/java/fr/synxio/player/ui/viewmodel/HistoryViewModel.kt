@@ -36,6 +36,7 @@ class HistoryViewModel @Inject constructor(
      */
     val recentHistory: StateFlow<List<fr.synxio.player.data.model.PlayHistory>> =
         historyRepository.recentHistory(50)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /**
      * Filtre de période pour l'historique.

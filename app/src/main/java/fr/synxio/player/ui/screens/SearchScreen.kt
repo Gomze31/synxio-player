@@ -46,7 +46,7 @@ fun SearchScreen(
 ) {
     val query by viewModel.query.collectAsStateWithLifecycle()
     val results by viewModel.searchResults.collectAsStateWithLifecycle()
-    val playerState by viewModel.playerState.collectAsStateWithLifecycle()
+    val nowPlaying by viewModel.nowPlaying.collectAsStateWithLifecycle()
     val favorites by viewModel.favoriteIds.collectAsStateWithLifecycle()
     var menuSong by remember { mutableStateOf<Song?>(null) }
 
@@ -77,7 +77,10 @@ fun SearchScreen(
                 icon = Icons.Rounded.Search,
             )
 
-            results.isEmpty -> EmptyState(
+            // La recherche est différée : entre deux frappes, `results` correspond encore
+            // à l'ancienne saisie. On n'annonce « aucun résultat » que pour la requête
+            // courante, sinon l'écran clignotait à chaque lettre.
+            results.isEmpty && results.query.trim() == query.trim() -> EmptyState(
                 title = "Aucun résultat",
                 subtitle = "Rien ne correspond à « $query ».",
                 icon = Icons.Rounded.Search,
@@ -139,8 +142,8 @@ fun SearchScreen(
                         SongRow(
                             song = song,
                             onClick = { viewModel.playSong(song, results.songs) },
-                            isCurrent = playerState.currentSong?.id == song.id,
-                            isPlaying = playerState.isPlaying,
+                            isCurrent = nowPlaying.songId == song.id,
+                            isPlaying = nowPlaying.isPlaying,
                             isFavorite = song.id in favorites,
                             modifier = Modifier.padding(horizontal = 8.dp),
                             onLongClick = { menuSong = song },

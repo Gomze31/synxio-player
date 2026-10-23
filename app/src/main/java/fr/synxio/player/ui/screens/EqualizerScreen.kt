@@ -34,6 +34,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
@@ -278,12 +282,19 @@ private fun BandSlider(
     enabled: Boolean,
     onChange: (Short) -> Unit,
 ) {
+    // Pendant le glissement, le curseur suit une valeur locale et le ViewModel n'est
+    // prévenu qu'au relâchement : chaque frame de drag déclenchait sinon une écriture
+    // DataStore et une recomposition de toute la rangée.
+    var dragging by remember { mutableStateOf(false) }
+    var dragValue by remember { mutableFloatStateOf(level.toFloat()) }
+    val shown = if (dragging) dragValue else level.toFloat()
+
     Column(
         modifier = Modifier.width(56.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
-            text = "${level / 100} dB",
+            text = "${shown.toInt() / 100} dB",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.primary,
         )
@@ -297,8 +308,12 @@ private fun BandSlider(
             // requiredWidth ignore la contrainte du parent : sans lui, le Slider était
             // mesuré à 56 dp puis pivoté, d'où des curseurs réduits à des moignons.
             Slider(
-                value = level.toFloat(),
-                onValueChange = { onChange(it.toInt().toShort()) },
+                value = shown,
+                onValueChange = { dragging = true; dragValue = it },
+                onValueChangeFinished = {
+                    dragging = false
+                    onChange(dragValue.toInt().toShort())
+                },
                 valueRange = minLevel.toFloat()..maxLevel.toFloat(),
                 enabled = enabled,
                 modifier = Modifier
@@ -329,18 +344,28 @@ private fun EffectSlider(
     onChange: (Int) -> Unit,
     suffix: String = " %",
 ) {
+    // Même principe que BandSlider : valeur locale pendant le drag, persistance au
+    // relâchement.
+    var dragging by remember { mutableStateOf(false) }
+    var dragValue by remember { mutableFloatStateOf(value.toFloat()) }
+    val shown = if (dragging) dragValue.toInt() else value
+
     Column(Modifier.padding(vertical = 8.dp)) {
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) {
             Text(label, style = MaterialTheme.typography.bodyLarge)
             Text(
-                text = if (suffix == " %") "${value * 100 / max}%" else "$value$suffix",
+                text = if (suffix == " %") "${shown * 100 / max}%" else "$shown$suffix",
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary,
             )
         }
         Slider(
-            value = value.toFloat(),
-            onValueChange = { onChange(it.toInt()) },
+            value = shown.toFloat(),
+            onValueChange = { dragging = true; dragValue = it },
+            onValueChangeFinished = {
+                dragging = false
+                onChange(dragValue.toInt())
+            },
             valueRange = 0f..max.toFloat(),
             enabled = enabled,
         )

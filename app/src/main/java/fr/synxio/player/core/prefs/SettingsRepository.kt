@@ -17,7 +17,6 @@ import fr.synxio.player.data.model.AlbumSort
 import fr.synxio.player.data.model.ArtistSort
 import fr.synxio.player.data.model.LibraryTab
 import fr.synxio.player.data.model.NowPlayingSkin
-import fr.synxio.player.data.model.PlaylistSort
 import fr.synxio.player.data.model.SongSort
 import fr.synxio.player.data.model.TextSize
 import fr.synxio.player.data.model.ThemeMode
@@ -37,11 +36,11 @@ data class Settings(
     val nowPlayingSkin: NowPlayingSkin = NowPlayingSkin.IMMERSIVE,
     val blurBackground: Boolean = true,
     val showVisualizer: Boolean = true,
-    
+
     // Couleurs personnalisées
     val primaryColor: String = "",
     val secondaryColor: String = "",
-    
+
     // Taille du texte
     val textSize: String = TextSize.NORMAL.name,
 
@@ -50,20 +49,10 @@ data class Settings(
     val skipSilence: Boolean = false,
     val playbackSpeed: Float = 1f,
     val playbackPitch: Float = 1f,
-    val audioFocusPause: Boolean = true,
     val resumeOnHeadsetConnect: Boolean = false,
     val rememberQueue: Boolean = true,
-    
-    // Nouvelle option : reprendre après un appel
-    val resumeAfterCall: Boolean = true,
-    
-    // Nouvelle option : arrêter après inactivité (en minutes, 0 = désactivé)
+    /** Libère le lecteur après tant de minutes en pause ; 0 = jamais. */
     val stopAfterInactivityMin: Int = 0,
-    
-    // Volume
-    val defaultVolume: Float = 0.8f,
-    val maxVolumeLimit: Boolean = false,
-    val maxVolumeValue: Float = 1.0f,
 
     val minDurationSec: Int = 30,
     val defaultTab: LibraryTab = LibraryTab.SONGS,
@@ -74,21 +63,6 @@ data class Settings(
     val artistSort: ArtistSort = ArtistSort.NAME,
     val artistSortDescending: Boolean = false,
     val albumGridColumns: Int = 2,
-
-    // Nouvelle option : afficher les albums vides
-    val showEmptyAlbums: Boolean = false,
-    
-    // Nouvelle option : regrouper les albums par artiste
-    val groupAlbumsByArtist: Boolean = false,
-    
-    // Nouvelle option : scan automatique
-    val autoScan: Boolean = true,
-    
-    // Nouvelle option : scan en arrière-plan
-    val scanInBackground: Boolean = true,
-    
-    // Nouvelle option : masquer les doublons
-    val hideDuplicates: Boolean = false,
 
     /** Normalisation du volume entre morceaux. */
     val normalizeVolume: Boolean = false,
@@ -132,20 +106,6 @@ data class Settings(
     val bassBoost: Int = 0,
     val virtualizer: Int = 0,
     val loudnessGain: Int = 0,
-    
-    // Nouvelles options pour les playlists
-    val defaultPlaylistSort: String = PlaylistSort.NAME.name,
-    val showPlaylistDuration: Boolean = true,
-    val allowDuplicateSongs: Boolean = false,
-    
-    // Statistiques
-    val defaultStatsPeriod: String = fr.synxio.player.data.model.StatsPeriod.ALL_TIME.name,
-    
-    // Accessibilité
-    val reduceAnimations: Boolean = false,
-    
-    // Expérimental
-    val developerMode: Boolean = false,
 )
 
 @Singleton
@@ -159,7 +119,7 @@ class SettingsRepository @Inject constructor(
         val NP_SKIN = stringPreferencesKey("np_skin")
         val BLUR_BACKGROUND = booleanPreferencesKey("blur_background")
         val SHOW_VISUALIZER = booleanPreferencesKey("show_visualizer")
-        
+
         // Couleurs personnalisées
         val PRIMARY_COLOR = stringPreferencesKey("primary_color")
         val SECONDARY_COLOR = stringPreferencesKey("secondary_color")
@@ -170,20 +130,9 @@ class SettingsRepository @Inject constructor(
         val SKIP_SILENCE = booleanPreferencesKey("skip_silence")
         val SPEED = floatPreferencesKey("speed")
         val PITCH = floatPreferencesKey("pitch")
-        val AUDIO_FOCUS_PAUSE = booleanPreferencesKey("audio_focus_pause")
         val RESUME_ON_HEADSET = booleanPreferencesKey("resume_on_headset")
         val REMEMBER_QUEUE = booleanPreferencesKey("remember_queue")
-        
-        // Nouvelle option : reprendre après un appel
-        val RESUME_AFTER_CALL = booleanPreferencesKey("resume_after_call")
-        
-        // Nouvelle option : arrêter après inactivité
         val STOP_AFTER_INACTIVITY = intPreferencesKey("stop_after_inactivity_min")
-        
-        // Volume
-        val DEFAULT_VOLUME = floatPreferencesKey("default_volume")
-        val MAX_VOLUME_LIMIT = booleanPreferencesKey("max_volume_limit")
-        val MAX_VOLUME_VALUE = floatPreferencesKey("max_volume_value")
 
         val MIN_DURATION = intPreferencesKey("min_duration_sec")
         val DEFAULT_TAB = stringPreferencesKey("default_tab")
@@ -194,13 +143,6 @@ class SettingsRepository @Inject constructor(
         val ARTIST_SORT = stringPreferencesKey("artist_sort")
         val ARTIST_SORT_DESC = booleanPreferencesKey("artist_sort_desc")
         val ALBUM_COLUMNS = intPreferencesKey("album_columns")
-
-        // Nouvelles options pour la bibliothèque
-        val SHOW_EMPTY_ALBUMS = booleanPreferencesKey("show_empty_albums")
-        val GROUP_ALBUMS_BY_ARTIST = booleanPreferencesKey("group_albums_by_artist")
-        val AUTO_SCAN = booleanPreferencesKey("auto_scan")
-        val SCAN_IN_BACKGROUND = booleanPreferencesKey("scan_in_background")
-        val HIDE_DUPLICATES = booleanPreferencesKey("hide_duplicates")
         val NORMALIZE_VOLUME = booleanPreferencesKey("normalize_volume")
         val NORMALIZE_TARGET_DBFS = floatPreferencesKey("normalize_target_dbfs")
         val SHUFFLE_SKIPS_DISLIKED = booleanPreferencesKey("shuffle_skips_disliked")
@@ -223,20 +165,6 @@ class SettingsRepository @Inject constructor(
         val BASS_BOOST = intPreferencesKey("bass_boost")
         val VIRTUALIZER = intPreferencesKey("virtualizer")
         val LOUDNESS = intPreferencesKey("loudness")
-        
-        // Nouvelles options pour les playlists
-        val DEFAULT_PLAYLIST_SORT = stringPreferencesKey("default_playlist_sort")
-        val SHOW_PLAYLIST_DURATION = booleanPreferencesKey("show_playlist_duration")
-        val ALLOW_DUPLICATE_SONGS = booleanPreferencesKey("allow_duplicate_songs")
-        
-        // Statistiques
-        val DEFAULT_STATS_PERIOD = stringPreferencesKey("default_stats_period")
-        
-        // Accessibilité
-        val REDUCE_ANIMATIONS = booleanPreferencesKey("reduce_animations")
-        
-        // Expérimental
-        val DEVELOPER_MODE = booleanPreferencesKey("developer_mode")
 
         val LAST_SCAN = longPreferencesKey("last_scan")
     }
@@ -250,7 +178,7 @@ class SettingsRepository @Inject constructor(
                 nowPlayingSkin = p.enum(Keys.NP_SKIN, NowPlayingSkin.IMMERSIVE),
                 blurBackground = p[Keys.BLUR_BACKGROUND] ?: true,
                 showVisualizer = p[Keys.SHOW_VISUALIZER] ?: true,
-                
+
                 // Couleurs personnalisées
                 primaryColor = p[Keys.PRIMARY_COLOR].orEmpty(),
                 secondaryColor = p[Keys.SECONDARY_COLOR].orEmpty(),
@@ -261,20 +189,9 @@ class SettingsRepository @Inject constructor(
                 skipSilence = p[Keys.SKIP_SILENCE] ?: false,
                 playbackSpeed = p[Keys.SPEED] ?: 1f,
                 playbackPitch = p[Keys.PITCH] ?: 1f,
-                audioFocusPause = p[Keys.AUDIO_FOCUS_PAUSE] ?: true,
                 resumeOnHeadsetConnect = p[Keys.RESUME_ON_HEADSET] ?: false,
                 rememberQueue = p[Keys.REMEMBER_QUEUE] ?: true,
-                
-                // Nouvelle option : reprendre après un appel
-                resumeAfterCall = p[Keys.RESUME_AFTER_CALL] ?: true,
-                
-                // Nouvelle option : arrêter après inactivité
                 stopAfterInactivityMin = p[Keys.STOP_AFTER_INACTIVITY] ?: 0,
-                
-                // Volume
-                defaultVolume = p[Keys.DEFAULT_VOLUME] ?: 0.8f,
-                maxVolumeLimit = p[Keys.MAX_VOLUME_LIMIT] ?: false,
-                maxVolumeValue = p[Keys.MAX_VOLUME_VALUE] ?: 1.0f,
 
                 minDurationSec = p[Keys.MIN_DURATION] ?: 30,
                 defaultTab = p.enum(Keys.DEFAULT_TAB, LibraryTab.SONGS),
@@ -285,13 +202,6 @@ class SettingsRepository @Inject constructor(
                 artistSort = p.enum(Keys.ARTIST_SORT, ArtistSort.NAME),
                 artistSortDescending = p[Keys.ARTIST_SORT_DESC] ?: false,
                 albumGridColumns = p[Keys.ALBUM_COLUMNS] ?: 2,
-
-                // Nouvelles options pour la bibliothèque
-                showEmptyAlbums = p[Keys.SHOW_EMPTY_ALBUMS] ?: false,
-                groupAlbumsByArtist = p[Keys.GROUP_ALBUMS_BY_ARTIST] ?: false,
-                autoScan = p[Keys.AUTO_SCAN] ?: true,
-                scanInBackground = p[Keys.SCAN_IN_BACKGROUND] ?: true,
-                hideDuplicates = p[Keys.HIDE_DUPLICATES] ?: false,
                 normalizeVolume = p[Keys.NORMALIZE_VOLUME] ?: false,
                 normalizeTargetDbfs = p[Keys.NORMALIZE_TARGET_DBFS] ?: -14f,
                 shuffleSkipsDisliked = p[Keys.SHUFFLE_SKIPS_DISLIKED] ?: false,
@@ -314,20 +224,6 @@ class SettingsRepository @Inject constructor(
                 bassBoost = p[Keys.BASS_BOOST] ?: 0,
                 virtualizer = p[Keys.VIRTUALIZER] ?: 0,
                 loudnessGain = p[Keys.LOUDNESS] ?: 0,
-                
-                // Nouvelles options pour les playlists
-                defaultPlaylistSort = p[Keys.DEFAULT_PLAYLIST_SORT] ?: PlaylistSort.NAME.name,
-                showPlaylistDuration = p[Keys.SHOW_PLAYLIST_DURATION] ?: true,
-                allowDuplicateSongs = p[Keys.ALLOW_DUPLICATE_SONGS] ?: false,
-                
-                // Statistiques
-                defaultStatsPeriod = p[Keys.DEFAULT_STATS_PERIOD] ?: fr.synxio.player.data.model.StatsPeriod.ALL_TIME.name,
-                
-                // Accessibilité
-                reduceAnimations = p[Keys.REDUCE_ANIMATIONS] ?: false,
-                
-                // Expérimental
-                developerMode = p[Keys.DEVELOPER_MODE] ?: false,
             )
         }
 
@@ -347,9 +243,9 @@ class SettingsRepository @Inject constructor(
     suspend fun setSkipSilence(value: Boolean) = put(Keys.SKIP_SILENCE, value)
     suspend fun setSpeed(value: Float) = put(Keys.SPEED, value)
     suspend fun setPitch(value: Float) = put(Keys.PITCH, value)
-    suspend fun setAudioFocusPause(value: Boolean) = put(Keys.AUDIO_FOCUS_PAUSE, value)
     suspend fun setResumeOnHeadsetConnect(value: Boolean) = put(Keys.RESUME_ON_HEADSET, value)
     suspend fun setRememberQueue(value: Boolean) = put(Keys.REMEMBER_QUEUE, value)
+    suspend fun setStopAfterInactivity(value: Int) = put(Keys.STOP_AFTER_INACTIVITY, value)
 
     suspend fun setMinDurationSec(value: Int) = put(Keys.MIN_DURATION, value)
     suspend fun setDefaultTab(value: LibraryTab) = put(Keys.DEFAULT_TAB, value.name)
@@ -404,21 +300,6 @@ class SettingsRepository @Inject constructor(
     suspend fun setLoudnessGain(value: Int) = put(Keys.LOUDNESS, value)
     suspend fun setLastScan(value: Long) = put(Keys.LAST_SCAN, value)
 
-    // Nouvelles options pour la lecture
-    suspend fun setResumeAfterCall(value: Boolean) = put(Keys.RESUME_AFTER_CALL, value)
-    suspend fun setStopAfterInactivity(value: Int) = put(Keys.STOP_AFTER_INACTIVITY, value)
-    
-    // Volume
-    suspend fun setDefaultVolume(value: Float) = put(Keys.DEFAULT_VOLUME, value)
-    suspend fun setMaxVolumeLimit(value: Boolean) = put(Keys.MAX_VOLUME_LIMIT, value)
-    suspend fun setMaxVolumeValue(value: Float) = put(Keys.MAX_VOLUME_VALUE, value)
-
-    // Nouvelles options pour la bibliothèque
-    suspend fun setShowEmptyAlbums(value: Boolean) = put(Keys.SHOW_EMPTY_ALBUMS, value)
-    suspend fun setGroupAlbumsByArtist(value: Boolean) = put(Keys.GROUP_ALBUMS_BY_ARTIST, value)
-    suspend fun setAutoScan(value: Boolean) = put(Keys.AUTO_SCAN, value)
-    suspend fun setScanInBackground(value: Boolean) = put(Keys.SCAN_IN_BACKGROUND, value)
-    suspend fun setHideDuplicates(value: Boolean) = put(Keys.HIDE_DUPLICATES, value)
     suspend fun setNormalizeVolume(value: Boolean) = put(Keys.NORMALIZE_VOLUME, value)
     suspend fun setNormalizeTargetDbfs(value: Float) = put(Keys.NORMALIZE_TARGET_DBFS, value)
     suspend fun setShuffleSkipsDisliked(value: Boolean) = put(Keys.SHUFFLE_SKIPS_DISLIKED, value)
@@ -428,20 +309,6 @@ class SettingsRepository @Inject constructor(
         put(Keys.DISCORD_PRESENCE_ENABLED, value)
     suspend fun setDiscordWebhookUrl(value: String) = put(Keys.DISCORD_WEBHOOK_URL, value.trim())
     suspend fun setLastUpdateCheck(value: Long) = put(Keys.LAST_UPDATE_CHECK, value)
-    
-    // Nouvelles options pour les playlists
-    suspend fun setDefaultPlaylistSort(value: String) = put(Keys.DEFAULT_PLAYLIST_SORT, value)
-    suspend fun setShowPlaylistDuration(value: Boolean) = put(Keys.SHOW_PLAYLIST_DURATION, value)
-    suspend fun setAllowDuplicateSongs(value: Boolean) = put(Keys.ALLOW_DUPLICATE_SONGS, value)
-    
-    // Statistiques
-    suspend fun setDefaultStatsPeriod(value: String) = put(Keys.DEFAULT_STATS_PERIOD, value)
-    
-    // Accessibilité
-    suspend fun setReduceAnimations(value: Boolean) = put(Keys.REDUCE_ANIMATIONS, value)
-    
-    // Expérimental
-    suspend fun setDeveloperMode(value: Boolean) = put(Keys.DEVELOPER_MODE, value)
 
     private suspend fun <T> put(key: Preferences.Key<T>, value: T) {
         context.dataStore.edit { it[key] = value }

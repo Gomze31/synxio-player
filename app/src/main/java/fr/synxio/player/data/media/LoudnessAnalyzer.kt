@@ -4,6 +4,7 @@ import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -71,6 +72,10 @@ class LoudnessAnalyzer @Inject constructor() {
             if (rms <= 0.0) return@withContext SILENCE_DBFS
 
             (20.0 * log10(rms)).toFloat().coerceIn(SILENCE_DBFS, 0f)
+        } catch (error: CancellationException) {
+            // L'annulation doit remonter : l'avaler ferait continuer l'analyse de la
+            // bibliothèque après que l'utilisateur l'a arrêtée.
+            throw error
         } catch (error: Throwable) {
             // Un fichier corrompu ou un codec exotique ne doit pas interrompre l'analyse
             // de toute la bibliothèque : on le signale et on passe au suivant.

@@ -20,17 +20,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Album
-import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArtTrack
 import androidx.compose.material.icons.rounded.CalendarToday
 import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.Tune
@@ -71,7 +70,7 @@ import fr.synxio.player.core.util.asDuration
 import fr.synxio.player.data.model.PlayHistory
 import fr.synxio.player.data.model.StatsPeriod
 import fr.synxio.player.data.model.formatDate
-import fr.synxio.player.ui.components.SongRow
+import fr.synxio.player.ui.components.primaryArtistName
 import fr.synxio.player.ui.viewmodel.AppViewModel
 import fr.synxio.player.ui.viewmodel.HistoryViewModel
 import java.text.SimpleDateFormat
@@ -99,8 +98,11 @@ fun HistoryScreen(
     
     var expanded by remember { mutableStateOf(false) }
     var showClearDialog by remember { mutableStateOf(false) }
-    var selectedItem by remember { mutableStateOf<PlayHistory?>(null) }
-    
+
+    // Un seul formateur pour toute la liste : SimpleDateFormat est coûteux à construire
+    // et il était recréé pour chaque ligne à chaque recomposition.
+    val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -112,7 +114,7 @@ fun HistoryScreen(
             navigationIcon = {
                 IconButton(onClick = onBack) {
                     Icon(
-                        imageVector = Icons.Rounded.ArrowBack,
+                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                         contentDescription = "Retour"
                     )
                 }
@@ -192,28 +194,33 @@ fun HistoryScreen(
                     EmptyHistorySection()
                 }
             } else {
-                // Liste de l'historique
-                items(history, key = { it.playedAt.toEpochMilli() }) { item ->
+                // Liste de l'historique. La clé combine l'horodatage, le titre et la
+                // position : l'horodatage seul est à la seconde et deux écoutes
+                // enregistrées en rafale partageaient la même clé, ce qui faisait
+                // planter la liste.
+                itemsIndexed(
+                    history,
+                    key = { index, it -> "${it.playedAt.toEpochMilli()}-${it.song.id}-$index" },
+                ) { index, item ->
                     val date = item.playedAt.formatDate()
-                    val time = SimpleDateFormat("HH:mm", Locale.getDefault())
-                        .format(Date(item.playedAt.toEpochMilli()))
-                    
+                    val time = timeFormat.format(Date(item.playedAt.toEpochMilli()))
+
                     // Afficher la date comme en-tête de section
-                    if (history.indexOf(item) == 0 || 
-                        item.playedAt.formatDate() != history[history.indexOf(item) - 1].playedAt.formatDate()) {
+                    val previous = history.getOrNull(index - 1)
+                    if (previous == null || previous.playedAt.formatDate() != date) {
                         StickyDateHeader(date = date)
                     }
-                    
+
                     HistoryItem(
                         history = item,
                         time = time,
                         onPlay = { onPlaySong(listOf(item.song), 0) },
-                        onOpenArtist = { onOpenArtist(item.song.artist) },
+                        onOpenArtist = { onOpenArtist(item.song.primaryArtistName) },
                         onOpenAlbum = { onOpenAlbum(item.song.albumId) }
                     )
-                    
+
                     // Séparateur
-                    if (history.indexOf(item) < history.size - 1) {
+                    if (index < history.size - 1) {
                         Spacer(Modifier.height(4.dp))
                     }
                 }
@@ -418,14 +425,15 @@ private fun HistoryItem(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Artwork
+            // Artwork : un appui ouvre l'album, l'ancien bouton « ⋮ » ne faisait rien.
             if (history.song.artworkUri != null) {
                 AsyncImage(
                     model = history.song.artworkUri,
-                    contentDescription = null,
+                    contentDescription = "Ouvrir l'album",
                     modifier = Modifier
                         .size(48.dp)
-                        .clip(RoundedCornerShape(8.dp)),
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable(onClick = onOpenAlbum),
                     contentScale = ContentScale.Crop
                 )
             } else {
@@ -433,7 +441,8 @@ private fun HistoryItem(
                     modifier = Modifier
                         .size(48.dp)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainer),
+                        .background(MaterialTheme.colorScheme.surfaceContainer)
+                        .clickable(onClick = onOpenAlbum),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -463,6 +472,7 @@ private fun HistoryItem(
                 Spacer(Modifier.height(2.dp))
                 
                 Row(
+                    modifier = Modifier.clickable(onClick = onOpenArtist),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
@@ -473,7 +483,7 @@ private fun HistoryItem(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = history.song.artist,
+                        text = history.song.displayArtist,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1
@@ -496,20 +506,6 @@ private fun HistoryItem(
                         text = "$time - ${history.listenedMs.asDuration()}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-            
-            // Bouton de menu
-            Box {
-                IconButton(
-                    onClick = { /* Menu actions */ },
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Icon(
-                        Icons.Rounded.MoreVert,
-                        contentDescription = "Plus d'options",
-                        modifier = Modifier.size(20.dp)
                     )
                 }
             }

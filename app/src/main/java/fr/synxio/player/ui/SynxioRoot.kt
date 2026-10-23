@@ -193,6 +193,7 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerOnStart: Boolean) {
                     ) {
                         MiniPlayer(
                             state = playerState,
+                            position = viewModel.position,
                             onExpand = { playerExpanded = true },
                             onPlayPause = viewModel::togglePlayPause,
                             onNext = viewModel::next,
@@ -403,7 +404,10 @@ private fun AppNavHost(
 
         composable(Routes.GENRE) { entry ->
             val name = entry.arguments?.getString("genreName")?.let(Routes::decode).orEmpty()
-            val genre = viewModel.genreByName(name)
+            // Collecté plutôt que lu via `.value` : sinon l'écran restait figé sur
+            // l'état d'avant un rescan.
+            val library by viewModel.library.collectAsStateWithLifecycle()
+            val genre = remember(name, library) { viewModel.genreByName(name) }
             SongListScreen(
                 viewModel = viewModel,
                 title = name,
@@ -417,7 +421,8 @@ private fun AppNavHost(
 
         composable(Routes.FOLDER) { entry ->
             val path = entry.arguments?.getString("folderPath")?.let(Routes::decode).orEmpty()
-            val folder = viewModel.folderByPath(path)
+            val library by viewModel.library.collectAsStateWithLifecycle()
+            val folder = remember(path, library) { viewModel.folderByPath(path) }
             SongListScreen(
                 viewModel = viewModel,
                 title = folder?.name ?: "Dossier",
@@ -464,7 +469,10 @@ private fun AppNavHost(
             // lien restauré) ne doit pas faire planter la navigation.
             val id = entry.arguments?.getString("smartId")
                 ?.let { name -> SmartPlaylistId.entries.firstOrNull { it.name == name } }
-            val smart = id?.let(viewModel::smartPlaylist)
+            val smartPlaylists by viewModel.smartPlaylists.collectAsStateWithLifecycle()
+            val smart = remember(id, smartPlaylists) {
+                id?.let { wanted -> smartPlaylists.firstOrNull { it.id == wanted } }
+            }
             SongListScreen(
                 viewModel = viewModel,
                 title = smart?.title ?: "Sélection",

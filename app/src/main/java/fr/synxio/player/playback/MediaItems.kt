@@ -4,6 +4,7 @@ import android.net.Uri
 import android.os.Bundle
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.util.UnstableApi
 import fr.synxio.player.data.model.Song
 
 const val EXTRA_PATH = "fr.synxio.player.PATH"
@@ -16,6 +17,7 @@ const val EXTRA_DURATION = "fr.synxio.player.DURATION"
  * Le `mediaId` est l'id MediaStore : c'est lui qui permet de retrouver le morceau
  * complet depuis le lecteur, la notification, le widget ou Android Auto.
  */
+@androidx.annotation.OptIn(UnstableApi::class)
 fun Song.toMediaItem(): MediaItem {
     val extras = Bundle().apply {
         putString(EXTRA_PATH, path)

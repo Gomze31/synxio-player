@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PlaylistAdd
+import androidx.compose.material.icons.rounded.PlaylistRemove
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.Share
@@ -126,7 +127,7 @@ fun SongOptionsSheet(
             }
 
             actions.onRemoveFromPlaylist?.let {
-                SheetAction(Icons.Rounded.PlaylistAdd, "Retirer de cette playlist") {
+                SheetAction(Icons.Rounded.PlaylistRemove, "Retirer de cette playlist") {
                     it(); onDismiss()
                 }
             }

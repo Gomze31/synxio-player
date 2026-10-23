@@ -20,20 +20,28 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * État du lecteur tel que l'UI le consomme.
+ *
+ * Il ne contient que ce qui change sur événement (piste, file, pause, modes). La
+ * position, qui avance en continu, vit dans [PlaybackPosition] : la mêler ici faisait
+ * recomposer tous les écrans abonnés quatre fois par seconde.
+ */
 data class PlayerUiState(
     val connected: Boolean = false,
     val currentSong: Song? = null,
     val isPlaying: Boolean = false,
     val isBuffering: Boolean = false,
-    val positionMs: Long = 0,
     val durationMs: Long = 0,
-    val bufferedMs: Long = 0,
     val queue: List<Song> = emptyList(),
     val queueIndex: Int = -1,
     val shuffleEnabled: Boolean = false,
@@ -46,15 +54,22 @@ data class PlayerUiState(
     /** Fin de la boucle A-B, null tant que le second point n'est pas posé. */
     val loopEndMs: Long? = null,
 ) {
-    val progress: Float
-        get() = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
-
     val loopState: AbLoopState
         get() = when {
             loopStartMs != null && loopEndMs != null -> AbLoopState.LOOPING
             loopStartMs != null -> AbLoopState.START_SET
             else -> AbLoopState.OFF
         }
+}
+
+/** Position de lecture échantillonnée, émise à part de [PlayerUiState]. */
+data class PlaybackPosition(
+    val positionMs: Long = 0,
+    val bufferedMs: Long = 0,
+    val durationMs: Long = 0,
+) {
+    val progress: Float
+        get() = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
 }
 
 /** Étapes du cycle de la répétition A-B, dans l'ordre où le bouton les parcourt. */
@@ -76,6 +91,9 @@ class PlayerConnection @Inject constructor(
     private val _state = MutableStateFlow(PlayerUiState())
     val state: StateFlow<PlayerUiState> = _state.asStateFlow()
 
+    private val _position = MutableStateFlow(PlaybackPosition())
+    val position: StateFlow<PlaybackPosition> = _position.asStateFlow()
+
     private var controller: MediaController? = null
 
     /**
@@ -94,6 +112,7 @@ class PlayerConnection @Inject constructor(
     init {
         scope.launch { connect() }
         scope.launch { tickPosition() }
+        scope.launch { resyncWhenLibraryLoads() }
     }
 
     private suspend fun connect() = withContext(Dispatchers.Main) {
@@ -104,13 +123,32 @@ class PlayerConnection @Inject constructor(
                 runCatching { future.get() }.onSuccess { mediaController ->
                     controller = mediaController
                     mediaController.addListener(ControllerListener())
-                    syncState()
+                    syncState(rebuildQueue = true)
                     pendingCommand?.invoke()
                     pendingCommand = null
                 }
             },
             androidx.core.content.ContextCompat.getMainExecutor(context),
         )
+    }
+
+    /**
+     * La file est résolue contre l'index de la bibliothèque. Si le contrôleur se connecte
+     * avant la fin du scan (démarrage à froid depuis la notification ou le widget), la
+     * file et le morceau courant restent vides jusqu'au prochain événement du lecteur —
+     * potentiellement la fin du morceau. On resynchronise dès que l'index arrive.
+     */
+    private suspend fun resyncWhenLibraryLoads() {
+        musicRepository.songsById
+            .filter { it.isNotEmpty() }
+            .collect {
+                withContext(Dispatchers.Main) {
+                    val c = controller ?: return@withContext
+                    if (c.mediaItemCount > 0 && _state.value.queue.size != c.mediaItemCount) {
+                        syncState(rebuildQueue = true)
+                    }
+                }
+            }
     }
 
     /**
@@ -138,14 +176,18 @@ class PlayerConnection @Inject constructor(
                 val end = _state.value.loopEndMs
                 if (start != null && end != null && position >= end) {
                     c.seekTo(start)
-                    _state.value = _state.value.copy(positionMs = start)
+                    _position.update { it.copy(positionMs = start) }
                     return@withContext
                 }
 
-                _state.value = _state.value.copy(
+                // À l'arrêt, la position ne bouge pas : ne pas réémettre un état identique
+                // évite de réveiller les abonnés pour rien.
+                val next = PlaybackPosition(
                     positionMs = position,
                     bufferedMs = c.bufferedPosition.coerceAtLeast(0),
+                    durationMs = c.duration.takeIf { it > 0 } ?: 0,
                 )
+                if (next != _position.value) _position.value = next
             }
         }
     }
@@ -181,11 +223,22 @@ class PlayerConnection @Inject constructor(
         }
     }
 
-    private fun syncState() {
+    /**
+     * Reconstruit l'état depuis le contrôleur.
+     *
+     * La file n'est relue que si la timeline a changé : la reconstruire — une
+     * résolution par élément — à chaque pause ou changement de vitesse coûtait
+     * inutilement cher sur une file « Tout mélanger » de plusieurs milliers de titres.
+     */
+    private fun syncState(rebuildQueue: Boolean) {
         val c = controller ?: return
         val previous = _state.value
-        val queue = (0 until c.mediaItemCount).mapNotNull {
-            musicRepository.songById(c.getMediaItemAt(it).songId)
+        val queue = if (rebuildQueue || !previous.connected) {
+            (0 until c.mediaItemCount).mapNotNull {
+                musicRepository.songById(c.getMediaItemAt(it).songId)
+            }
+        } else {
+            previous.queue
         }
         val current = c.currentMediaItem?.let { musicRepository.songById(it.songId) }
 
@@ -194,15 +247,14 @@ class PlayerConnection @Inject constructor(
         // le premier appui sur pause l'effacerait. Elle appartient en revanche à la
         // piste, et ne survit donc pas à un changement de morceau.
         val sameTrack = current != null && current.id == previous.currentSong?.id
+        val duration = c.duration.takeIf { it > 0 } ?: 0
 
         _state.value = PlayerUiState(
             connected = true,
             currentSong = current,
             isPlaying = c.isPlaying,
             isBuffering = c.playbackState == Player.STATE_BUFFERING,
-            positionMs = c.currentPosition.coerceAtLeast(0),
-            durationMs = c.duration.takeIf { it > 0 } ?: 0,
-            bufferedMs = c.bufferedPosition.coerceAtLeast(0),
+            durationMs = duration,
             queue = queue,
             queueIndex = c.currentMediaItemIndex,
             shuffleEnabled = c.shuffleModeEnabled,
@@ -217,10 +269,17 @@ class PlayerConnection @Inject constructor(
             loopStartMs = previous.loopStartMs.takeIf { sameTrack },
             loopEndMs = previous.loopEndMs.takeIf { sameTrack },
         )
+        _position.value = PlaybackPosition(
+            positionMs = c.currentPosition.coerceAtLeast(0),
+            bufferedMs = c.bufferedPosition.coerceAtLeast(0),
+            durationMs = duration,
+        )
     }
 
     private inner class ControllerListener : Player.Listener {
-        override fun onEvents(player: Player, events: Player.Events) = syncState()
+        override fun onEvents(player: Player, events: Player.Events) {
+            syncState(rebuildQueue = events.contains(Player.EVENT_TIMELINE_CHANGED))
+        }
     }
 
     // --- Commandes ----------------------------------------------------------------------
@@ -245,8 +304,8 @@ class PlayerConnection @Inject constructor(
     fun shufflePlay(songs: List<Song>) {
         if (songs.isEmpty()) return
         whenConnected {
-            controller?.shuffleModeEnabled = true
             val c = controller ?: return@whenConnected
+            c.shuffleModeEnabled = true
             val index = songs.indices.random()
             c.setMediaItems(songs.toMediaItems(), index, 0L)
             c.prepare()
@@ -288,11 +347,11 @@ class PlayerConnection @Inject constructor(
 
     fun seekTo(positionMs: Long) {
         controller?.seekTo(positionMs)
-        _state.value = _state.value.copy(positionMs = positionMs)
+        _position.update { it.copy(positionMs = positionMs) }
     }
 
     fun seekToProgress(progress: Float) {
-        val duration = _state.value.durationMs
+        val duration = _position.value.durationMs.takeIf { it > 0 } ?: _state.value.durationMs
         if (duration > 0) seekTo((duration * progress).toLong())
     }
 

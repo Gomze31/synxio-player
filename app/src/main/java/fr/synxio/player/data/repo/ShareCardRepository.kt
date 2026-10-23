@@ -3,7 +3,6 @@ package fr.synxio.player.data.repo
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
@@ -47,7 +46,13 @@ class ShareCardRepository @Inject constructor(
     suspend fun createShareIntent(song: Song): Intent? = withContext(Dispatchers.IO) {
         try {
             val bitmap = render(song)
-            val uri = persist(bitmap)
+            // Six mégaoctets libérés dès l'écriture : le ramasse-miettes ne verrait
+            // qu'une petite référence Java et tarderait à rendre la mémoire native.
+            val uri = try {
+                persist(bitmap)
+            } finally {
+                bitmap.recycle()
+            }
             Intent(Intent.ACTION_SEND).apply {
                 type = "image/png"
                 putExtra(Intent.EXTRA_STREAM, uri)
@@ -62,16 +67,20 @@ class ShareCardRepository @Inject constructor(
 
     private fun render(song: Song): Bitmap {
         val artwork = loadArtwork(song)
-        val accent = artwork?.let { dominantColor(it) } ?: FALLBACK_ACCENT
+        try {
+            val accent = artwork?.let { dominantColor(it) } ?: FALLBACK_ACCENT
 
-        val card = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(card)
+            val card = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(card)
 
-        drawBackground(canvas, accent)
-        val artBottom = drawArtwork(canvas, artwork, accent)
-        drawText(canvas, song, artBottom)
+            drawBackground(canvas, accent)
+            val artBottom = drawArtwork(canvas, artwork, accent)
+            drawText(canvas, song, artBottom)
 
-        return card
+            return card
+        } finally {
+            artwork?.recycle()
+        }
     }
 
     /**
@@ -133,6 +142,7 @@ class ShareCardRepository @Inject constructor(
                 )
             }
             canvas.drawBitmap(rounded, MARGIN.toFloat(), MARGIN.toFloat(), null)
+            rounded.recycle()
         } else {
             canvas.drawRoundRect(
                 rect, RADIUS, RADIUS,
@@ -191,11 +201,9 @@ class ShareCardRepository @Inject constructor(
         return "${cut.trimEnd()}…"
     }
 
-    private fun loadArtwork(song: Song): Bitmap? = runCatching {
-        context.contentResolver.openInputStream(song.artworkUri)?.use {
-            BitmapFactory.decodeStream(it)
-        }
-    }.getOrNull()
+    /** Réduite au décodage : la pochette est dessinée dans un carré de [ARTWORK_PIXELS]. */
+    private fun loadArtwork(song: Song): Bitmap? =
+        context.contentResolver.decodeSampledArtwork(song.artworkUri, ARTWORK_PIXELS)
 
     private fun dominantColor(bitmap: Bitmap): Int {
         val palette = Palette.from(bitmap).clearFilters().generate()
@@ -231,6 +239,8 @@ class ShareCardRepository @Inject constructor(
         const val WIDTH = 1080
         const val HEIGHT = 1440
         const val MARGIN = 90
+        /** Côté du carré de pochette sur la carte : `WIDTH - 2 * MARGIN`. */
+        const val ARTWORK_PIXELS = WIDTH - 2 * MARGIN
         const val RADIUS = 48f
         const val SHARE_DIR = "share"
         const val FALLBACK_ACCENT = 0xFF6C5CE7.toInt()

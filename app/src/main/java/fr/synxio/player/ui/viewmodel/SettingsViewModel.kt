@@ -10,7 +10,6 @@ import fr.synxio.player.data.lastfm.LastFmScrobbler
 import fr.synxio.player.data.model.AccentSource
 import fr.synxio.player.data.model.LibraryTab
 import fr.synxio.player.data.model.NowPlayingSkin
-import fr.synxio.player.data.model.PlaylistSort
 import fr.synxio.player.data.model.ThemeColor
 import fr.synxio.player.data.model.ThemeMode
 import fr.synxio.player.data.model.TextSize
@@ -21,8 +20,11 @@ import fr.synxio.player.data.repo.LoudnessRepository
 import fr.synxio.player.data.repo.MusicRepository
 import fr.synxio.player.data.repo.SimilarityRepository
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -43,7 +45,18 @@ class SettingsViewModel @Inject constructor(
 
     val similarityProgress: StateFlow<AnalysisProgress> = similarity.progress
 
-    fun pendingFingerprintCount(): Int = similarity.pendingCount(music.library.value.songs)
+    /**
+     * Morceaux encore sans empreinte, tenu à jour pendant l'analyse.
+     *
+     * La carte des empreintes n'est pas exposée par le dépôt ; son compteur
+     * [SimilarityRepository.analysedCount] change à chaque empreinte ajoutée ou effacée,
+     * ce qui suffit à déclencher le recalcul. Lire [pendingFingerprintCount] dans la
+     * composition donnait un nombre figé jusqu'à la recomposition suivante.
+     */
+    val pendingFingerprints: StateFlow<Int> =
+        combine(similarity.analysedCount, music.library) { _, library ->
+            similarity.pendingCount(library.songs)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     fun analyseFingerprints() = similarity.analyseLibrary(music.library.value.songs)
 
@@ -61,9 +74,13 @@ class SettingsViewModel @Inject constructor(
 
     val loudnessProgress: StateFlow<LoudnessProgress> = loudness.progress
 
-    /** Morceaux encore sans mesure : sert a annoncer le travail restant. */
-    fun pendingLoudnessCount(): Int = loudness.pendingCount(music.library.value.songs)
+    /** Morceaux encore sans mesure, recalculé quand la base ou la bibliothèque change. */
+    val pendingLoudness: StateFlow<Int> =
+        combine(loudness.levels, music.library) { known, library ->
+            library.songs.count { it.path !in known }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
+    /** Morceaux encore sans mesure : sert a annoncer le travail restant. */
     fun setNormalizeVolume(value: Boolean) = viewModelScope.launch {
         settings.setNormalizeVolume(value)
         // Activer l'option sans mesure ne changerait rien : on lance l'analyse dans la
@@ -140,18 +157,9 @@ class SettingsViewModel @Inject constructor(
     fun setResumeOnHeadsetConnect(value: Boolean) =
         update { settings.setResumeOnHeadsetConnect(value) }
 
-    /** Reprendre après un appel */
-    fun setResumeAfterCall(value: Boolean) = update { settings.setResumeAfterCall(value) }
-
     /** Arrêter après inactivité (en minutes, 0 = désactivé) */
     fun setStopAfterInactivity(value: Int) = update { settings.setStopAfterInactivity(value) }
 
-    /** Volume par défaut */
-    fun setDefaultVolume(value: Float) = update { settings.setDefaultVolume(value) }
-
-    /** Limiter le volume maximum */
-    fun setMaxVolumeLimit(value: Boolean) = update { settings.setMaxVolumeLimit(value) }
-    fun setMaxVolumeValue(value: Float) = update { settings.setMaxVolumeValue(value) }
 
     // ========================================================================
     // BIBLIOTHÈQUE
@@ -160,41 +168,16 @@ class SettingsViewModel @Inject constructor(
     fun setMinDuration(seconds: Int) = update { settings.setMinDurationSec(seconds) }
     fun setDefaultTab(tab: LibraryTab) = update { settings.setDefaultTab(tab) }
 
-    /** Afficher les albums vides */
-    fun setShowEmptyAlbums(value: Boolean) = update { settings.setShowEmptyAlbums(value) }
-
-    /** Regrouper les albums par artiste */
-    fun setGroupAlbumsByArtist(value: Boolean) = update { settings.setGroupAlbumsByArtist(value) }
-
-    /** Scan automatique */
-    fun setAutoScan(value: Boolean) = update { settings.setAutoScan(value) }
-
-    /** Scan en arrière-plan */
-    fun setScanInBackground(value: Boolean) = update { settings.setScanInBackground(value) }
-
-    /** Masquer les doublons */
-    fun setHideDuplicates(value: Boolean) = update { settings.setHideDuplicates(value) }
 
     // ========================================================================
     // PLAYLISTS
     // ========================================================================
 
-    /** Tri par défaut des playlists */
-    fun setDefaultPlaylistSort(value: PlaylistSort) = update { settings.setDefaultPlaylistSort(value.name) }
-
-    /** Afficher la durée totale des playlists */
-    fun setShowPlaylistDuration(value: Boolean) = update { settings.setShowPlaylistDuration(value) }
-
-    /** Autoriser les doublons dans les playlists */
-    fun setAllowDuplicateSongs(value: Boolean) = update { settings.setAllowDuplicateSongs(value) }
 
     // ========================================================================
     // STATISTIQUES
     // ========================================================================
 
-    /** Période par défaut pour les statistiques */
-    fun setDefaultStatsPeriod(value: fr.synxio.player.data.model.StatsPeriod) = 
-        update { settings.setDefaultStatsPeriod(value.name) }
 
     // ========================================================================
     // PAROLES ET SCROBBLING
@@ -213,7 +196,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     /** Effacer le cache des paroles */
-    fun clearLyricsCache() = update { 
+    fun clearLyricsCache() = update {
         // À implémenter dans LyricsRepository
     }
 
@@ -221,15 +204,11 @@ class SettingsViewModel @Inject constructor(
     // ACCESSIBILITÉ
     // ========================================================================
 
-    /** Réduire les animations */
-    fun setReduceAnimations(value: Boolean) = update { settings.setReduceAnimations(value) }
 
     // ========================================================================
     // EXPÉRIMENTAL
     // ========================================================================
 
-    /** Mode développeur */
-    fun setDeveloperMode(value: Boolean) = update { settings.setDeveloperMode(value) }
 
     // ========================================================================
     // UTILITAIRES

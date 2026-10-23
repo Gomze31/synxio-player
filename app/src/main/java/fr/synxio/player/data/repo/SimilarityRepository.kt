@@ -9,10 +9,12 @@ import fr.synxio.player.di.ApplicationScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -58,8 +60,14 @@ class SimilarityRepository @Inject constructor(
 
     private var job: Job? = null
 
-    /** Empreintes brutes par chemin de fichier. */
+    /**
+     * Empreintes brutes par chemin de fichier.
+     *
+     * Le délai regroupe les écritures de l'analyse : sans lui, chaque lot inséré
+     * déclenchait une relecture et un re-parsing de toute la table.
+     */
     private val vectors: StateFlow<Map<String, FloatArray>> = dao.observeAll()
+        .debounce(TABLE_DEBOUNCE_MS)
         .map { list -> list.associate { it.songPath to it.vector.toVector() } }
         .stateIn(scope, SharingStarted.Eagerly, emptyMap())
 
@@ -101,21 +109,34 @@ class SimilarityRepository @Inject constructor(
             _progress.value = AnalysisProgress(0, todo.size, running = true)
             var failures = 0
 
-            todo.forEachIndexed { index, song ->
-                val features = analyzer.analyse(song.path)
-                if (features != null) {
-                    dao.put(
-                        AudioFeatureEntity(
+            // Écritures par lots : une insertion par morceau réveillait les observateurs
+            // de la table à chaque fois, qui relisaient tout — coût quadratique.
+            val pending = ArrayList<AudioFeatureEntity>(WRITE_BATCH)
+            try {
+                todo.forEachIndexed { index, song ->
+                    val features = analyzer.analyse(song.path)
+                    if (features != null) {
+                        pending += AudioFeatureEntity(
                             songPath = song.path,
                             vector = features.values.joinToString(",") { it.toString() },
                             fileModifiedSec = song.dateModifiedSec,
                             analysedAt = System.currentTimeMillis(),
                         )
-                    )
-                } else {
-                    failures++
+                        if (pending.size >= WRITE_BATCH) {
+                            dao.putAll(pending)
+                            pending.clear()
+                        }
+                    } else {
+                        failures++
+                    }
+                    _progress.value = AnalysisProgress(index + 1, todo.size, running = true)
                 }
-                _progress.value = AnalysisProgress(index + 1, todo.size, running = true)
+            } finally {
+                // Le reliquat est écrit même sur annulation : ces empreintes ont coûté
+                // plusieurs secondes chacune, les perdre obligerait à les recalculer.
+                if (pending.isNotEmpty()) {
+                    withContext(NonCancellable) { dao.putAll(pending) }
+                }
             }
 
             Log.i(TAG, "Empreintes calculées : ${todo.size - failures}/${todo.size}")
@@ -214,5 +235,7 @@ class SimilarityRepository @Inject constructor(
 
     private companion object {
         const val TAG = "Similarity"
+        const val WRITE_BATCH = 20
+        const val TABLE_DEBOUNCE_MS = 500L
     }
 }

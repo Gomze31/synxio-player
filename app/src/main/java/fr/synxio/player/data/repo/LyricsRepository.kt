@@ -35,9 +35,14 @@ data class LyricsResult(val lyrics: Lyrics, val outcome: LyricsOutcome)
 /**
  * Paroles, par ordre de priorité :
  *  1. fichier `.lrc` à côté du morceau (synchronisées, ce que l'utilisateur a choisi) ;
- *  2. tag `LYRICS` embarqué dans le fichier audio ;
- *  3. cache local d'une récupération en ligne précédente ;
+ *  2. cache local : récupération en ligne précédente, ou saisie manuelle ;
+ *  3. tag `LYRICS` embarqué dans le fichier audio ;
  *  4. LRCLIB (API publique, sans clé) si l'utilisateur a activé la recherche en ligne.
+ *
+ * Le cache passe avant le tag embarqué : lire le tag oblige jaudiotagger à parcourir
+ * tout le fichier audio, alors qu'une ligne Room se lit en une milliseconde. Un
+ * « non trouvé » en ligne est lui aussi mis en cache quelques jours, sinon chaque
+ * ouverture d'un morceau sans paroles coûtait deux appels réseau.
  */
 @Singleton
 class LyricsRepository @Inject constructor(
@@ -47,11 +52,25 @@ class LyricsRepository @Inject constructor(
 
     suspend fun lyricsFor(song: Song, allowOnline: Boolean): LyricsResult =
         withContext(Dispatchers.IO) {
-            val local = sidecarLrc(song) ?: embeddedLyrics(song) ?: cached(song)
-            if (local != null) return@withContext LyricsResult(local, LyricsOutcome.FOUND)
+            sidecarLrc(song)?.let { return@withContext LyricsResult(it, LyricsOutcome.FOUND) }
+
+            val entry = dao.get(song.path)
+            val negativeAt = entry?.takeIf { it.source == SOURCE_NONE }?.fetchedAt
+            if (entry != null && negativeAt == null) {
+                return@withContext LyricsResult(
+                    parse(entry.content, entry.source), LyricsOutcome.FOUND
+                )
+            }
+
+            embeddedLyrics(song)?.let { return@withContext LyricsResult(it, LyricsOutcome.FOUND) }
 
             if (!allowOnline) {
                 return@withContext LyricsResult(Lyrics.EMPTY, LyricsOutcome.ONLINE_DISABLED)
+            }
+
+            // Échec récent mémorisé : on ne réinterroge pas LRCLIB, qui a déjà répondu.
+            if (negativeAt != null && System.currentTimeMillis() - negativeAt < NEGATIVE_TTL_MS) {
+                return@withContext LyricsResult(Lyrics.EMPTY, LyricsOutcome.NOT_FOUND)
             }
 
             // On distingue « rien trouvé » de « serveur injoignable » : le premier cas
@@ -62,7 +81,20 @@ class LyricsRepository @Inject constructor(
             when {
                 online != null -> LyricsResult(online, LyricsOutcome.FOUND)
                 networkFailed -> LyricsResult(Lyrics.EMPTY, LyricsOutcome.UNREACHABLE)
-                else -> LyricsResult(Lyrics.EMPTY, LyricsOutcome.NOT_FOUND)
+                else -> {
+                    // Seule une vraie réponse négative est mémorisée : un réseau
+                    // absent ne dit rien sur le morceau.
+                    dao.put(
+                        LyricsCacheEntity(
+                            songPath = song.path,
+                            content = "",
+                            synced = false,
+                            source = SOURCE_NONE,
+                            fetchedAt = System.currentTimeMillis(),
+                        )
+                    )
+                    LyricsResult(Lyrics.EMPTY, LyricsOutcome.NOT_FOUND)
+                }
             }
         }
 
@@ -122,9 +154,6 @@ class LyricsRepository @Inject constructor(
         Log.d(TAG, "Pas de paroles embarquées pour ${song.title}")
         null
     }
-
-    private suspend fun cached(song: Song): Lyrics? =
-        dao.get(song.path)?.let { parse(it.content, it.source) }
 
     /**
      * Interroge LRCLIB en deux temps : correspondance exacte, puis recherche libre.
@@ -268,6 +297,10 @@ class LyricsRepository @Inject constructor(
         const val TAG = "LyricsRepository"
         const val SOURCE_LRCLIB = "LRCLIB"
         const val SOURCE_MANUAL = "Manuel"
+        /** Entrée négative : LRCLIB a répondu ne pas connaître le morceau. */
+        const val SOURCE_NONE = "none"
+        /** Durée pendant laquelle un « non trouvé » n'est pas redemandé. */
+        const val NEGATIVE_TTL_MS = 7L * 24 * 60 * 60 * 1000
         const val USER_AGENT = "Synxio Player v1.0 (lecteur local Android)"
         val NOISE_REGEX = Regex(
             """\((?:official\s*)?(?:lyrics?|audio|video|music\s*video|visualizer|hd|hq|4k)[^)]*\)""" +

@@ -1,11 +1,9 @@
 package fr.synxio.player.ui.screens.nowplaying
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -61,23 +59,26 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.synxio.player.core.util.asDuration
 import fr.synxio.player.data.model.NowPlayingSkin
 import fr.synxio.player.data.model.RepeatMode
+import fr.synxio.player.data.model.splitArtistTag
+import fr.synxio.player.playback.AbLoopState
+import fr.synxio.player.playback.PlaybackPosition
 import fr.synxio.player.ui.components.Artwork
 import fr.synxio.player.ui.components.MarqueeText
 import fr.synxio.player.ui.theme.LocalArtworkColors
 import fr.synxio.player.ui.viewmodel.AppViewModel
-import androidx.compose.ui.text.font.FontWeight
-import fr.synxio.player.playback.AbLoopState
 import fr.synxio.player.ui.viewmodel.LyricsViewModel
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Plein écran « Lecture en cours ».
@@ -176,7 +177,7 @@ fun NowPlayingScreen(
                     LyricsPane(
                         lyrics = lyricsState.lyrics,
                         loading = lyricsState.loading,
-                        positionMs = state.positionMs,
+                        position = viewModel.position,
                         onSeek = viewModel::seekTo,
                         modifier = Modifier.fillMaxSize(),
                         offsetMs = lyricsState.offsetMs,
@@ -226,8 +227,8 @@ fun NowPlayingScreen(
             Spacer(Modifier.height(12.dp))
 
             SeekBar(
-                positionMs = state.positionMs,
-                durationMs = state.durationMs.takeIf { it > 0 } ?: song.durationMs,
+                position = viewModel.position,
+                fallbackDurationMs = state.durationMs.takeIf { it > 0 } ?: song.durationMs,
                 onSeek = viewModel::seekTo,
             )
 
@@ -300,7 +301,15 @@ fun NowPlayingScreen(
         NowPlayingMenuSheet(
             song = song,
             onOpenAlbum = { onOpenAlbum(song.albumId) },
-            onOpenArtist = { onOpenArtist(song.displayArtist) },
+            // Même règle que l'indexation des artistes : l'artiste d'album prime, et un
+            // tag « A/B/C » est découpé. Naviguer avec l'artiste affiché ne trouvait rien
+            // pour une compilation ou un titre à plusieurs interprètes.
+            onOpenArtist = {
+                val names = splitArtistTag(
+                    song.albumArtist?.takeIf { it.isNotBlank() } ?: song.displayArtist
+                )
+                onOpenArtist(names.firstOrNull() ?: song.displayArtist)
+            },
             onEditTags = { onEditTags(song.id) },
             onRefreshLyrics = { lyricsViewModel.load(song, force = true); showLyrics = true },
             onShare = { viewModel.shareSong(song) },
@@ -423,16 +432,25 @@ private fun ArtworkStage(
     }
 }
 
+/**
+ * Disque qui tourne.
+ *
+ * L'angle est un `Animatable` relancé tant que la lecture dure : à la pause, le disque
+ * s'arrête là où il est au lieu de revenir à zéro, et repart de là. L'angle n'est lu
+ * qu'à la phase de dessin (`graphicsLayer`) : la rotation ne recompose rien.
+ */
 @Composable
 private fun VinylArtwork(model: Any?, spinning: Boolean, modifier: Modifier = Modifier) {
-    val transition = rememberInfiniteTransition(label = "vinyl")
-    val angle by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(14_000, easing = LinearEasing)),
-        label = "vinylAngle",
-    )
-    val rotation by animateFloatAsState(if (spinning) angle else 0f, label = "vinylRotation")
+    val angle = remember { Animatable(0f) }
+    LaunchedEffect(spinning) {
+        if (!spinning) return@LaunchedEffect
+        while (true) {
+            // Repart de l'angle courant, réduit modulo 360 pour ne pas grossir sans fin.
+            val from = angle.value % 360f
+            angle.snapTo(from)
+            angle.animateTo(from + 360f, tween(14_000, easing = LinearEasing))
+        }
+    }
 
     Box(modifier, Alignment.Center) {
         Box(
@@ -445,7 +463,7 @@ private fun VinylArtwork(model: Any?, spinning: Boolean, modifier: Modifier = Mo
             model = model,
             modifier = Modifier
                 .fillMaxSize(0.72f)
-                .rotate(if (spinning) angle else rotation),
+                .graphicsLayer { rotationZ = angle.value },
             shape = CircleShape,
         )
         Box(
@@ -457,12 +475,24 @@ private fun VinylArtwork(model: Any?, spinning: Boolean, modifier: Modifier = Mo
     }
 }
 
+/**
+ * Barre de progression.
+ *
+ * Seule abonnée à la position avec les paroles : elle se recompose quatre fois par
+ * seconde, et le reste de l'écran n'a pas à la suivre.
+ */
 @Composable
-private fun SeekBar(positionMs: Long, durationMs: Long, onSeek: (Long) -> Unit) {
+private fun SeekBar(
+    position: StateFlow<PlaybackPosition>,
+    fallbackDurationMs: Long,
+    onSeek: (Long) -> Unit,
+) {
+    val current by position.collectAsStateWithLifecycle()
     var dragging by remember { mutableStateOf(false) }
     var dragValue by remember { mutableFloatStateOf(0f) }
 
-    val progress = if (durationMs > 0) positionMs.toFloat() / durationMs else 0f
+    val durationMs = current.durationMs.takeIf { it > 0 } ?: fallbackDurationMs
+    val progress = if (durationMs > 0) current.positionMs.toFloat() / durationMs else 0f
     val value = if (dragging) dragValue else progress.coerceIn(0f, 1f)
 
     Column {

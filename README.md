@@ -31,7 +31,14 @@ $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
 
 .\gradlew.bat assembleDebug     # construit l'APK
 .\gradlew.bat installDebug      # installe sur l'appareil branché en débogage USB
+.\gradlew.bat testDebugUnitTest # tests unitaires JVM (tri, recherche, modèles, minuterie)
+.\gradlew.bat lintDebug         # analyse statique, rapport dans build/app/reports/
 ```
+
+Les tests vivent dans `app/src/test`. Ils tournent sans appareil ni émulateur : les classes
+Android y sont des coquilles vides (`isReturnDefaultValues`), et ce qui est testé est la
+logique pure — construction de la bibliothèque, tri, recherche floue, paroles, égaliseur,
+minuterie de veille.
 
 ### Dans Android Studio
 

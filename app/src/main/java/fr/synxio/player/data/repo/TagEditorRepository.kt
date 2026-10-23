@@ -89,9 +89,23 @@ class TagEditorRepository @Inject constructor(
         // song.path échoue avec EACCES, même après le consentement accordé — celui-ci
         // porte sur l'URI de contenu, pas sur le chemin.
         val workDir = File(context.cacheDir, WORK_DIR).apply { mkdirs() }
-        val work = File(workDir, "edit.${song.extension.lowercase().ifBlank { "mp3" }}")
+        // Nom unique par écriture : deux corrections simultanées (réparation groupée)
+        // partageaient le même fichier de travail et se corrompaient mutuellement.
+        // L'extension est conservée : jaudiotagger choisit son lecteur d'après elle.
+        val extension = song.extension.lowercase().ifBlank { "mp3" }
+        val work = runCatching { File.createTempFile("edit-", ".$extension", workDir) }
+            .getOrElse { return@withContext TagWriteResult.Failure("Cache inaccessible") }
 
-        runCatching {
+        try {
+            writeThrough(song, edit, work)
+        } finally {
+            work.delete()
+        }
+    }
+
+    private fun writeThrough(song: Song, edit: TagEdit, work: File): TagWriteResult {
+        val source = File(song.path)
+        return runCatching {
             source.inputStream().use { input ->
                 work.outputStream().use { output -> input.copyTo(output) }
             }
@@ -149,7 +163,7 @@ class TagEditorRepository @Inject constructor(
                     TagWriteResult.Failure(error.message ?: "Écriture des tags impossible")
                 }
             }
-        }.also { work.delete() }
+        }
     }
 
     private fun requestConsent(song: Song): IntentSender? = when {

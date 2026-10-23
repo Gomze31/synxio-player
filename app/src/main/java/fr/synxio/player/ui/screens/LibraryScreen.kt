@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Favorite
@@ -40,10 +41,12 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -82,6 +85,18 @@ fun LibraryScreen(
     )
     val scope = rememberCoroutineScope()
 
+    // `initialPage` est figé à la première composition, souvent avant que DataStore
+    // n'ait livré les réglages : on se cale sur l'onglet par défaut une seule fois,
+    // à la première valeur reçue, sans rejouer ce saut quand l'utilisateur change
+    // le réglage plus tard ni après une rotation.
+    var defaultTabApplied by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(settings.defaultTab) {
+        if (defaultTabApplied) return@LaunchedEffect
+        defaultTabApplied = true
+        val target = tabs.indexOf(settings.defaultTab)
+        if (target >= 0 && target != pagerState.currentPage) pagerState.scrollToPage(target)
+    }
+
     Column(modifier.fillMaxSize()) {
         PrimaryScrollableTabRow(selectedTabIndex = pagerState.currentPage, edgePadding = 12.dp) {
             tabs.forEachIndexed { index, tab ->
@@ -113,11 +128,12 @@ private fun SongsTab(
     onEditTags: (Long) -> Unit,
 ) {
     val songs by viewModel.sortedSongs.collectAsStateWithLifecycle()
-    val playerState by viewModel.playerState.collectAsStateWithLifecycle()
+    val nowPlaying by viewModel.nowPlaying.collectAsStateWithLifecycle()
     val favorites by viewModel.favoriteIds.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     var menuSong by remember { mutableStateOf<Song?>(null) }
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
+    val sortOptions = remember { SongSort.entries.map { it.label } }
 
     // Sélection multiple : l'appui long bascule en mode sélection au lieu d'ouvrir
     // le menu, et les appuis suivants cochent/décochent.
@@ -149,7 +165,7 @@ private fun SongsTab(
                     onAddToQueue = { viewModel.addToQueue(selectedSongs); selected = emptySet() },
                     onAddToPlaylist = { showPlaylistPicker = true },
                     onFavorite = {
-                        selectedSongs.forEach(viewModel::toggleFavorite)
+                        viewModel.toggleFavorites(selectedSongs)
                         selected = emptySet()
                     },
                 )
@@ -161,7 +177,7 @@ private fun SongsTab(
                 count = songs.size,
                 sortLabel = settings.songSort.label,
                 descending = settings.songSortDescending,
-                sortOptions = SongSort.entries.map { it.label },
+                sortOptions = sortOptions,
                 onSortSelected = { index ->
                     viewModel.setSongSort(SongSort.entries[index], settings.songSortDescending)
                 },
@@ -184,13 +200,15 @@ private fun SongsTab(
                         viewModel.playSong(song, songs)
                     }
                 },
-                isCurrent = playerState.currentSong?.id == song.id,
-                isPlaying = playerState.isPlaying,
+                isCurrent = nowPlaying.songId == song.id,
+                isPlaying = nowPlaying.isPlaying,
                 isFavorite = song.id in favorites,
+                // Même rayon que le découpage de SongRow (16 dp) : avec la forme du thème
+                // le fond de sélection dépassait aux coins.
                 modifier = if (isSelected) {
                     Modifier.background(
                         MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
-                        MaterialTheme.shapes.medium,
+                        RoundedCornerShape(16.dp),
                     )
                 } else {
                     Modifier

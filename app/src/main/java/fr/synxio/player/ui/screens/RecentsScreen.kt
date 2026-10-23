@@ -44,7 +44,7 @@ fun RecentsScreen(
     modifier: Modifier = Modifier,
 ) {
     val library by viewModel.library.collectAsStateWithLifecycle()
-    val playerState by viewModel.playerState.collectAsStateWithLifecycle()
+    val nowPlaying by viewModel.nowPlaying.collectAsStateWithLifecycle()
     val favorites by viewModel.favoriteIds.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
 
@@ -96,11 +96,11 @@ fun RecentsScreen(
                     }
                 }
                 items(songs, key = { it.id }) { song ->
-                    val isCurrent = playerState.currentSong?.id == song.id
+                    val isCurrent = nowPlaying.songId == song.id
                     SongRow(
                         song = song,
                         isCurrent = isCurrent,
-                        isPlaying = isCurrent && playerState.isPlaying,
+                        isPlaying = isCurrent && nowPlaying.isPlaying,
                         isFavorite = song.id in favorites,
                         onClick = { viewModel.playSong(song, ordered) },
                         onMenuClick = { onEditTags(song.id) },

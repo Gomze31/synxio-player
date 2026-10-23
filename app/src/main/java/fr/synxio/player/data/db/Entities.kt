@@ -111,8 +111,13 @@ data class ExcludedFolderEntity(
     @PrimaryKey val path: String,
 )
 
-/** Historique de lecture. */
-@Entity(tableName = "play_history")
+/**
+ * Historique de lecture.
+ *
+ * Indexé sur [songId] et [playedAt] : toutes les requêtes filtrent sur l'un ou trient
+ * sur l'autre, et la table grossit à chaque écoute sans jamais être purgée.
+ */
+@Entity(tableName = "play_history", indices = [Index("songId"), Index("playedAt")])
 data class PlayHistoryEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val songId: Long,

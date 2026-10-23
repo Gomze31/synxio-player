@@ -31,6 +31,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -65,6 +66,24 @@ fun HomeScreen(
     val mostPlayed by viewModel.mostPlayed.collectAsStateWithLifecycle()
     val recentlyPlayed by viewModel.recentlyPlayed.collectAsStateWithLifecycle()
     val favorites by viewModel.favoriteSongs.collectAsStateWithLifecycle()
+
+    // `dateAddedSec` et `songCount` sont des getters qui parcourent les titres : on trie
+    // une fois par bibliothèque, sur des paires précalculées, et non à chaque
+    // recomposition de l'accueil.
+    val latestAlbums = remember(library) {
+        library.albums
+            .map { it to it.dateAddedSec }
+            .sortedByDescending { it.second }
+            .take(20)
+            .map { it.first }
+    }
+    val topArtists = remember(library) {
+        library.artists
+            .map { it to it.songCount }
+            .sortedByDescending { it.second }
+            .take(20)
+            .map { it.first }
+    }
 
     if (library.isLoading && library.songs.isEmpty()) {
         Box(modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
@@ -142,7 +161,7 @@ fun HomeScreen(
                 contentPadding = PaddingValues(horizontal = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                items(library.albums.sortedByDescending { it.dateAddedSec }.take(20), key = { it.id }) { album ->
+                items(latestAlbums, key = { it.id }) { album ->
                     AlbumCard(
                         album = album,
                         onClick = { onOpenAlbum(album.id) },
@@ -158,7 +177,7 @@ fun HomeScreen(
                 contentPadding = PaddingValues(horizontal = 20.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                items(library.artists.sortedByDescending { it.songCount }.take(20), key = { it.name }) { artist ->
+                items(topArtists, key = { it.name }) { artist ->
                     Column(
                         modifier = Modifier
                             .width(104.dp)

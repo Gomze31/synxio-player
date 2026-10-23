@@ -58,6 +58,15 @@ class DiscordPresenceRepository @Inject constructor(
 
     private var client: DiscordRpcClient? = null
 
+    /**
+     * Instant du dernier échec de liaison, pour espacer les tentatives.
+     *
+     * Une liaison refusée ou injoignable coûte jusqu'à dix secondes de blocage du fil
+     * d'E/S ; la retenter à chaque changement de piste pénalisait toute la lecture
+     * pour un client Discord qui, le plus souvent, n'est simplement pas installé.
+     */
+    private var lastFailureAt = 0L
+
     /** Les publications viennent du service de lecture ; une seule à la fois. */
     private val mutex = Mutex()
 
@@ -91,6 +100,8 @@ class DiscordPresenceRepository @Inject constructor(
             client?.takeIf { it.isReady }?.let { publish(it, null) }
             client?.disconnect()
             client = null
+            // Fermeture explicite : la prochaine lecture repart d'une tentative franche.
+            lastFailureAt = 0L
             _status.value = PresenceStatus.IDLE
         }
     }
@@ -104,12 +115,17 @@ class DiscordPresenceRepository @Inject constructor(
             return null
         }
 
+        // Échec récent : on garde le statut affiché et on n'insiste pas.
+        if (System.currentTimeMillis() - lastFailureAt < RETRY_AFTER_MS) return null
+
         val fresh = DiscordRpcClient(context, id)
         return if (fresh.connect()) {
             client = fresh
+            lastFailureAt = 0L
             fresh
         } else {
             client = null
+            lastFailureAt = System.currentTimeMillis()
             // Un refus explicite de Discord n'est pas une absence de client : le premier
             // se corrige dans le portail développeur, le second en installant Discord.
             _status.value = if (fresh.lastError?.contains("refusé") == true) {
@@ -185,5 +201,7 @@ class DiscordPresenceRepository @Inject constructor(
         const val TYPE_LISTENING = 2
         /** Discord tronque au-delà de 128 caractères ; on le fait proprement avant lui. */
         const val MAX_FIELD = 128
+        /** Délai avant de retenter une liaison après un refus ou une absence de client. */
+        const val RETRY_AFTER_MS = 5L * 60 * 1000
     }
 }

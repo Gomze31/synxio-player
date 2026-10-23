@@ -12,6 +12,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.PlaybackParameters
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.session.CommandButton
@@ -19,6 +20,7 @@ import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
 import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionError
 import androidx.media3.session.SessionResult
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
@@ -61,6 +63,9 @@ import javax.inject.Inject
  * via un `MediaController`, ce qui garde la lecture vivante quand l'activité meurt et
  * fait fonctionner notification, Bluetooth, Android Auto et Assistant sans code en plus.
  */
+// Media3 marque une partie de l'API de session « instable » : on l'accepte en bloc ici,
+// le service est le seul endroit qui la touche.
+@androidx.annotation.OptIn(UnstableApi::class)
 @AndroidEntryPoint
 class PlaybackService : MediaLibraryService() {
 
@@ -89,6 +94,7 @@ class PlaybackService : MediaLibraryService() {
     private var trackStartedAtSec: Long = 0L
     private var persistJob: Job? = null
     private var widgetJob: Job? = null
+    private var inactivityJob: Job? = null
 
     /**
      * Derniers réglages connus.
@@ -163,6 +169,7 @@ class PlaybackService : MediaLibraryService() {
         headsetCallback = null
         fade.stop()
         sleepTimer.cancel()
+        inactivityJob?.cancel()
 
         // Sans cet effacement, le statut Discord resterait figé sur le dernier morceau
         // bien après l'arrêt de Synxio. Exécuté hors du scope du service, qui est annulé
@@ -231,6 +238,9 @@ class PlaybackService : MediaLibraryService() {
         if (queueRestored || player.mediaItemCount > 0) return
         queueRestored = true
 
+        // « Reprendre la file au démarrage » : le réglage était affiché mais jamais lu.
+        if (!settingsRepository.settings.first().rememberQueue) return
+
         val saved = queueDao.queue()
         if (saved.isEmpty()) return
         val songs = musicRepository.songsByIds(saved.sortedBy { it.position }.map { it.songId })
@@ -244,20 +254,59 @@ class PlaybackService : MediaLibraryService() {
         // On restaure en pause : reprendre tout seul au démarrage est intrusif.
     }
 
+    /**
+     * Persiste la file complète et l'état de lecture.
+     *
+     * Réservé aux moments où la file a pu changer : relire et réécrire plusieurs
+     * milliers de lignes à chaque pause, comme avant, bloquait le fil principal le
+     * temps de parcourir la timeline et saturait la base pour rien. Les simples
+     * changements d'état passent par [persistState].
+     */
     private fun persistQueue() {
         persistJob?.cancel()
         if (player.mediaItemCount == 0) return
         val ids = (0 until player.mediaItemCount).map { player.getMediaItemAt(it).songId }
-        val state = PlaybackStateEntity(
-            currentIndex = player.currentMediaItemIndex,
-            positionMs = player.currentPosition,
-            shuffle = player.shuffleModeEnabled,
-            repeatMode = player.repeatMode,
-            queueTitle = player.currentMediaItem?.mediaMetadata?.albumTitle?.toString().orEmpty(),
-            isPlaying = player.isPlaying,
-        )
+        val state = snapshotState()
         persistJob = serviceScope.launch(Dispatchers.IO) { queueDao.persist(ids, state) }
         refreshWidgetSoon()
+    }
+
+    /** Persiste seulement position, index et modes : la file n'a pas bougé. */
+    private fun persistState() {
+        if (player.mediaItemCount == 0) return
+        val state = snapshotState()
+        serviceScope.launch(Dispatchers.IO) { queueDao.saveState(state) }
+        refreshWidgetSoon()
+    }
+
+    private fun snapshotState() = PlaybackStateEntity(
+        currentIndex = player.currentMediaItemIndex,
+        positionMs = player.currentPosition,
+        shuffle = player.shuffleModeEnabled,
+        repeatMode = player.repeatMode,
+        queueTitle = player.currentMediaItem?.mediaMetadata?.albumTitle?.toString().orEmpty(),
+        isPlaying = player.isPlaying,
+    )
+
+    /**
+     * Arrêt après inactivité.
+     *
+     * Le réglage existait dans l'écran des paramètres sans rien déclencher. Une fois
+     * la lecture en pause depuis la durée choisie, le service se libère : la file est
+     * déjà persistée, elle sera restaurée au prochain lancement.
+     */
+    private fun scheduleInactivityStop() {
+        inactivityJob?.cancel()
+        val minutes = latestSettings?.stopAfterInactivityMin ?: 0
+        if (minutes <= 0 || player.isPlaying) return
+        inactivityJob = serviceScope.launch {
+            delay(minutes * 60_000L)
+            if (!player.isPlaying) {
+                persistQueue()
+                player.stop()
+                stopSelf()
+            }
+        }
     }
 
     /**
@@ -395,8 +444,17 @@ class PlaybackService : MediaLibraryService() {
             startTracking(mediaItem)
             applyNormalization()
             fade.resetVolume()
-            persistQueue()
+            persistState()
         }
+
+        /** La file elle-même ne change qu'ici : c'est le seul endroit où on la réécrit. */
+        override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) {
+            if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED) persistQueue()
+        }
+
+        override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) = persistState()
+
+        override fun onRepeatModeChanged(repeatMode: Int) = persistState()
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             if (isPlaying) {
@@ -412,7 +470,8 @@ class PlaybackService : MediaLibraryService() {
             // entre l'icône lecture et l'icône pause. En ne persistant qu'à la pause, la
             // valeur ne repassait jamais à vrai : appuyer sur lecture depuis le widget
             // démarrait bien la musique, mais le bouton restait « lecture ».
-            persistQueue()
+            persistState()
+            scheduleInactivityStop()
 
             // Le statut doit suivre la pause, sinon Discord continue d'afficher une
             // progression qui avance alors que la lecture est arrêtée.
@@ -582,7 +641,7 @@ class PlaybackService : MediaLibraryService() {
                 CMD_CANCEL_SLEEP_TIMER -> sleepTimer.cancel()
 
                 else -> return Futures.immediateFuture(
-                    SessionResult(SessionResult.RESULT_ERROR_NOT_SUPPORTED)
+                    SessionResult(SessionError.ERROR_NOT_SUPPORTED)
                 )
             }
             return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
@@ -618,7 +677,7 @@ class PlaybackService : MediaLibraryService() {
             val item = libraryTree.itemById(mediaId)
             return Futures.immediateFuture(
                 if (item != null) LibraryResult.ofItem(item, null)
-                else LibraryResult.ofError(SessionResult.RESULT_ERROR_BAD_VALUE)
+                else LibraryResult.ofError(SessionError.ERROR_BAD_VALUE)
             )
         }
 

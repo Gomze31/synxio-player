@@ -42,7 +42,7 @@ fun SongMenuHost(
             onToggleFavorite = { viewModel.toggleFavorite(song) },
             onAddToPlaylist = { showPlaylistPicker = true },
             onOpenAlbum = onOpenAlbum?.let { { it(song.albumId) } },
-            onOpenArtist = onOpenArtist?.let { { it(song.displayArtist) } },
+            onOpenArtist = onOpenArtist?.let { { it(song.primaryArtistName) } },
             onEditTags = onEditTags?.let { { it(song.id) } },
             onShare = {
                 val share = Intent(Intent.ACTION_SEND).apply {
