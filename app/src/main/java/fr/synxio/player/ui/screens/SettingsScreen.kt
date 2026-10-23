@@ -208,7 +208,7 @@ enum class SettingsSubMenu(
     ),
     PLAYBACK(
         "Lecture & Audio",
-        "Fondu, gapless, silences, reprise casque et rembobinage",
+        "Fondu, gapless, reprise casque, minuterie et commande vocale",
         Icons.Rounded.PlayCircle,
     ),
     VOLUME(
@@ -444,11 +444,6 @@ fun SettingsScreen(
                                 checked = settings.keepScreenOnNowPlaying,
                                 onCheckedChange = settingsViewModel::setKeepScreenOnNowPlaying
                             )
-                            GroupDivider()
-                            VoiceWakeSetting(
-                                enabled = settings.voiceWakeEnabled,
-                                settingsViewModel = settingsViewModel,
-                            )
                         }
 
                         group(2, "display", "Affichage") {
@@ -648,6 +643,13 @@ fun SettingsScreen(
                                 onAnalyse = settingsViewModel::analyseFingerprints,
                                 onCancel = settingsViewModel::cancelFingerprints,
                                 onReset = settingsViewModel::resetFingerprints,
+                            )
+                        }
+
+                        group(5, "voice", "Commande vocale") {
+                            VoiceWakeSetting(
+                                enabled = settings.voiceWakeEnabled,
+                                settingsViewModel = settingsViewModel,
                             )
                         }
                     }
