@@ -166,6 +166,7 @@ data class Settings(
     // Audio & Lecture avancée
     val autoRewindSec: Int = 0,
     val keepScreenOnNowPlaying: Boolean = false,
+    val voiceWakeEnabled: Boolean = false,
     val shakeToSkip: Boolean = false,
     val karaokeEnabled: Boolean = false,
     val partyEnabled: Boolean = false,
@@ -275,6 +276,7 @@ class SettingsRepository @Inject constructor(
         // Audio & Lecture avancée
         val AUTO_REWIND_SEC = intPreferencesKey("auto_rewind_sec")
         val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on_now_playing")
+        val VOICE_WAKE = booleanPreferencesKey("voice_wake_enabled")
         val SHAKE_TO_SKIP = booleanPreferencesKey("shake_to_skip")
         val KARAOKE_ENABLED = booleanPreferencesKey("karaoke_enabled")
         val PARTY_ENABLED = booleanPreferencesKey("party_enabled")
@@ -384,6 +386,7 @@ class SettingsRepository @Inject constructor(
                 // Audio & Lecture avancée
                 autoRewindSec = p[Keys.AUTO_REWIND_SEC] ?: 0,
                 keepScreenOnNowPlaying = p[Keys.KEEP_SCREEN_ON] ?: false,
+                voiceWakeEnabled = p[Keys.VOICE_WAKE] ?: false,
                 shakeToSkip = p[Keys.SHAKE_TO_SKIP] ?: false,
                 karaokeEnabled = p[Keys.KARAOKE_ENABLED] ?: false,
                 partyEnabled = p[Keys.PARTY_ENABLED] ?: false,
@@ -516,6 +519,7 @@ class SettingsRepository @Inject constructor(
     // Audio & Lecture avancée
     suspend fun setAutoRewindSec(value: Int) = put(Keys.AUTO_REWIND_SEC, value)
     suspend fun setKeepScreenOnNowPlaying(value: Boolean) = put(Keys.KEEP_SCREEN_ON, value)
+    suspend fun setVoiceWakeEnabled(value: Boolean) = put(Keys.VOICE_WAKE, value)
     suspend fun setShakeToSkip(value: Boolean) = put(Keys.SHAKE_TO_SKIP, value)
     suspend fun setKaraokeEnabled(value: Boolean) = put(Keys.KARAOKE_ENABLED, value)
     suspend fun setPartyEnabled(value: Boolean) = put(Keys.PARTY_ENABLED, value)

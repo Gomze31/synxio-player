@@ -34,6 +34,8 @@ class SettingsViewModel @Inject constructor(
     private val loudness: LoudnessRepository,
     private val similarity: SimilarityRepository,
     private val music: MusicRepository,
+    private val voiceModels: fr.synxio.player.voice.VoskModelStore,
+    private val voiceWake: fr.synxio.player.voice.VoiceWakeController,
 ) : ViewModel() {
 
     // ========================================================================
@@ -203,6 +205,15 @@ class SettingsViewModel @Inject constructor(
 
     fun setAutoRewindSec(value: Int) = update { settings.setAutoRewindSec(value) }
     fun setKeepScreenOnNowPlaying(value: Boolean) = update { settings.setKeepScreenOnNowPlaying(value) }
+
+    val voiceModelState = voiceModels.state
+
+    /** Active l'écoute du mot-clé : télécharge d'abord le modèle vocal s'il manque. */
+    fun setVoiceWake(enabled: Boolean) = viewModelScope.launch {
+        if (enabled && !voiceModels.ensureInstalled()) return@launch
+        settings.setVoiceWakeEnabled(enabled)
+        voiceWake.sync(enabled)
+    }
 
     /** Nettoyer tous les caches (pochettes, temporaires) */
     fun clearAllCaches(onComplete: () -> Unit = {}) = viewModelScope.launch {

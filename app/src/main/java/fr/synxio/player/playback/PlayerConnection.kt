@@ -6,6 +6,7 @@ import android.app.Application
 import android.content.ComponentName
 import android.content.Context
 import android.os.Bundle
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
@@ -512,6 +513,20 @@ class PlayerConnection @Inject constructor(
 
     fun pause() { controller?.pause() }
 
+    /** Reprend la lecture si elle est arrêtée ; ne fait rien si elle tourne déjà. */
+    fun resume() = whenConnected {
+        val c = controller ?: return@whenConnected
+        if (!c.isPlaying) Util.handlePlayPauseButtonAction(c)
+    }
+
+    /** Avance (ou recule, [deltaMs] négatif) depuis la position réelle du lecteur. */
+    fun seekBy(deltaMs: Long) {
+        val c = controller ?: return
+        if (!c.isCurrentMediaItemSeekable) return
+        val duration = c.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: Long.MAX_VALUE
+        seekTo((c.currentPosition + deltaMs).coerceIn(0L, duration))
+    }
+
     fun next() = whenQueueReady {
         val c = controller ?: return@whenQueueReady
         c.seekToNextMediaItem()
@@ -550,6 +565,10 @@ class PlayerConnection @Inject constructor(
     fun toggleShuffle() = whenQueueReady {
         val c = controller ?: return@whenQueueReady
         c.shuffleModeEnabled = !c.shuffleModeEnabled
+    }
+
+    fun setShuffle(enabled: Boolean) = whenQueueReady {
+        controller?.shuffleModeEnabled = enabled
     }
 
     fun cycleRepeat() = whenQueueReady {

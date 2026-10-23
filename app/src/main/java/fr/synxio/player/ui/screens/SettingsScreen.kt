@@ -1,6 +1,12 @@
 package fr.synxio.player.ui.screens
 
+import android.Manifest
+import android.os.Build
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.rounded.Mic
+import fr.synxio.player.voice.VoiceModelState
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -437,6 +443,11 @@ fun SettingsScreen(
                                 icon = Icons.Rounded.SmartDisplay,
                                 checked = settings.keepScreenOnNowPlaying,
                                 onCheckedChange = settingsViewModel::setKeepScreenOnNowPlaying
+                            )
+                            GroupDivider()
+                            VoiceWakeSetting(
+                                enabled = settings.voiceWakeEnabled,
+                                settingsViewModel = settingsViewModel,
                             )
                         }
 
@@ -1170,6 +1181,45 @@ private fun lumenSliderColors() = SliderDefaults.colors(
     activeTickColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.6f),
     inactiveTickColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
 )
+
+/**
+ * Commande vocale mains libres. L'activer demande le micro (et les notifications, pour la
+ * notification d'écoute), puis télécharge le modèle vocal la première fois.
+ */
+@Composable
+private fun VoiceWakeSetting(enabled: Boolean, settingsViewModel: SettingsViewModel) {
+    val model by settingsViewModel.voiceModelState.collectAsStateWithLifecycle()
+    val permissions = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { granted ->
+        if (granted[Manifest.permission.RECORD_AUDIO] == true) settingsViewModel.setVoiceWake(true)
+    }
+    val subtitle = when (val state = model) {
+        is VoiceModelState.Downloading ->
+            "Téléchargement du modèle vocal (42 Mo)… " + (state.progress?.let { "${(it * 100).toInt()} %" } ?: "")
+        is VoiceModelState.Failed -> "Échec : ${state.message}"
+        else -> "Dis « Synxio » puis : pause, suivant, plus fort, volume cinquante, arrête dans vingt minutes… " +
+            "Reconnaissance sur le téléphone, rien n'est envoyé."
+    }
+    SwitchSetting(
+        title = "Commande vocale mains libres",
+        subtitle = subtitle,
+        icon = Icons.Rounded.Mic,
+        checked = enabled || model is VoiceModelState.Downloading,
+        onCheckedChange = { on ->
+            if (!on) {
+                settingsViewModel.setVoiceWake(false)
+            } else if (model !is VoiceModelState.Downloading) {
+                permissions.launch(
+                    buildList {
+                        add(Manifest.permission.RECORD_AUDIO)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
+                    }.toTypedArray()
+                )
+            }
+        },
+    )
+}
 
 /**
  * Paramètre avec interrupteur.

@@ -75,6 +75,7 @@ class AppViewModel @Inject constructor(
     private val equalizerController: fr.synxio.player.playback.EqualizerController,
     audioOutputMonitor: fr.synxio.player.playback.AudioOutputMonitor,
     smartPlaylistRepository: SmartPlaylistRepository,
+    private val voiceWake: fr.synxio.player.voice.VoiceWakeController,
 ) : ViewModel() {
 
     val similarityProgress = similarityRepository.progress
@@ -417,6 +418,9 @@ class AppViewModel @Inject constructor(
         player.startSleepTimer(minutes * 60_000L, finishTrack)
         emit("Veille dans $minutes min")
     }
+
+    /** Relance l'écoute vocale au retour au premier plan (le seul moment où Android l'autorise). */
+    fun syncVoiceWake(enabled: Boolean) = voiceWake.sync(enabled)
 
     fun cancelSleepTimer() {
         player.cancelSleepTimer()

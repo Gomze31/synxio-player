@@ -106,6 +106,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
@@ -277,6 +278,14 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
 
     LaunchedEffect(Unit) {
         viewModel.messages.collect { snackbarHost.showSnackbar(it) }
+    }
+
+    // Écoute vocale : (re)lancée à chaque retour au premier plan, seul moment où Android
+    // accorde le micro au service ; il a pu être arrêté pendant que l'app était cachée.
+    val voiceWakeEnabled = viewModel.settings.collectAsStateWithLifecycle().value.voiceWakeEnabled
+    LifecycleStartEffect(voiceWakeEnabled) {
+        viewModel.syncVoiceWake(voiceWakeEnabled)
+        onStopOrDispose { }
     }
     LaunchedEffect(Unit) {
         viewModel.actionMessages.collect { message ->

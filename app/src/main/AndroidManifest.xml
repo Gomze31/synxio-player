@@ -16,6 +16,8 @@
     <!-- Service de lecture en avant-plan -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- Commande vocale mains libres : écoute du mot-clé en avant-plan -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
@@ -143,6 +145,12 @@
                 <action android:name="android.media.browse.MediaBrowserService" />
             </intent-filter>
         </service>
+
+        <!-- Écoute du mot-clé « Synxio » (reconnaissance hors ligne) -->
+        <service
+            android:name=".voice.VoiceWakeService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
 
         <!-- Widget écran d'accueil (Glance) -->
         <receiver
