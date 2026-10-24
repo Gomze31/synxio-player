@@ -97,6 +97,7 @@ class PlaybackService : MediaLibraryService() {
     @Inject lateinit var discordPresence: DiscordPresenceRepository
     @Inject lateinit var podcastProgressDao: fr.synxio.player.data.db.PodcastProgressDao
     @Inject lateinit var widgetUpdater: WidgetUpdater
+    @Inject lateinit var historyRepository: fr.synxio.player.data.repo.HistoryRepository
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -782,8 +783,14 @@ class PlaybackService : MediaLibraryService() {
 
         val counted = !skipped || listened >= song.durationMs / 2
         writeScope.launch {
-            if (counted) musicRepository.registerPlay(song, listened)
-            else musicRepository.registerSkip(song, listened)
+            if (counted) {
+                musicRepository.registerPlay(song, listened)
+                // Le journal d'écoute n'était jamais alimenté : l'historique restait vide
+                // et les statistiques par période ne voyaient aucune lecture.
+                historyRepository.add(song.id, song.path, listened, song.durationMs)
+            } else {
+                musicRepository.registerSkip(song, listened)
+            }
 
             if (scrobbler.qualifies(song, listened)) scrobbler.scrobble(song, startedAt)
         }

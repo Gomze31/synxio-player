@@ -59,3 +59,11 @@
 -keep class com.sun.jna.** { *; }
 -keep class * implements com.sun.jna.** { *; }
 -keep class org.vosk.** { *; }
+
+# ML Kit (traduction, détection de langue) : les registrars sont instanciés par réflexion
+# depuis les métadonnées du manifeste. Sans leurs constructeurs et membres, le registre de
+# composants reste vide et Translation.getClient() lève une NullPointerException.
+-keep class * implements com.google.firebase.components.ComponentRegistrar { <init>(); *; }
+-keep class com.google.mlkit.** { *; }
+-keep class com.google.android.gms.internal.mlkit_** { *; }
+-keep class com.google.firebase.components.** { *; }

@@ -80,6 +80,7 @@ import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.ImageSearch
 import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.rounded.LinearScale
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Loop
@@ -814,6 +815,14 @@ fun SettingsScreen(
                                 icon = Icons.Rounded.Language,
                                 checked = settings.lyricsOnlineEnabled,
                                 onCheckedChange = settingsViewModel::setLyricsOnline
+                            )
+                            SwitchSetting(
+                                title = "Traduire les paroles automatiquement",
+                                subtitle = "Dans la langue du téléphone, sur l'appareil (ML Kit). " +
+                                    "Les paroles déjà dans cette langue ne sont pas touchées.",
+                                icon = Icons.Rounded.Translate,
+                                checked = settings.autoTranslateLyrics,
+                                onCheckedChange = settingsViewModel::setAutoTranslateLyrics
                             )
                         }
 

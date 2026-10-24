@@ -152,6 +152,7 @@ fun LyricsPane(
     emptyMessage: String = "Aucune parole trouvée pour ce titre.",
     isTranslating: Boolean = false,
     targetLanguage: String? = null,
+    translationNote: String? = null,
     onTranslate: (String) -> Unit = {},
     onRevertTranslation: () -> Unit = {},
     onNudgeOffset: (Long) -> Unit = {},
@@ -228,6 +229,16 @@ fun LyricsPane(
                 aligned = offsetMs == 0L,
                 onNudge = onNudgeOffset,
                 onReset = onResetOffset,
+            )
+        }
+
+        if (translationNote != null) {
+            Text(
+                text = translationNote,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = Space.md),
             )
         }
 

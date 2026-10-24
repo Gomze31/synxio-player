@@ -174,6 +174,7 @@ class SettingsViewModel @Inject constructor(
     // ========================================================================
 
     fun setLyricsOnline(value: Boolean) = update { settings.setLyricsOnline(value) }
+    fun setAutoTranslateLyrics(value: Boolean) = update { settings.setAutoTranslateLyrics(value) }
     fun setOnlineMetadata(value: Boolean) = update { settings.setOnlineMetadata(value) }
     fun setScrobbleEnabled(value: Boolean) = update { settings.setScrobbleEnabled(value) }
 

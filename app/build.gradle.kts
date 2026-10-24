@@ -165,6 +165,8 @@ dependencies {
 
     // ML Kit Translate (+ Task.await(), fourni avant par Firebase en transitif)
     implementation("com.google.mlkit:translate:17.0.3")
+    // Détection de la langue des paroles avant de les traduire
+    implementation("com.google.mlkit:language-id:17.0.6")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.11.0")
 
     implementation(platform(libs.androidx.compose.bom))
@@ -205,6 +207,8 @@ dependencies {
     implementation(libs.androidx.glance.material3)
 
     implementation(libs.coil.compose)
+    // Coil 3 ne charge plus le http seul : sans ce module, les logos des radios restaient vides.
+    implementation(libs.coil.network.okhttp)
     implementation(libs.accompanist.permissions)
     implementation(libs.jaudiotagger)
     implementation(libs.okhttp)
