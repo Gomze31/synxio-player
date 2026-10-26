@@ -22,14 +22,15 @@ object RulePlaylistEngine {
         stats: Map<Long, PlayStatEntity>,
         favorites: Set<Long>,
         now: Long,
+        ratings: Map<Long, Int> = emptyMap(),
     ): List<Song> {
         val matching = when {
             rules.rules.isEmpty() -> songs
             rules.matchAll -> songs.filter { s ->
-                rules.rules.all { matches(it, s, stats[s.id], s.id in favorites, now) }
+                rules.rules.all { matches(it, s, stats[s.id], s.id in favorites, ratings[s.id] ?: 0, now) }
             }
             else -> songs.filter { s ->
-                rules.rules.any { matches(it, s, stats[s.id], s.id in favorites, now) }
+                rules.rules.any { matches(it, s, stats[s.id], s.id in favorites, ratings[s.id] ?: 0, now) }
             }
         }
         val sorted = sort(matching, rules, stats, now)
@@ -43,13 +44,15 @@ object RulePlaylistEngine {
         stats: Map<Long, PlayStatEntity>,
         favorites: Set<Long>,
         now: Long,
-    ): Int = evaluate(rules.copy(limit = null), songs, stats, favorites, now).size
+        ratings: Map<Long, Int> = emptyMap(),
+    ): Int = evaluate(rules.copy(limit = null), songs, stats, favorites, now, ratings).size
 
     private fun matches(
         rule: SmartRule,
         song: Song,
         stat: PlayStatEntity?,
         isFavorite: Boolean,
+        stars: Int,
         now: Long,
     ): Boolean = when (rule.field) {
         RuleField.TITLE -> text(rule, song.title)
@@ -65,6 +68,7 @@ object RulePlaylistEngine {
         RuleField.PLAY_COUNT -> number(rule, (stat?.playCount ?: 0).toLong())
         RuleField.SKIP_COUNT -> number(rule, (stat?.skipCount ?: 0).toLong())
         RuleField.BITRATE -> number(rule, song.approxBitrateKbps.toLong())
+        RuleField.RATING -> number(rule, stars.toLong())
 
         RuleField.LAST_PLAYED -> date(rule, stat?.lastPlayedAt ?: 0L, now)
         RuleField.DATE_ADDED -> date(rule, song.dateAddedSec * 1000L, now)

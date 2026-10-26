@@ -63,6 +63,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
@@ -100,6 +102,7 @@ class PlaybackService : MediaLibraryService() {
     @Inject lateinit var historyRepository: fr.synxio.player.data.repo.HistoryRepository
     @Inject lateinit var budsMonitor: fr.synxio.player.buds.BudsMonitor
     @Inject lateinit var dailyMixes: fr.synxio.player.data.repo.DailyMixRepository
+    @Inject lateinit var showSpeedDao: fr.synxio.player.data.db.ShowSpeedDao
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -205,6 +208,10 @@ class PlaybackService : MediaLibraryService() {
     private var queueRestored = false
     private var headsetCallback: AudioDeviceCallback? = null
 
+    /** Émission (podcast, livre audio) du titre en cours, et sa vitesse mémorisée. */
+    private val currentShowKey = MutableStateFlow<String?>(null)
+    private var showSpeed: Float? = null
+
     /** Galaxy Buds connectés, suivis tant que le service vit (gestes, alerte batterie). */
     private var latestBuds: fr.synxio.player.buds.BudsState? = null
 
@@ -283,6 +290,7 @@ class PlaybackService : MediaLibraryService() {
         observeFavoriteForCustomLayout()
         observeBrowseChanges()
         observeBuds()
+        observeShowSpeed()
 
         serviceScope.launch {
             sleepTimer.state.collect { state ->
@@ -448,7 +456,7 @@ class PlaybackService : MediaLibraryService() {
                 val previous = latestSettings
                 latestSettings = s
                 player.skipSilenceEnabled = s.skipSilence
-                activePlayer.playbackParameters = PlaybackParameters(s.playbackSpeed, s.playbackPitch)
+                applySpeed()
                 // 0 ms = gapless natif d'ExoPlayer, sans manipulation de volume.
                 fade.durationMs = if (s.gaplessEnabled) s.crossfadeMs else s.crossfadeMs.coerceAtLeast(300)
 
@@ -942,6 +950,7 @@ class PlaybackService : MediaLibraryService() {
 
             // Restore podcast progress
             val current = currentSong()
+            currentShowKey.value = fr.synxio.player.data.model.ShowKeys.of(current)
             if (current != null && current.isPodcast && reason != Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) {
                 val mediaId = mediaItem?.mediaId
                 serviceScope.launch {
@@ -1241,6 +1250,27 @@ class PlaybackService : MediaLibraryService() {
 
         runCatching { audioManager.registerAudioDeviceCallback(headsetCallback, null) }
             .onFailure { headsetCallback = null }
+    }
+
+    /**
+     * Vitesse d'un podcast ou d'un livre audio, mémorisée par émission ; la musique garde la
+     * vitesse globale. Suivie en continu : la changer depuis le lecteur s'applique aussitôt.
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private fun observeShowSpeed() {
+        currentShowKey
+            .flatMapLatest { key -> if (key == null) flowOf(null) else showSpeedDao.observe(key) }
+            .onEach { speed ->
+                showSpeed = speed
+                applySpeed()
+            }
+            .launchIn(serviceScope)
+    }
+
+    private fun applySpeed() {
+        val s = latestSettings ?: return
+        val params = PlaybackParameters(showSpeed ?: s.playbackSpeed, s.playbackPitch)
+        if (activePlayer.playbackParameters != params) activePlayer.playbackParameters = params
     }
 
     /** Au branchement : reprendre, lancer une source, ou rien (pendant un appel, une lecture). */

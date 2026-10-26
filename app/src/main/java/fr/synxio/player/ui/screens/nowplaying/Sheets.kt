@@ -377,9 +377,11 @@ fun QueueSheet(
     onRemove: (Int) -> Unit,
     onMove: (Int, Int) -> Unit,
     onClear: () -> Unit,
+    onSaveAsPlaylist: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val reduceMotion = LocalReduceMotion.current
+    var naming by remember { mutableStateOf(false) }
     // Clés stables malgré les doublons (un même titre peut être deux fois dans la file) :
     // « id#rang d'apparition ». Une clé indexée changerait à chaque déplacement et
     // empêcherait `animateItem` de suivre la ligne.
@@ -415,6 +417,12 @@ fun QueueSheet(
                     )
                 }
                 if (queue.isNotEmpty()) {
+                    GlassButton(
+                        text = "Enregistrer",
+                        onClick = { naming = true },
+                        icon = Icons.AutoMirrored.Rounded.PlaylistAdd,
+                    )
+                    Spacer(Modifier.width(Space.xs))
                     GlassButton(text = "Vider", onClick = onClear, icon = Icons.Rounded.Close)
                 }
             }
@@ -550,6 +558,31 @@ fun QueueSheet(
             }
         }
     }
+    if (naming) {
+        val today = remember { java.text.SimpleDateFormat("dd/MM", java.util.Locale.FRANCE).format(java.util.Date()) }
+        var name by remember { mutableStateOf("File du $today") }
+        AlertDialog(
+            onDismissRequest = { naming = false },
+            title = { Text("Enregistrer la file", style = MaterialTheme.typography.headlineSmall) },
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            text = {
+                androidx.compose.material3.OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Nom de la playlist") },
+                    singleLine = true,
+                    shape = fr.synxio.player.ui.theme.SynxioShape.cardSm,
+                )
+            },
+            confirmButton = {
+                fr.synxio.player.ui.components.BrandButton(
+                    text = "Créer",
+                    onClick = { onSaveAsPlaylist(name.ifBlank { "File du $today" }); naming = false },
+                )
+            },
+            dismissButton = { TextButton(onClick = { naming = false }) { Text("Annuler") } },
+        )
+    }
 }
 
 @Composable
@@ -657,6 +690,8 @@ fun SpeedSheet(
     pitch: Float,
     onApply: (Float, Float) -> Unit,
     onDismiss: () -> Unit,
+    /** Podcast ou livre audio : la vitesse est retenue pour cette émission seulement. */
+    showName: String? = null,
 ) {
     var currentSpeed by remember { mutableFloatStateOf(speed) }
     var currentPitch by remember { mutableFloatStateOf(pitch) }
@@ -675,6 +710,13 @@ fun SpeedSheet(
                 .padding(horizontal = Space.xl, vertical = Space.sm)
         ) {
             SheetTitle("Vitesse et tonalité")
+            if (showName != null) {
+                Text(
+                    text = "Vitesse mémorisée pour « $showName » ; la musique garde la sienne.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Spacer(Modifier.height(Space.lg))
 
             Text(

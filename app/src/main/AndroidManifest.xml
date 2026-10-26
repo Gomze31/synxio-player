@@ -138,6 +138,11 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
 
+            <!-- Appui long sur la tuile des Réglages rapides -->
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
+            </intent-filter>
+
             <!-- Raccourcis d'appui long sur l'icône -->
             <intent-filter>
                 <action android:name="fr.synxio.player.SHUFFLE_ALL" />
@@ -161,6 +166,21 @@
                 <action android:name="androidx.media3.session.MediaLibraryService" />
                 <action android:name="android.media.browse.MediaBrowserService" />
             </intent-filter>
+        </service>
+
+        <!-- Tuile des Réglages rapides : lecture / pause -->
+        <service
+            android:name=".playback.PlaybackTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_stat_music"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.quicksettings.TOGGLEABLE_TILE"
+                android:value="true" />
         </service>
 
         <!-- Widget écran d'accueil (Glance) -->

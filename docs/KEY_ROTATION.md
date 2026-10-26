@@ -1,8 +1,27 @@
 # Rotation de la clé de signature release
 
-> Statut : **préparé, non appliqué.** Rien dans ce document n'a encore été exécuté.
-> La clé de secours reste en place tant que la rotation n'est pas décidée, car les
-> mises à jour in-app des utilisateurs actuels en dépendent.
+> Statut : **rotation par lignée v3 décidée (5.5).** Code et CI prêts ; la nouvelle clé
+> reste à générer par le mainteneur, après la publication de la 5.5.0 (§0).
+
+## 0. Plan retenu : lignée v3, en deux releases
+
+Les §3 à §8 décrivent la rotation « franche » (désinstallation obligatoire). On lui préfère
+la **lignée APK Signature Scheme v3** : mise à jour transparente sur Android 9+.
+
+1. **5.5.0, signée avec l'ancienne clé.** Elle embarque le nouveau contrôle du programme de
+   mise à jour (`UpdateSignatures`) : accepté si la lignée de l'APK contient la clé
+   installée. La 5.4 exige une signature identique : un APK signé par la lignée lui serait
+   refusé, d'où cette release de transition.
+2. **Après la 5.5.0** : `scripts/rotate-release-key.sh` génère la nouvelle clé et la lignée
+   (mots de passe saisis à la main), puis créer les secrets `KEYSTORE_BASE64`,
+   `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`, `LINEAGE_BASE64`.
+3. **5.5.1 et suivantes** : `release.yml` re-signe l'APK avec `apksigner sign --lineage`
+   (v1/v2 ancienne clé pour Android 8, v3 lignée dès Android 9). Un seul des deux secrets
+   présent fait échouer la release.
+
+L'ancienne clé garde ses droits sauf le retour arrière : une fois une appli passée sur la
+lignée, un APK signé par l'ancienne clé seule ne peut plus la mettre à jour (Android 9+).
+Android 8 (minSdk 26) ignore la v3 et reste exposé à l'ancienne clé.
 
 ## 1. Le risque
 

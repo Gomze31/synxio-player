@@ -39,6 +39,7 @@ private data class LibrarySnapshot(
     val songs: List<Song>,
     val stats: Map<Long, PlayStatEntity>,
     val favorites: Set<Long>,
+    val ratings: Map<Long, Int>,
 )
 
 /**
@@ -51,6 +52,7 @@ private data class LibrarySnapshot(
 class RulePlaylistRepository @Inject constructor(
     private val dao: RulePlaylistDao,
     private val musicRepository: MusicRepository,
+    ratingRepository: RatingRepository,
     @ApplicationScope private val scope: CoroutineScope,
 ) {
 
@@ -58,15 +60,16 @@ class RulePlaylistRepository @Inject constructor(
     // que l'aperçu live de l'éditeur voie les vraies statistiques et les vrais favoris,
     // pas une bibliothèque amnésique.
     @Volatile
-    private var snapshot = LibrarySnapshot(emptyList(), emptyMap(), emptySet())
+    private var snapshot = LibrarySnapshot(emptyList(), emptyMap(), emptySet(), emptyMap())
 
     val rulePlaylists: StateFlow<List<RulePlaylist>> = combine(
         musicRepository.library.map { it.songs },
         musicRepository.allStats,
         musicRepository.favoriteIds,
+        ratingRepository.ratings,
         dao.observeAll(),
-    ) { songs, stats, favoriteIds, stored ->
-        snapshot = LibrarySnapshot(songs, stats, favoriteIds)
+    ) { songs, stats, favoriteIds, ratings, stored ->
+        snapshot = LibrarySnapshot(songs, stats, favoriteIds, ratings)
         val now = System.currentTimeMillis()
         stored.map { entity ->
             val rules = RulePlaylistRules.fromJson(entity.rulesJson)
@@ -74,7 +77,7 @@ class RulePlaylistRepository @Inject constructor(
                 id = entity.id,
                 name = entity.name,
                 rules = rules,
-                songs = RulePlaylistEngine.evaluate(rules, songs, stats, favoriteIds, now),
+                songs = RulePlaylistEngine.evaluate(rules, songs, stats, favoriteIds, now, ratings),
             )
         }
     }.stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -91,6 +94,7 @@ class RulePlaylistRepository @Inject constructor(
             stats = current.stats,
             favorites = current.favorites,
             now = System.currentTimeMillis(),
+            ratings = current.ratings,
         )
     }
 

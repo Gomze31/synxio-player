@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -138,6 +139,7 @@ fun TagEditorScreen(
 ) {
     val viewModel: TagEditorViewModel = hiltViewModel()
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val ratings by viewModel.ratings.collectAsStateWithLifecycle()
     val snackbarHost = remember { SnackbarHostState() }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val reduceMotion = LocalReduceMotion.current
@@ -318,6 +320,17 @@ fun TagEditorScreen(
                     TagField("Titre", state.edit.title) { v -> viewModel.update { it.copy(title = v) } }
                     TagField("Artiste", state.edit.artist) { v -> viewModel.update { it.copy(artist = v) } }
                     TagField("Genre", state.edit.genre) { v -> viewModel.update { it.copy(genre = v) } }
+                    Text(
+                        "Note",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = Space.sm),
+                    )
+                    fr.synxio.player.ui.components.StarRating(
+                        rating = state.song?.id?.let { ratings[it] } ?: 0,
+                        onRate = viewModel::rate,
+                        modifier = Modifier.offset(x = (-9).dp),
+                    )
                 }
 
                 FieldGroup("Album", index = 1) {

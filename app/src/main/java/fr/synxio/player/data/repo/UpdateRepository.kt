@@ -183,7 +183,9 @@ class UpdateRepository @Inject constructor(
         }
 
     /**
-     * Vérifie que l'APK téléchargé porte la même signature que l'app installée.
+     * Vérifie que l'APK téléchargé vient de la même source que l'app installée : même
+     * signature, ou nouvelle clé dont la lignée (rotation v3) contient la clé installée.
+     * Voir [UpdateSignatures].
      *
      * Android refuserait de toute façon une mise à jour signée différemment, mais avec
      * une erreur système opaque. Échouer ici permet de dire *pourquoi* — et de ne pas
@@ -196,20 +198,23 @@ class UpdateRepository @Inject constructor(
         val pm = context.packageManager
         val flags = PackageManager.GET_SIGNING_CERTIFICATES
 
-        val downloaded = pm.getPackageArchiveInfo(apk.absolutePath, flags)
-            ?.signingInfo?.apkContentsSigners.orEmpty()
-        val installed = pm.getPackageInfo(context.packageName, flags)
-            .signingInfo?.apkContentsSigners.orEmpty()
-
-        if (downloaded.isEmpty() || installed.isEmpty()) return false
+        val downloadedInfo = pm.getPackageArchiveInfo(apk.absolutePath, flags)?.signingInfo
+        val installedInfo = pm.getPackageInfo(context.packageName, flags).signingInfo
+        if (downloadedInfo == null || installedInfo == null) return false
 
         // `Array<out Signature>` : `apkContentsSigners` renvoie un tableau covariant,
         // qu'un paramètre `Array<Signature>` invariant refuserait.
-        val digestsOf = { signatures: Array<out android.content.pm.Signature> ->
-            signatures.map { MessageDigest.getInstance("SHA-256").digest(it.toByteArray()).toHex() }
-                .toSet()
+        val digestsOf = { signatures: Array<out android.content.pm.Signature>? ->
+            signatures.orEmpty().map { MessageDigest.getInstance("SHA-256").digest(it.toByteArray()).toHex() }
         }
-        digestsOf(downloaded) == digestsOf(installed)
+        // La lignée n'est renseignée qu'avec un signataire unique.
+        val lineage = if (downloadedInfo.hasMultipleSigners()) emptyList()
+        else digestsOf(downloadedInfo.signingCertificateHistory)
+        UpdateSignatures.compatible(
+            installedCurrent = digestsOf(installedInfo.apkContentsSigners).toSet(),
+            downloadedCurrent = digestsOf(downloadedInfo.apkContentsSigners).toSet(),
+            downloadedLineage = lineage,
+        )
     }.getOrElse {
         Log.w(TAG, "Comparaison de signature impossible", it)
         false

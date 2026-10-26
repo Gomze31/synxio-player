@@ -254,7 +254,33 @@ val MIGRATION_13_14 = object : Migration(13, 14) {
     }
 }
 
+/** v14 -> v15 : notes étoiles et vitesse par émission. */
+val MIGRATION_14_15 = object : Migration(14, 15) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `song_ratings` (
+                `songId` INTEGER NOT NULL,
+                `songPath` TEXT NOT NULL,
+                `stars` INTEGER NOT NULL,
+                `updatedAt` INTEGER NOT NULL,
+                PRIMARY KEY(`songId`)
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `show_speeds` (
+                `showKey` TEXT NOT NULL,
+                `speed` REAL NOT NULL,
+                PRIMARY KEY(`showKey`)
+            )
+            """.trimIndent()
+        )
+    }
+}
+
 val ALL_MIGRATIONS = arrayOf(
     MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
-    MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14,
+    MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15,
 )

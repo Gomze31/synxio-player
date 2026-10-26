@@ -93,7 +93,16 @@ data class BackupData(
     val favorites: List<BackupFavorite> = emptyList(),
     val stats: List<BackupPlayStat> = emptyList(),
     val history: List<BackupPlayHistory> = emptyList(),
-    val settings: BackupSettings? = null
+    val settings: BackupSettings? = null,
+    val ratings: List<BackupRating> = emptyList(),
+)
+
+@kotlinx.serialization.Serializable
+data class BackupRating(
+    val songId: Long,
+    val songPath: String,
+    val stars: Int,
+    val updatedAt: Long = 0,
 )
 
 @kotlinx.serialization.Serializable

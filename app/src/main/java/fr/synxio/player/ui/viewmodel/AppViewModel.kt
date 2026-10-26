@@ -77,6 +77,8 @@ class AppViewModel @Inject constructor(
     smartPlaylistRepository: SmartPlaylistRepository,
     dailyMixRepository: fr.synxio.player.data.repo.DailyMixRepository,
     budsMonitor: fr.synxio.player.buds.BudsMonitor,
+    private val ratingRepository: fr.synxio.player.data.repo.RatingRepository,
+    private val showSpeedDao: fr.synxio.player.data.db.ShowSpeedDao,
 ) : ViewModel() {
 
     val similarityProgress = similarityRepository.progress
@@ -353,12 +355,40 @@ class AppViewModel @Inject constructor(
         emit(if (songs.size == 1) "Ajouté à la file" else "${songs.size} titres ajoutés à la file")
     }
 
+    /**
+     * Sur un podcast ou un livre audio, la vitesse est mémorisée pour toute l'émission et
+     * la vitesse globale (musique) ne bouge pas.
+     */
     fun setSpeedAndPitch(speed: Float, pitch: Float) {
         player.setSpeedAndPitch(speed, pitch)
+        val showKey = fr.synxio.player.data.model.ShowKeys.of(player.state.value.currentSong)
         viewModelScope.launch {
-            settingsRepository.setSpeed(speed)
+            if (showKey != null) showSpeedDao.put(fr.synxio.player.data.db.ShowSpeedEntity(showKey, speed))
+            else settingsRepository.setSpeed(speed)
             settingsRepository.setPitch(pitch)
         }
+    }
+
+    /** Note du titre en cours, 0 s'il n'est pas noté. */
+    val currentRating: StateFlow<Int> = combine(currentSongId, ratingRepository.ratings) { id, ratings ->
+        id?.let { ratings[it] } ?: 0
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    /** Toucher la note déjà attribuée l'efface. */
+    fun rateCurrent(stars: Int) {
+        val song = player.state.value.currentSong ?: return
+        val next = if (stars == currentRating.value) 0 else stars
+        viewModelScope.launch { ratingRepository.setRating(song, next) }
+    }
+
+    /** La file d'attente devient une playlist (nom rendu unique au besoin). */
+    fun saveQueueAsPlaylist(name: String) {
+        val queue = player.state.value.queue
+        if (queue.isEmpty()) {
+            emit("La file d'attente est vide")
+            return
+        }
+        createPlaylist(name, queue)
     }
 
     // --- Radio : morceaux au son proche ---------------------------------------------------

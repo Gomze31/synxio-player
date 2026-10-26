@@ -12,6 +12,7 @@ import fr.synxio.player.data.db.PlaylistSongEntity
 import fr.synxio.player.data.model.BackupData
 import fr.synxio.player.data.model.BackupFavorite
 import fr.synxio.player.data.model.BackupPlayHistory
+import fr.synxio.player.data.model.BackupRating
 import fr.synxio.player.data.model.BackupPlayStat
 import fr.synxio.player.data.model.BackupPlaylist
 import fr.synxio.player.data.model.BackupPlaylistSong
@@ -46,6 +47,7 @@ class BackupRepository @Inject constructor(
     private val favoriteDao: fr.synxio.player.data.db.FavoriteDao,
     private val playStatDao: fr.synxio.player.data.db.PlayStatDao,
     private val playHistoryDao: fr.synxio.player.data.db.PlayHistoryDao,
+    private val songRatingDao: fr.synxio.player.data.db.SongRatingDao,
     private val settingsRepository: SettingsRepository,
     private val database: SynxioDatabase,
     @ApplicationScope private val scope: CoroutineScope
@@ -104,6 +106,7 @@ class BackupRepository @Inject constructor(
                 val favorites = favoriteDao.observeAll().first()
                 val stats = playStatDao.observeAll().first()
                 val history = playHistoryDao.observeAll().first()
+                val ratings = songRatingDao.observeAll().first()
                 val settings = settingsRepository.settings.first()
 
                 // Convertir en format BackupData
@@ -148,6 +151,14 @@ class BackupRepository @Inject constructor(
                             songPath = historyItem.songPath,
                             playedAt = historyItem.playedAt,
                             listenedMs = historyItem.listenedMs
+                        )
+                    },
+                    ratings = ratings.map { rating ->
+                        BackupRating(
+                            songId = rating.songId,
+                            songPath = rating.songPath,
+                            stars = rating.stars,
+                            updatedAt = rating.updatedAt,
                         )
                     },
                     settings = BackupSettings(
@@ -237,6 +248,18 @@ class BackupRepository @Inject constructor(
                             playedAt = backupHistory.playedAt,
                             listenedMs = backupHistory.listenedMs,
                             durationMs = 0 // On ne peut pas restaurer la durée
+                        )
+                    )
+                }
+
+                // Restaurer les notes (absentes des sauvegardes d'avant la 5.5)
+                backupData.ratings.forEach { backupRating ->
+                    songRatingDao.put(
+                        fr.synxio.player.data.db.SongRatingEntity(
+                            songId = backupRating.songId,
+                            songPath = backupRating.songPath,
+                            stars = backupRating.stars.coerceIn(1, 5),
+                            updatedAt = backupRating.updatedAt,
                         )
                     )
                 }

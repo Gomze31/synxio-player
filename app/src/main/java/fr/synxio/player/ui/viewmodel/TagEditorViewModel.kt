@@ -37,10 +37,21 @@ class TagEditorViewModel @Inject constructor(
     private val music: MusicRepository,
     private val tags: TagEditorRepository,
     private val metadata: MetadataRepository,
+    private val ratingRepository: fr.synxio.player.data.repo.RatingRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(TagEditorUiState())
     val state: StateFlow<TagEditorUiState> = _state.asStateFlow()
+
+    /** Notes de la bibliothèque : enregistrées aussitôt, sans passer par « Enregistrer ». */
+    val ratings: StateFlow<Map<Long, Int>> = ratingRepository.ratings
+
+    /** Toucher la note déjà donnée l'efface. */
+    fun rate(stars: Int) {
+        val song = _state.value.song ?: return
+        val next = if (ratings.value[song.id] == stars) 0 else stars
+        viewModelScope.launch { ratingRepository.setRating(song, next) }
+    }
 
     private var pendingEdit: TagEdit? = null
 

@@ -82,6 +82,8 @@ object AppModule {
     @Provides fun provideTrackMetaDao(db: SynxioDatabase): fr.synxio.player.data.db.TrackMetaDao = db.trackMetaDao()
     @Provides fun provideOnlineLookupDao(db: SynxioDatabase): fr.synxio.player.data.db.OnlineLookupDao = db.onlineLookupDao()
     @Provides fun provideAlarmDao(db: SynxioDatabase): fr.synxio.player.data.db.AlarmDao = db.alarmDao()
+    @Provides fun provideSongRatingDao(db: SynxioDatabase): fr.synxio.player.data.db.SongRatingDao = db.songRatingDao()
+    @Provides fun provideShowSpeedDao(db: SynxioDatabase): fr.synxio.player.data.db.ShowSpeedDao = db.showSpeedDao()
 
     @Provides
     @Singleton

@@ -169,6 +169,7 @@ fun NowPlayingScreen(
     val state by viewModel.playerState.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val favorites by viewModel.favoriteIds.collectAsStateWithLifecycle()
+    val rating by viewModel.currentRating.collectAsStateWithLifecycle()
     val sleepTimer by viewModel.sleepTimerState.collectAsStateWithLifecycle()
     val audioOutput by viewModel.audioOutput.collectAsStateWithLifecycle()
     val buds by viewModel.buds.collectAsStateWithLifecycle()
@@ -404,7 +405,16 @@ fun NowPlayingScreen(
                     )
                 }
 
-                Spacer(Modifier.height(Space.lg))
+                // Hors flux et radios : la note est attachée à un titre de la bibliothèque.
+                if (song.id > 0) {
+                    fr.synxio.player.ui.components.StarRating(
+                        rating = rating,
+                        onRate = viewModel::rateCurrent,
+                        modifier = Modifier.fillMaxWidth().offset(x = (-9).dp),
+                    )
+                } else {
+                    Spacer(Modifier.height(Space.lg))
+                }
 
                 SeekBar(
                     positionMs = state.positionMs,
@@ -454,6 +464,7 @@ fun NowPlayingScreen(
             onRemove = viewModel::removeFromQueue,
             onMove = viewModel::moveInQueue,
             onClear = { viewModel.clearQueue(); showQueue = false },
+            onSaveAsPlaylist = viewModel::saveQueueAsPlaylist,
             onDismiss = { showQueue = false },
         )
     }
@@ -473,6 +484,13 @@ fun NowPlayingScreen(
             pitch = settings.playbackPitch,
             onApply = viewModel::setSpeedAndPitch,
             onDismiss = { showSpeed = false },
+            showName = song?.let { s ->
+                when {
+                    s.isAudiobook -> s.folderName
+                    s.isPodcast -> s.album.ifBlank { s.folderName }
+                    else -> null
+                }
+            },
         )
     }
 

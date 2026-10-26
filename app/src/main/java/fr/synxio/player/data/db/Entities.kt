@@ -209,3 +209,24 @@ data class ArtworkColorEntity(
     val onSecondaryColor: Int,
     val onBackgroundColor: Int,
 )
+
+/**
+ * Note de 1 à 5 étoiles d'un titre. Pas de ligne = pas de note.
+ *
+ * [songPath] sert à retrouver le titre après une restauration : l'identifiant MediaStore
+ * change quand la bibliothèque est réindexée sur un autre téléphone.
+ */
+@Entity(tableName = "song_ratings")
+data class SongRatingEntity(
+    @PrimaryKey val songId: Long,
+    val songPath: String,
+    val stars: Int,
+    val updatedAt: Long,
+)
+
+/** Vitesse de lecture mémorisée pour une émission (podcast) ou un livre audio. */
+@Entity(tableName = "show_speeds")
+data class ShowSpeedEntity(
+    @PrimaryKey val showKey: String,
+    val speed: Float,
+)

@@ -26,12 +26,14 @@ enum class RuleField(val label: String) {
     BITRATE("Débit (kbps)"),
     LAST_PLAYED("Dernière écoute"),
     DATE_ADDED("Date d'ajout"),
-    FAVORITE("Favori");
+    FAVORITE("Favori"),
+    /** Note de 0 (aucune) à 5 étoiles. */
+    RATING("Note (étoiles)");
 
     val operators: List<RuleOperator>
         get() = when (this) {
             TITLE, ARTIST, ALBUM, ALBUM_ARTIST, GENRE, FOLDER, FORMAT -> TEXT_OPS
-            YEAR, DURATION, PLAY_COUNT, SKIP_COUNT, BITRATE -> NUMBER_OPS
+            YEAR, DURATION, PLAY_COUNT, SKIP_COUNT, BITRATE, RATING -> NUMBER_OPS
             LAST_PLAYED, DATE_ADDED -> DATE_OPS
             FAVORITE -> BOOL_OPS
         }

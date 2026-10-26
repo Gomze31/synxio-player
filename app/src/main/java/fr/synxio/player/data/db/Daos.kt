@@ -400,3 +400,26 @@ interface ArtworkColorDao {
     @Query("DELETE FROM artwork_colors")
     suspend fun clear()
 }
+
+@Dao
+interface SongRatingDao {
+
+    @Query("SELECT * FROM song_ratings")
+    fun observeAll(): Flow<List<SongRatingEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun put(rating: SongRatingEntity)
+
+    @Query("DELETE FROM song_ratings WHERE songId = :songId")
+    suspend fun remove(songId: Long)
+}
+
+@Dao
+interface ShowSpeedDao {
+
+    @Query("SELECT speed FROM show_speeds WHERE showKey = :key")
+    fun observe(key: String): Flow<Float?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun put(entity: ShowSpeedEntity)
+}

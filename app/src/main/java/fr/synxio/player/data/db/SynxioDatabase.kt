@@ -25,8 +25,10 @@ import androidx.room.RoomDatabase
         TrackMetaEntity::class,
         OnlineLookupEntity::class,
         AlarmEntity::class,
+        SongRatingEntity::class,
+        ShowSpeedEntity::class,
     ],
-    version = 14,
+    version = 15,
     exportSchema = true,
 )
 abstract class SynxioDatabase : RoomDatabase() {
@@ -48,6 +50,8 @@ abstract class SynxioDatabase : RoomDatabase() {
     abstract fun trackMetaDao(): TrackMetaDao
     abstract fun onlineLookupDao(): OnlineLookupDao
     abstract fun alarmDao(): AlarmDao
+    abstract fun songRatingDao(): SongRatingDao
+    abstract fun showSpeedDao(): ShowSpeedDao
 
     companion object {
         const val NAME = "synxio.db"
