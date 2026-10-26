@@ -81,6 +81,7 @@ object AppModule {
         db.audiobookFolderDao()
     @Provides fun provideTrackMetaDao(db: SynxioDatabase): fr.synxio.player.data.db.TrackMetaDao = db.trackMetaDao()
     @Provides fun provideOnlineLookupDao(db: SynxioDatabase): fr.synxio.player.data.db.OnlineLookupDao = db.onlineLookupDao()
+    @Provides fun provideAlarmDao(db: SynxioDatabase): fr.synxio.player.data.db.AlarmDao = db.alarmDao()
 
     @Provides
     @Singleton

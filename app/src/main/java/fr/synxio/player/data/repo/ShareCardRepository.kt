@@ -19,6 +19,8 @@ import androidx.core.graphics.ColorUtils
 import androidx.palette.graphics.Palette
 import dagger.hilt.android.qualifiers.ApplicationContext
 import fr.synxio.player.core.util.asDuration
+import fr.synxio.player.core.util.asLongDuration
+import fr.synxio.player.data.model.Recap
 import fr.synxio.player.data.model.Song
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -47,7 +49,7 @@ class ShareCardRepository @Inject constructor(
     suspend fun createShareIntent(song: Song): Intent? = withContext(Dispatchers.IO) {
         try {
             val bitmap = render(song)
-            val uri = persist(bitmap)
+            val uri = persist(bitmap, "now-playing.png")
             Intent(Intent.ACTION_SEND).apply {
                 type = "image/png"
                 putExtra(Intent.EXTRA_STREAM, uri)
@@ -58,6 +60,87 @@ class ShareCardRepository @Inject constructor(
             Log.w(TAG, "Génération de la carte de partage impossible", error)
             null
         }
+    }
+
+    /** Carte de bilan du récap : temps d'écoute, titre n°1, top artistes. */
+    suspend fun createRecapShareIntent(recap: Recap): Intent? = withContext(Dispatchers.IO) {
+        try {
+            val uri = persist(renderRecap(recap), "recap.png")
+            Intent(Intent.ACTION_SEND).apply {
+                type = "image/png"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_TEXT, "Mon récap Synxio · ${recap.period.label.lowercase()}")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+        } catch (error: Throwable) {
+            Log.w(TAG, "Génération de la carte du récap impossible", error)
+            null
+        }
+    }
+
+    private fun renderRecap(recap: Recap): Bitmap {
+        val topSong = recap.topSongs.firstOrNull()?.item
+        val artwork = topSong?.let(::loadArtwork)
+        val accent = artwork?.let { dominantColor(it) } ?: FALLBACK_ACCENT
+
+        val card = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(card)
+        drawBackground(canvas, accent)
+
+        val x = MARGIN.toFloat()
+        var y = MARGIN + 40f
+        val eyebrow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(170, 255, 255, 255)
+            textSize = 34f
+            letterSpacing = 0.18f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+        canvas.drawText("MON RÉCAP · ${recap.period.label.uppercase()}", x, y, eyebrow)
+
+        y += 150f
+        val big = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textSize = 120f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+        canvas.drawText(ellipsize(recap.totalListenedMs.asLongDuration(), big), x, y, big)
+        y += 60f
+        val body = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(210, 255, 255, 255)
+            textSize = 42f
+        }
+        canvas.drawText(ellipsize("d'écoute · ${recap.plays} lectures · ${recap.activeDays} jours", body), x, y, body)
+
+        val section = Paint(eyebrow).apply { textSize = 30f }
+        val line = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textSize = 52f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+        if (topSong != null) {
+            y += 130f
+            canvas.drawText("TITRE N°1", x, y, section)
+            y += 70f
+            canvas.drawText(ellipsize(topSong.title, line), x, y, line)
+            y += 54f
+            canvas.drawText(ellipsize(topSong.displayArtist, body), x, y, body)
+        }
+        if (recap.topArtists.isNotEmpty()) {
+            y += 120f
+            canvas.drawText("TOP ARTISTES", x, y, section)
+            recap.topArtists.forEachIndexed { index, rank ->
+                y += 66f
+                canvas.drawText(ellipsize("${index + 1}. ${rank.item}", line), x, y, line)
+            }
+        }
+
+        val brand = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(120, 255, 255, 255)
+            textSize = 34f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+        canvas.drawText("SYNXIO", x, HEIGHT - MARGIN.toFloat(), brand)
+        return card
     }
 
     private fun render(song: Song): Bitmap {
@@ -219,9 +302,9 @@ class ShareCardRepository @Inject constructor(
      * Nom de fichier fixe : la carte n'a pas à survivre au partage, et l'écraser évite
      * d'accumuler des PNG dans le cache au fil des partages.
      */
-    private fun persist(bitmap: Bitmap): Uri {
+    private fun persist(bitmap: Bitmap, name: String): Uri {
         val dir = File(context.cacheDir, SHARE_DIR).apply { mkdirs() }
-        val file = File(dir, "now-playing.png")
+        val file = File(dir, name)
         file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
     }

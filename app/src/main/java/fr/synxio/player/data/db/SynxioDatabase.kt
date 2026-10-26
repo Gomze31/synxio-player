@@ -24,8 +24,9 @@ import androidx.room.RoomDatabase
         AudiobookFolderEntity::class,
         TrackMetaEntity::class,
         OnlineLookupEntity::class,
+        AlarmEntity::class,
     ],
-    version = 13,
+    version = 14,
     exportSchema = true,
 )
 abstract class SynxioDatabase : RoomDatabase() {
@@ -46,6 +47,7 @@ abstract class SynxioDatabase : RoomDatabase() {
     abstract fun audiobookFolderDao(): AudiobookFolderDao
     abstract fun trackMetaDao(): TrackMetaDao
     abstract fun onlineLookupDao(): OnlineLookupDao
+    abstract fun alarmDao(): AlarmDao
 
     companion object {
         const val NAME = "synxio.db"

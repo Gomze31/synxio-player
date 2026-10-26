@@ -54,6 +54,13 @@ class FadeController(
             applyVolume()
         }
 
+    /** Gain du réveil en musique : monte de presque rien à 1 pendant la montée choisie. */
+    var alarmGain: Float = 1f
+        set(value) {
+            field = value.coerceIn(0f, 1f)
+            applyVolume()
+        }
+
     /** Plafond de volume choisi dans les réglages (« Limiter le volume »), 1 = aucun. */
     var volumeCap: Float = 1f
         set(value) {
@@ -91,7 +98,7 @@ class FadeController(
     }
 
     private fun applyVolume() {
-        player.volume = (envelope * normalizationGain * sleepGain * volumeCap).coerceIn(0f, 1f)
+        player.volume = (envelope * normalizationGain * sleepGain * volumeCap * alarmGain).coerceIn(0f, 1f)
     }
 
     /**

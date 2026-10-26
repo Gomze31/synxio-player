@@ -75,6 +75,7 @@ class AppViewModel @Inject constructor(
     private val equalizerController: fr.synxio.player.playback.EqualizerController,
     audioOutputMonitor: fr.synxio.player.playback.AudioOutputMonitor,
     smartPlaylistRepository: SmartPlaylistRepository,
+    dailyMixRepository: fr.synxio.player.data.repo.DailyMixRepository,
     private val voiceWake: fr.synxio.player.voice.VoiceWakeController,
 ) : ViewModel() {
 
@@ -123,6 +124,7 @@ class AppViewModel @Inject constructor(
     }
 
     val smartPlaylists: StateFlow<List<SmartPlaylist>> = smartPlaylistRepository.playlists
+    val dailyMixes: StateFlow<List<fr.synxio.player.data.model.DailyMix>> = dailyMixRepository.mixes
     val rulePlaylists: StateFlow<List<RulePlaylist>> = rulePlaylistRepository.rulePlaylists
 
     val library: StateFlow<Library> = musicRepository.library

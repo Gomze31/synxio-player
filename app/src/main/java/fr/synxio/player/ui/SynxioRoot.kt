@@ -141,6 +141,8 @@ import fr.synxio.player.ui.screens.SearchScreen
 import fr.synxio.player.ui.screens.SettingsScreen
 import fr.synxio.player.ui.screens.SongListScreen
 import fr.synxio.player.ui.screens.StatsScreen
+import fr.synxio.player.ui.screens.RecapScreen
+import fr.synxio.player.ui.screens.AlarmsScreen
 import fr.synxio.player.ui.screens.TagEditorScreen
 import fr.synxio.player.ui.screens.nowplaying.NowPlayingScreen
 import fr.synxio.player.ui.viewmodel.AppViewModel
@@ -172,6 +174,8 @@ object Routes {
     const val DOWNLOAD = "download"
     const val TAGS = "tags/{songId}"
     const val STATS = "stats"
+    const val RECAP = "recap"
+    const val ALARMS = "alarms"
     const val HISTORY = "history"
     const val BACKUP = "backup"
     const val ABOUT = "about"
@@ -801,6 +805,7 @@ private fun AppNavHost(
                 onNavigateToBackup = { navController.navigate(Routes.BACKUP) },
                 onNavigateToAbout = { navController.navigate(Routes.ABOUT) },
                 onNavigateToAdvancedSearch = { navController.navigate(Routes.ADVANCED_SEARCH) },
+                onOpenAlarms = { navController.navigate(Routes.ALARMS) },
             )
         }
         
@@ -1033,7 +1038,19 @@ private fun AppNavHost(
                 onOpenAlbum = { navController.navigate(Routes.album(it)) },
                 // On reste sur l'écran : le mini-lecteur apparaît et l'on peut continuer à
                 // parcourir. Le renvoyer en arrière coupait l'utilisateur dans son élan.
-                onPlaySong = { songs, index -> viewModel.play(songs, index) }
+                onPlaySong = { songs, index -> viewModel.play(songs, index) },
+                onOpenRecap = { navController.navigate(Routes.RECAP) },
+            )
+        }
+
+        screen(Routes.ALARMS) {
+            AlarmsScreen(onBack = { navController.popBackStack() })
+        }
+
+        screen(Routes.RECAP) {
+            RecapScreen(
+                onBack = { navController.popBackStack() },
+                onPlay = { viewModel.play(it) },
             )
         }
 

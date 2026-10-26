@@ -119,6 +119,7 @@ fun HomeScreen(
     val recentlyPlayed by viewModel.recentlyPlayed.collectAsStateWithLifecycle()
     val favorites by viewModel.favoriteSongs.collectAsStateWithLifecycle()
     val smartPlaylists by viewModel.smartPlaylists.collectAsStateWithLifecycle()
+    val dailyMixes by viewModel.dailyMixes.collectAsStateWithLifecycle()
     // Triés par le ViewModel hors du thread principal, jamais pendant la composition.
     val recentAlbums by viewModel.recentAlbums.collectAsStateWithLifecycle()
     val topArtists by viewModel.topArtists.collectAsStateWithLifecycle()
@@ -258,6 +259,37 @@ fun HomeScreen(
                         ranked = true,
                         onClick = { song -> viewModel.playSong(song, mostPlayed) },
                     )
+                }
+            }
+        }
+
+        if (dailyMixes.isNotEmpty()) {
+            val index = order++
+            item(key = "s-mixes", contentType = "smartSection") {
+                HomeSection(
+                    title = "Tes mixs du jour",
+                    eyebrow = "Renouvelés chaque matin",
+                    modifier = Modifier.enterCascade(index, "home-mixes"),
+                ) {
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = Space.gutter),
+                        horizontalArrangement = Arrangement.spacedBy(Space.md),
+                    ) {
+                        itemsIndexed(dailyMixes, key = { _, it -> it.key }) { i, mix ->
+                            MosaicCard(
+                                title = mix.title,
+                                subtitle = mix.subtitle,
+                                artworkUris = mix.artworkUris,
+                                onClickLabel = "Lancer le mix",
+                                // Un mix est fait pour être écouté tel quel : le toucher
+                                // le lance, dans l'ordre composé.
+                                onClick = { viewModel.play(mix.songs) },
+                                modifier = Modifier
+                                    .animateItem()
+                                    .enterCascade(i, "mix-${mix.key}"),
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -661,17 +693,35 @@ private fun SmartPlaylistCard(
     playlist: SmartPlaylist,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+) = MosaicCard(
+    title = playlist.title,
+    subtitle = playlist.songCount.pluralSongs(),
+    artworkUris = playlist.artworkUris,
+    onClickLabel = "Ouvrir la playlist",
+    onClick = onClick,
+    modifier = modifier,
+)
+
+/** Carte de playlist ou de mix : mosaïque de pochettes, titre, sous-titre. */
+@Composable
+private fun MosaicCard(
+    title: String,
+    subtitle: String,
+    artworkUris: List<Any>,
+    onClickLabel: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Column(
         modifier = modifier
             .pressBounce()
             .width(SmartCardWidth)
             .clip(SynxioShape.artworkMd)
-            .clickable(onClickLabel = "Ouvrir la playlist", role = Role.Button, onClick = onClick)
+            .clickable(onClickLabel = onClickLabel, role = Role.Button, onClick = onClick)
             .padding(bottom = Space.sm),
     ) {
         ArtworkMosaic(
-            models = playlist.artworkUris,
+            models = artworkUris,
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f),
@@ -679,16 +729,17 @@ private fun SmartPlaylistCard(
         )
         Spacer(Modifier.height(Space.sm))
         Text(
-            text = playlist.title,
+            text = title,
             style = MaterialTheme.typography.titleSmall,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
         Text(
-            text = playlist.songCount.pluralSongs(),
+            text = subtitle,
             style = MaterialTheme.typography.bodySmall.merge(TabularNumbers),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }

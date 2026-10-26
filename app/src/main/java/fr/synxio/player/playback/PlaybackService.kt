@@ -131,6 +131,18 @@ class PlaybackService : MediaLibraryService() {
     private val activePlayer: Player get() = session.player
     private lateinit var fade: FadeController
 
+    /**
+     * Réveil en cours : la lecture passe sur le flux « alarme » le temps qu'il sonne.
+     *
+     * Le volume musique peut être à zéro la veille au soir, et Android 15+ interdit à une
+     * appli en arrière-plan de le relever : le flux alarme suit le volume des réveils, que
+     * l'utilisateur règle pour être réveillé. La montée progressive passe par le gain du
+     * lecteur, que rien ne bride.
+     */
+    private var alarmRamp: Job? = null
+    private var alarmActive = false
+    private var alarmHasPlayed = false
+
     val vocalRemover = fr.synxio.player.playback.effects.VocalRemoverAudioProcessor()
     private var partyServer: PartyServer? = null
     private var castServer: CastMediaServer? = null
@@ -233,13 +245,7 @@ class PlaybackService : MediaLibraryService() {
         player = ExoPlayer.Builder(this)
             .setRenderersFactory(renderersFactory)
             .setMediaSourceFactory(mediaSourceFactory)
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-                    .setUsage(C.USAGE_MEDIA)
-                    .build(),
-                /* handleAudioFocus = */ true,
-            )
+            .setAudioAttributes(MEDIA_ATTRIBUTES, /* handleAudioFocus = */ true)
             // Coupe la lecture quand on débranche le casque, comme tout lecteur sérieux.
             .setHandleAudioBecomingNoisy(true)
             // NETWORK et non LOCAL : webradios et podcasts sont lus en flux, et le Wi-Fi
@@ -736,6 +742,39 @@ class PlaybackService : MediaLibraryService() {
         return snapshot to (metadata.artworkUri ?: song?.artworkUri)
     }
 
+    // --- Réveil en musique ---------------------------------------------------------------
+
+    private fun enterAlarmMode(rampSeconds: Int) {
+        if (activePlayer !== player) return
+        alarmActive = true
+        alarmHasPlayed = false
+        player.setAudioAttributes(ALARM_ATTRIBUTES, /* handleAudioFocus = */ true)
+        alarmRamp?.cancel()
+        if (rampSeconds <= 0) {
+            fade.alarmGain = 1f
+            return
+        }
+        fade.alarmGain = ALARM_START_GAIN
+        alarmRamp = serviceScope.launch {
+            val steps = rampSeconds * 1_000L / ALARM_RAMP_TICK_MS
+            for (step in 1..steps) {
+                delay(ALARM_RAMP_TICK_MS)
+                fade.alarmGain = ALARM_START_GAIN + (1f - ALARM_START_GAIN) * step / steps
+            }
+        }
+    }
+
+    private fun exitAlarmMode() {
+        alarmActive = false
+        alarmRamp?.cancel()
+        fade.alarmGain = 1f
+        player.setAudioAttributes(MEDIA_ATTRIBUTES, /* handleAudioFocus = */ true)
+        // Pause depuis le casque, l'écran de verrouillage ou l'appli : la notification
+        // « Arrêter / Répéter » n'a plus d'objet.
+        getSystemService(android.app.NotificationManager::class.java)
+            .cancel(fr.synxio.player.alarm.AlarmReceiver.NOTIFICATION_ID)
+    }
+
     // --- Suivi d'écoute ----------------------------------------------------------------
 
     private fun startTracking(item: MediaItem?) {
@@ -994,6 +1033,10 @@ class PlaybackService : MediaLibraryService() {
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            // Le réveil s'arrête à la première pause : on rend le flux musique et le gain.
+            if (alarmActive) {
+                if (isPlaying) alarmHasPlayed = true else if (alarmHasPlayed) exitAlarmMode()
+            }
             if (isPlaying) {
                 // Pas de remise à zéro du compteur d'erreurs ici : un titre qui démarre puis
                 // échoue aussitôt relançait sinon le saut automatique à l'infini.
@@ -1291,6 +1334,7 @@ class PlaybackService : MediaLibraryService() {
                         add(SessionCommand(CMD_CYCLE_REPEAT, Bundle.EMPTY))
                         add(SessionCommand(CMD_SLEEP_TIMER, Bundle.EMPTY))
                         add(SessionCommand(CMD_CANCEL_SLEEP_TIMER, Bundle.EMPTY))
+                        add(SessionCommand(CMD_ALARM_MODE, Bundle.EMPTY))
                     }
                 }
                 .build()
@@ -1336,6 +1380,8 @@ class PlaybackService : MediaLibraryService() {
                 )
 
                 CMD_CANCEL_SLEEP_TIMER -> sleepTimer.cancel()
+
+                CMD_ALARM_MODE -> enterAlarmMode(args.getInt(ARG_RAMP_SECONDS, 0))
 
                 else -> return Futures.immediateFuture(
                     SessionResult(androidx.media3.session.SessionError.ERROR_NOT_SUPPORTED)
@@ -1691,6 +1737,19 @@ class PlaybackService : MediaLibraryService() {
         const val CMD_CANCEL_SLEEP_TIMER = "fr.synxio.player.CANCEL_SLEEP_TIMER"
         const val CMD_TOGGLE_SHUFFLE = "fr.synxio.player.TOGGLE_SHUFFLE"
         const val CMD_CYCLE_REPEAT = "fr.synxio.player.CYCLE_REPEAT"
+        const val CMD_ALARM_MODE = "fr.synxio.player.ALARM_MODE"
+        const val ARG_RAMP_SECONDS = "ramp_seconds"
+
+        private val MEDIA_ATTRIBUTES = AudioAttributes.Builder()
+            .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+            .setUsage(C.USAGE_MEDIA)
+            .build()
+        private val ALARM_ATTRIBUTES = AudioAttributes.Builder()
+            .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+            .setUsage(C.USAGE_ALARM)
+            .build()
+        private const val ALARM_START_GAIN = 0.05f
+        private const val ALARM_RAMP_TICK_MS = 250L
         const val ARG_DURATION_MS = "duration_ms"
         const val ARG_FINISH_TRACK = "finish_track"
 

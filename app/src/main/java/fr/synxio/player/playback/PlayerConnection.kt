@@ -426,6 +426,25 @@ class PlayerConnection @Inject constructor(
         }
     }
 
+    /**
+     * Lecture d'un réveil : le service passe sur le flux alarme et monte le gain en
+     * [rampSeconds], puis la file démarre. Les deux commandes partent dans l'ordre sur le
+     * même canal, le mode alarme est donc en place avant le premier son.
+     */
+    fun playAlarm(songs: List<Song>, rampSeconds: Int) {
+        if (songs.isEmpty()) return
+        whenConnected {
+            val c = controller ?: return@whenConnected
+            c.sendCustomCommand(
+                SessionCommand(PlaybackService.CMD_ALARM_MODE, Bundle.EMPTY),
+                Bundle().apply { putInt(PlaybackService.ARG_RAMP_SECONDS, rampSeconds) },
+            )
+            c.setMediaItems(songs.toMediaItems(), 0, 0L)
+            c.prepare()
+            c.play()
+        }
+    }
+
     fun playSong(song: Song, context: List<Song>? = null) {
         val queue = context ?: listOf(song)
         play(queue, queue.indexOf(song).coerceAtLeast(0))

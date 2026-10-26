@@ -64,6 +64,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.synxio.player.data.model.Song
@@ -113,7 +115,8 @@ fun StatsScreen(
     onBack: () -> Unit,
     onOpenArtist: (String) -> Unit,
     onOpenAlbum: (Long) -> Unit,
-    onPlaySong: (List<Song>, Int) -> Unit
+    onPlaySong: (List<Song>, Int) -> Unit,
+    onOpenRecap: (() -> Unit)? = null,
 ) {
     val statsViewModel: StatsViewModel = hiltViewModel()
 
@@ -147,6 +150,15 @@ fun StatsScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Retour")
+                    }
+                },
+                actions = {
+                    if (onOpenRecap != null) {
+                        TextButton(onClick = onOpenRecap) {
+                            Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(Space.xs))
+                            Text("Ton récap")
+                        }
                     }
                 },
                 scrollBehavior = scrollBehavior,

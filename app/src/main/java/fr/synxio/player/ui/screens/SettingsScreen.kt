@@ -79,6 +79,7 @@ import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.ImageSearch
+import androidx.compose.material.icons.rounded.Alarm
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.rounded.LinearScale
@@ -209,7 +210,7 @@ enum class SettingsSubMenu(
     ),
     PLAYBACK(
         "Lecture & Audio",
-        "Fondu, gapless, reprise casque, minuterie et commande vocale",
+        "Fondu, gapless, minuterie, commande vocale et réveils",
         Icons.Rounded.PlayCircle,
     ),
     VOLUME(
@@ -305,6 +306,7 @@ fun SettingsScreen(
     onNavigateToBackup: () -> Unit,
     onNavigateToAbout: () -> Unit,
     onNavigateToAdvancedSearch: () -> Unit,
+    onOpenAlarms: () -> Unit = {},
     // Écran « Prochainement » supprimé : paramètre conservé le temps de retirer l'appel.
     @Suppress("UNUSED_PARAMETER") onNavigateToComingSoon: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -651,6 +653,15 @@ fun SettingsScreen(
                             VoiceWakeSetting(
                                 enabled = settings.voiceWakeEnabled,
                                 settingsViewModel = settingsViewModel,
+                            )
+                        }
+
+                        group(6, "alarms", "Réveil") {
+                            ClickableSetting(
+                                title = "Réveils en musique",
+                                subtitle = "Réveille-toi avec tes favoris, ton mix du jour ou une playlist",
+                                icon = Icons.Rounded.Alarm,
+                                onClick = onOpenAlarms,
                             )
                         }
                     }

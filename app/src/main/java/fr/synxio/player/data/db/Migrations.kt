@@ -234,7 +234,27 @@ val MIGRATION_12_13 = object : Migration(12, 13) {
     }
 }
 
+/** v13 -> v14 : réveils en musique. */
+val MIGRATION_13_14 = object : Migration(13, 14) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `alarms` (
+                `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                `hour` INTEGER NOT NULL,
+                `minute` INTEGER NOT NULL,
+                `days` INTEGER NOT NULL,
+                `source` TEXT NOT NULL,
+                `playlistId` INTEGER,
+                `rampSeconds` INTEGER NOT NULL,
+                `enabled` INTEGER NOT NULL
+            )
+            """.trimIndent()
+        )
+    }
+}
+
 val ALL_MIGRATIONS = arrayOf(
     MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
-    MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13,
+    MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14,
 )
