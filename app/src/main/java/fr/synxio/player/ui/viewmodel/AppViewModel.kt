@@ -76,7 +76,7 @@ class AppViewModel @Inject constructor(
     audioOutputMonitor: fr.synxio.player.playback.AudioOutputMonitor,
     smartPlaylistRepository: SmartPlaylistRepository,
     dailyMixRepository: fr.synxio.player.data.repo.DailyMixRepository,
-    private val voiceWake: fr.synxio.player.voice.VoiceWakeController,
+    budsMonitor: fr.synxio.player.buds.BudsMonitor,
 ) : ViewModel() {
 
     val similarityProgress = similarityRepository.progress
@@ -106,6 +106,9 @@ class AppViewModel @Inject constructor(
      */
     val audioOutput: StateFlow<fr.synxio.player.playback.AudioOutput> = audioOutputMonitor.output
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), fr.synxio.player.playback.AudioOutput.Speaker)
+
+    /** Galaxy Buds connectés (modèle, batterie), pour la pastille de sortie du lecteur. */
+    val buds: StateFlow<fr.synxio.player.buds.BudsState?> = budsMonitor.state
 
     fun toggleRadioFavorite(station: fr.synxio.player.data.model.RadioStation) {
         radioRepository.toggleFavorite(station)
@@ -420,9 +423,6 @@ class AppViewModel @Inject constructor(
         player.startSleepTimer(minutes * 60_000L, finishTrack)
         emit("Veille dans $minutes min")
     }
-
-    /** Relance l'écoute vocale au retour au premier plan (le seul moment où Android l'autorise). */
-    fun syncVoiceWake(enabled: Boolean) = voiceWake.sync(enabled)
 
     fun cancelSleepTimer() {
         player.cancelSleepTimer()

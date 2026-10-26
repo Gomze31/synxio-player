@@ -98,6 +98,8 @@ class PlaybackService : MediaLibraryService() {
     @Inject lateinit var podcastProgressDao: fr.synxio.player.data.db.PodcastProgressDao
     @Inject lateinit var widgetUpdater: WidgetUpdater
     @Inject lateinit var historyRepository: fr.synxio.player.data.repo.HistoryRepository
+    @Inject lateinit var budsMonitor: fr.synxio.player.buds.BudsMonitor
+    @Inject lateinit var dailyMixes: fr.synxio.player.data.repo.DailyMixRepository
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -203,6 +205,9 @@ class PlaybackService : MediaLibraryService() {
     private var queueRestored = false
     private var headsetCallback: AudioDeviceCallback? = null
 
+    /** Galaxy Buds connectés, suivis tant que le service vit (gestes, alerte batterie). */
+    private var latestBuds: fr.synxio.player.buds.BudsState? = null
+
     /** Gestes des boutons de casque (double, triple appui, appui long). */
     private val mediaButtons = MediaButtonInterpreter()
     private val buttonHandler = Handler(Looper.getMainLooper())
@@ -245,7 +250,7 @@ class PlaybackService : MediaLibraryService() {
         player = ExoPlayer.Builder(this)
             .setRenderersFactory(renderersFactory)
             .setMediaSourceFactory(mediaSourceFactory)
-            .setAudioAttributes(MEDIA_ATTRIBUTES, /* handleAudioFocus = */ true)
+            .setAudioAttributes(mediaAttributes(spatial = true), /* handleAudioFocus = */ true)
             // Coupe la lecture quand on débranche le casque, comme tout lecteur sérieux.
             .setHandleAudioBecomingNoisy(true)
             // NETWORK et non LOCAL : webradios et podcasts sont lus en flux, et le Wi-Fi
@@ -277,6 +282,7 @@ class PlaybackService : MediaLibraryService() {
         observeLibraryForQueueRestore()
         observeFavoriteForCustomLayout()
         observeBrowseChanges()
+        observeBuds()
 
         serviceScope.launch {
             sleepTimer.state.collect { state ->
@@ -476,6 +482,10 @@ class PlaybackService : MediaLibraryService() {
                 if (previous != null && previous.themeMode != s.themeMode) refreshWidgetSoon()
                 vocalRemover.setEnabled(s.karaokeEnabled)
                 mediaButtons.gesturesEnabled = s.headsetMultiClick
+                // Pas pendant un réveil : il impose ses propres attributs (usage alarme).
+                if (previous != null && previous.spatialAudio != s.spatialAudio && !alarmActive) {
+                    player.setAudioAttributes(mediaAttributes(s.spatialAudio), /* handleAudioFocus = */ true)
+                }
                 fade.volumeCap = if (s.maxVolumeLimit) s.maxVolumeValue else 1f
 
                 if (s.partyEnabled && partyServer == null) {
@@ -768,7 +778,7 @@ class PlaybackService : MediaLibraryService() {
         alarmActive = false
         alarmRamp?.cancel()
         fade.alarmGain = 1f
-        player.setAudioAttributes(MEDIA_ATTRIBUTES, /* handleAudioFocus = */ true)
+        player.setAudioAttributes(mediaAttributes(latestSettings?.spatialAudio ?: true), /* handleAudioFocus = */ true)
         // Pause depuis le casque, l'écran de verrouillage ou l'appli : la notification
         // « Arrêter / Répéter » n'a plus d'objet.
         getSystemService(android.app.NotificationManager::class.java)
@@ -1205,17 +1215,26 @@ class PlaybackService : MediaLibraryService() {
                 // qu'il se connecte, avant même de reprendre la lecture.
                 applyProfileForDevice(headset.productName?.toString().orEmpty())
 
+                val isBuds = fr.synxio.player.buds.GalaxyBuds.detect(headset.productName?.toString()) != null
                 serviceScope.launch {
-                    val enabled = settingsRepository.settings.first().resumeOnHeadsetConnect
-                    if (!shouldResumeOnHeadset(enabled)) return@launch
+                    val s = settingsRepository.settings.first()
+                    // La source au branchement est propre aux Galaxy Buds : une enceinte de
+                    // voiture ou un casque filaire ne lancent jamais de musique d'eux-mêmes.
+                    val source = if (isBuds) s.budsConnectSource else fr.synxio.player.buds.BudsConnectSource.NONE
+                    if (connectAction(s.resumeOnHeadsetConnect, source) == fr.synxio.player.buds.BudsConnect.Action.NOTHING) return@launch
 
                     // Court délai : la route audio n'est pas encore basculée sur le
                     // casque à l'instant où le périphérique est signalé.
                     delay(600)
                     // L'utilisateur a pu lancer la lecture pendant ce délai.
-                    if (!shouldResumeOnHeadset(enabled)) return@launch
-                    if (activePlayer.playbackState == Player.STATE_IDLE) activePlayer.prepare()
-                    activePlayer.play()
+                    when (connectAction(s.resumeOnHeadsetConnect, source)) {
+                        fr.synxio.player.buds.BudsConnect.Action.NOTHING -> Unit
+                        fr.synxio.player.buds.BudsConnect.Action.RESUME -> {
+                            if (activePlayer.playbackState == Player.STATE_IDLE) activePlayer.prepare()
+                            activePlayer.play()
+                        }
+                        fr.synxio.player.buds.BudsConnect.Action.START_SOURCE -> startConnectSource(source)
+                    }
                 }
             }
         }
@@ -1224,23 +1243,130 @@ class PlaybackService : MediaLibraryService() {
             .onFailure { headsetCallback = null }
     }
 
-    /** Reprise au branchement : pas pendant un appel, ni par-dessus une lecture en cours. */
-    private fun shouldResumeOnHeadset(enabled: Boolean): Boolean {
+    /** Au branchement : reprendre, lancer une source, ou rien (pendant un appel, une lecture). */
+    private fun connectAction(
+        resumeEnabled: Boolean,
+        source: fr.synxio.player.buds.BudsConnectSource,
+    ): fr.synxio.player.buds.BudsConnect.Action {
         val mode = getSystemService(AudioManager::class.java)?.mode ?: AudioManager.MODE_NORMAL
-        return AudioOutputs.shouldResumeOnConnect(
-            enabled = enabled,
+        return fr.synxio.player.buds.BudsConnect.decide(
+            resumeEnabled = resumeEnabled,
+            source = source,
             hasQueue = activePlayer.mediaItemCount > 0,
             playWhenReady = activePlayer.playWhenReady,
             inCall = mode != AudioManager.MODE_NORMAL,
         )
     }
 
-    /** Applique la courbe mémorisée pour ce périphérique, s'il y en a une. */
+    /**
+     * Lance la source choisie pour la connexion des Buds. Une source vide (aucun favori,
+     * mix pas encore calculé) ne lance rien : mieux vaut le silence qu'une surprise.
+     */
+    private suspend fun startConnectSource(source: fr.synxio.player.buds.BudsConnectSource) {
+        val library = musicRepository.library.value.songs
+        if (library.isEmpty()) return
+        val songs = when (source) {
+            fr.synxio.player.buds.BudsConnectSource.NONE -> emptyList()
+            fr.synxio.player.buds.BudsConnectSource.DAILY_MIX -> withTimeoutOrNull(CONNECT_SOURCE_WAIT_MS) {
+                dailyMixes.mixes.first { it.isNotEmpty() }
+            }?.firstOrNull { it.kind == fr.synxio.player.data.model.DailyMixKind.DAILY }?.songs.orEmpty()
+            fr.synxio.player.buds.BudsConnectSource.FAVORITES -> {
+                val ids = musicRepository.favoriteIds.value
+                library.filter { it.id in ids }.shuffled()
+            }
+            fr.synxio.player.buds.BudsConnectSource.SHUFFLE ->
+                musicRepository.withoutDisliked(library).shuffled().take(CONNECT_SHUFFLE_SIZE)
+        }
+        if (songs.isEmpty() || activePlayer.playWhenReady) return
+        queueLoaded = true
+        activePlayer.setMediaItems(forActivePlayer(songs.toMediaItems()), 0, 0L)
+        activePlayer.prepare()
+        activePlayer.play()
+    }
+
+    /**
+     * Galaxy Buds : suivis pour les gestes, et pour prévenir quand leur batterie passe
+     * sous 15 puis 5 %. Chaque nouvelle paire repart de sa première mesure.
+     */
+    private fun observeBuds() {
+        var lastName: String? = null
+        var lastBattery: Int? = null
+        budsMonitor.state
+            .onEach { buds ->
+                latestBuds = buds
+                val battery = buds?.batteryPercent
+                val crossed = if (buds?.name == lastName) fr.synxio.player.buds.BudsAlerts.crossed(lastBattery, battery) else null
+                lastName = buds?.name
+                lastBattery = battery
+                if (crossed != null && buds != null && latestSettings?.budsBatteryAlert != false) {
+                    notifyBudsBattery(buds.model.displayName, battery ?: crossed)
+                }
+            }
+            .launchIn(serviceScope)
+    }
+
+    private fun notifyBudsBattery(model: String, percent: Int) {
+        val manager = getSystemService(android.app.NotificationManager::class.java) ?: return
+        if (!androidx.core.app.NotificationManagerCompat.from(this).areNotificationsEnabled()) return
+        if (manager.getNotificationChannel(BUDS_CHANNEL_ID) == null) {
+            manager.createNotificationChannel(
+                android.app.NotificationChannel(BUDS_CHANNEL_ID, "Écouteurs", android.app.NotificationManager.IMPORTANCE_DEFAULT)
+                    .apply { description = "Batterie faible des Galaxy Buds" }
+            )
+        }
+        val notification = androidx.core.app.NotificationCompat.Builder(this, BUDS_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_stat_music)
+            .setContentTitle("$model : batterie à $percent %")
+            .setContentText(if (percent <= 5) "Remets-les dans leur boîtier, la lecture va bientôt s'arrêter" else "Pense à les recharger")
+            .setContentIntent(sessionActivityIntent())
+            .setAutoCancel(true)
+            .build()
+        runCatching { manager.notify(BUDS_NOTIFICATION_ID, notification) }
+    }
+
+    /**
+     * Toucher des Buds remappé dans les réglages. Les touches suivant / précédent ne
+     * sont détournées que si des Galaxy Buds sont la sortie connue : un volant de voiture
+     * garde son comportement.
+     */
+    private fun budsTapFor(event: KeyEvent): fr.synxio.player.buds.BudsTapAction? {
+        val s = latestSettings ?: return null
+        return fr.synxio.player.buds.BudsGestures.remap(
+            keyCode = event.keyCode,
+            onBuds = latestBuds != null,
+            doubleTap = s.budsDoubleTap,
+            tripleTap = s.budsTripleTap,
+        )
+    }
+
+    private fun runBudsTap(action: fr.synxio.player.buds.BudsTapAction) {
+        val p = activePlayer
+        if (p.mediaItemCount == 0) return
+        when (action) {
+            fr.synxio.player.buds.BudsTapAction.DEFAULT -> Unit
+            fr.synxio.player.buds.BudsTapAction.FAVORITE -> {
+                val song = musicRepository.songById(p.currentMediaItem?.songId ?: -1L)
+                if (song != null) serviceScope.launch { musicRepository.toggleFavorite(song) }
+            }
+            fr.synxio.player.buds.BudsTapAction.SEEK_FORWARD -> runButtonCommand(MediaButtonInterpreter.Command.SeekBy(10_000))
+            fr.synxio.player.buds.BudsTapAction.SEEK_BACK -> runButtonCommand(MediaButtonInterpreter.Command.SeekBy(-10_000))
+            fr.synxio.player.buds.BudsTapAction.RESTART -> if (p.isCurrentMediaItemSeekable) p.seekTo(0L)
+            fr.synxio.player.buds.BudsTapAction.SHUFFLE -> p.shuffleModeEnabled = !p.shuffleModeEnabled
+        }
+    }
+
+    /**
+     * Applique la courbe mémorisée pour ce périphérique, ou celle du modèle pour des Galaxy
+     * Buds sans profil (réglage « Correction auto »).
+     */
     private fun applyProfileForDevice(deviceName: String) {
         if (deviceName.isBlank()) return
         serviceScope.launch {
-            val mapping = deviceProfileDao.forDevice(deviceName) ?: return@launch
-            val curve = EqCurves.byId(mapping.curveId) ?: return@launch
+            val curveId = deviceProfileDao.forDevice(deviceName)?.curveId
+                ?: fr.synxio.player.buds.GalaxyBuds.detect(deviceName)?.curveId
+                    ?.takeIf { settingsRepository.settings.first().budsAutoEq }
+                ?: return@launch
+            val curve = EqCurves.byId(curveId) ?: return@launch
             val caps = equalizer.capabilities
             if (!caps.available || caps.bands.isEmpty()) return@launch
 
@@ -1580,6 +1706,11 @@ class PlaybackService : MediaLibraryService() {
             if (session.isMediaNotificationController(controllerInfo)) return false
             val event = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
                 ?: return false
+            budsTapFor(event)?.let { action ->
+                // L'appui seul déclenche ; relâchement et répétitions sont absorbés.
+                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) runBudsTap(action)
+                return true
+            }
             val outcome = mediaButtons.onKeyEvent(event.keyCode, event.action, event.repeatCount, SystemClock.uptimeMillis())
             if (!outcome.handled) return false
             if (outcome.cancelPending || outcome.resolveAt != null) buttonHandler.removeCallbacks(resolveButtons)
@@ -1740,10 +1871,17 @@ class PlaybackService : MediaLibraryService() {
         const val CMD_ALARM_MODE = "fr.synxio.player.ALARM_MODE"
         const val ARG_RAMP_SECONDS = "ramp_seconds"
 
-        private val MEDIA_ATTRIBUTES = AudioAttributes.Builder()
+        /** Attributs de la musique ; [spatial] laisse Android la spatialiser (audio 360). */
+        private fun mediaAttributes(spatial: Boolean) = AudioAttributes.Builder()
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
             .setUsage(C.USAGE_MEDIA)
+            .setSpatializationBehavior(if (spatial) C.SPATIALIZATION_BEHAVIOR_AUTO else C.SPATIALIZATION_BEHAVIOR_NEVER)
             .build()
+
+        private const val BUDS_CHANNEL_ID = "buds"
+        private const val BUDS_NOTIFICATION_ID = 4_201
+        private const val CONNECT_SOURCE_WAIT_MS = 3_000L
+        private const val CONNECT_SHUFFLE_SIZE = 100
         private val ALARM_ATTRIBUTES = AudioAttributes.Builder()
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
             .setUsage(C.USAGE_ALARM)

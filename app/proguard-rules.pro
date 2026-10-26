@@ -54,12 +54,6 @@
 -keep class com.fasterxml.jackson.** { *; }
 -dontwarn com.fasterxml.jackson.databind.**
 
-# Commande vocale (Vosk). JNA relie les fonctions natives aux méthodes Java par leur nom
-# et lit ses structures par réflexion : renommées par R8, le chargement du modèle échoue.
--keep class com.sun.jna.** { *; }
--keep class * implements com.sun.jna.** { *; }
--keep class org.vosk.** { *; }
-
 # ML Kit (traduction, détection de langue) : les registrars sont instanciés par réflexion
 # depuis les métadonnées du manifeste. Sans leurs constructeurs et membres, le registre de
 # composants reste vide et Translation.getClient() lève une NullPointerException.

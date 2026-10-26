@@ -16,8 +16,6 @@
     <!-- Service de lecture en avant-plan -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
-    <!-- Commande vocale mains libres : écoute du mot-clé en avant-plan -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Réveil en musique : alarme exacte (API 33+ : USE_EXACT_ALARM, accordée d'office
@@ -31,6 +29,16 @@
     <!-- Égaliseur / effets audio -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!--
+        Écouteurs Bluetooth (Galaxy Buds) : batterie et codec, diffusés par la pile
+        Bluetooth aux seules applis qui ont BLUETOOTH_CONNECT. Facultative, demandée depuis
+        la carte Galaxy Buds des réglages.
+    -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
     <!--
         Mise à jour interne depuis les releases GitHub.
@@ -62,10 +70,12 @@
 
         Depuis Android 11, une application ne voit pas les autres paquets installés sans
         le déclarer. Sans ce bloc, `bindService` vers Discord échouerait silencieusement,
-        exactement comme si Discord n'était pas installé.
+        exactement comme si Discord n'était pas installé. Galaxy Wearable : raccourci vers
+        les réglages des Galaxy Buds (réduction de bruit, son ambiant).
     -->
     <queries>
         <package android:name="com.discord" />
+        <package android:name="com.samsung.android.app.watchmanager" />
         <intent>
             <action android:name="com.discord.socialsdk.rpc.IDiscordRpcService" />
         </intent>
@@ -152,12 +162,6 @@
                 <action android:name="android.media.browse.MediaBrowserService" />
             </intent-filter>
         </service>
-
-        <!-- Écoute du mot-clé « Synxio » (reconnaissance hors ligne) -->
-        <service
-            android:name=".voice.VoiceWakeService"
-            android:exported="false"
-            android:foregroundServiceType="microphone" />
 
         <!-- Widget écran d'accueil (Glance) -->
         <receiver

@@ -98,6 +98,32 @@ object EqCurves {
         ),
     )
 
+    /** Galaxy Buds3 Pro : grave un peu appuyé, aigu haut légèrement vif. */
+    val GALAXY_BUDS3_PRO = EqCurve(
+        id = "galaxy_buds3_pro",
+        name = "Galaxy Buds3 Pro",
+        description = "Resserre le grave et adoucit le haut de l'aigu, voix inchangées",
+        category = EqCategory.HEADPHONES,
+        points = listOf(
+            p(32, -2.5f), p(64, -2f), p(125, -1f), p(250, 0f),
+            p(500, 0f), p(1000, 0.5f), p(2000, 1f), p(4000, 0.5f),
+            p(8000, -1.5f), p(16000, -1f),
+        ),
+    )
+
+    /** Galaxy Buds FE : grave très généreux, aigu en retrait. */
+    val GALAXY_BUDS_FE = EqCurve(
+        id = "galaxy_buds_fe",
+        name = "Galaxy Buds FE",
+        description = "Calme le grave et rend de l'air aux voix et aux cymbales",
+        category = EqCategory.HEADPHONES,
+        points = listOf(
+            p(32, -4f), p(64, -3.5f), p(125, -2f), p(250, -0.5f),
+            p(500, 0.5f), p(1000, 1f), p(2000, 2f), p(4000, 2f),
+            p(8000, 1f), p(16000, 1.5f),
+        ),
+    )
+
     /** Écouteurs filaires génériques : creux dans le bas-médium à combler. */
     val EARBUDS_GENERIC = EqCurve(
         id = "earbuds_generic",
@@ -206,7 +232,7 @@ object EqCurves {
 
     val ALL: List<EqCurve> = listOf(
         FLAT, BASS_BOOST, VOCAL, TREBLE,
-        SONY_WH1000XM3, HONOR_EARBUDS_3_PRO, EARBUDS_GENERIC, PHONE_SPEAKER,
+        SONY_WH1000XM3, HONOR_EARBUDS_3_PRO, GALAXY_BUDS3_PRO, GALAXY_BUDS_FE, EARBUDS_GENERIC, PHONE_SPEAKER,
         LOUDNESS, PODCAST, LATE_NIGHT,
     )
 

@@ -12,6 +12,8 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
+import fr.synxio.player.buds.BudsConnectSource
+import fr.synxio.player.buds.BudsTapAction
 import fr.synxio.player.data.model.AccentSource
 import fr.synxio.player.data.model.AlbumSort
 import fr.synxio.player.data.model.ArtistSort
@@ -55,6 +57,16 @@ data class Settings(
     /** Double appui sur le bouton du casque : titre suivant ; triple : précédent. */
     val headsetMultiClick: Boolean = true,
     val rememberQueue: Boolean = true,
+
+    // Galaxy Buds
+    /** Courbe du modèle appliquée à la connexion, faute de profil d'appareil mémorisé. */
+    val budsAutoEq: Boolean = true,
+    val budsDoubleTap: BudsTapAction = BudsTapAction.DEFAULT,
+    val budsTripleTap: BudsTapAction = BudsTapAction.DEFAULT,
+    val budsConnectSource: BudsConnectSource = BudsConnectSource.NONE,
+    val budsBatteryAlert: Boolean = true,
+    /** Laisse Android spatialiser la musique (audio 360) quand la sortie le permet. */
+    val spatialAudio: Boolean = true,
     
     // Nouvelle option : reprendre après un appel
     val resumeAfterCall: Boolean = true,
@@ -166,7 +178,6 @@ data class Settings(
     // Audio & Lecture avancée
     val autoRewindSec: Int = 0,
     val keepScreenOnNowPlaying: Boolean = false,
-    val voiceWakeEnabled: Boolean = false,
     val shakeToSkip: Boolean = false,
     val karaokeEnabled: Boolean = false,
     val partyEnabled: Boolean = false,
@@ -198,6 +209,14 @@ class SettingsRepository @Inject constructor(
         val AUDIO_FOCUS_PAUSE = booleanPreferencesKey("audio_focus_pause")
         val RESUME_ON_HEADSET = booleanPreferencesKey("resume_on_headset")
         val HEADSET_MULTI_CLICK = booleanPreferencesKey("headset_multi_click")
+
+        // Galaxy Buds
+        val BUDS_AUTO_EQ = booleanPreferencesKey("buds_auto_eq")
+        val BUDS_DOUBLE_TAP = stringPreferencesKey("buds_double_tap")
+        val BUDS_TRIPLE_TAP = stringPreferencesKey("buds_triple_tap")
+        val BUDS_CONNECT_SOURCE = stringPreferencesKey("buds_connect_source")
+        val BUDS_BATTERY_ALERT = booleanPreferencesKey("buds_battery_alert")
+        val SPATIAL_AUDIO = booleanPreferencesKey("spatial_audio")
         val REMEMBER_QUEUE = booleanPreferencesKey("remember_queue")
         
         // Nouvelle option : reprendre après un appel
@@ -276,7 +295,6 @@ class SettingsRepository @Inject constructor(
         // Audio & Lecture avancée
         val AUTO_REWIND_SEC = intPreferencesKey("auto_rewind_sec")
         val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on_now_playing")
-        val VOICE_WAKE = booleanPreferencesKey("voice_wake_enabled")
         val SHAKE_TO_SKIP = booleanPreferencesKey("shake_to_skip")
         val KARAOKE_ENABLED = booleanPreferencesKey("karaoke_enabled")
         val PARTY_ENABLED = booleanPreferencesKey("party_enabled")
@@ -308,6 +326,12 @@ class SettingsRepository @Inject constructor(
                 audioFocusPause = p[Keys.AUDIO_FOCUS_PAUSE] ?: true,
                 resumeOnHeadsetConnect = p[Keys.RESUME_ON_HEADSET] ?: false,
                 headsetMultiClick = p[Keys.HEADSET_MULTI_CLICK] ?: true,
+                budsAutoEq = p[Keys.BUDS_AUTO_EQ] ?: true,
+                budsDoubleTap = p.enum(Keys.BUDS_DOUBLE_TAP, BudsTapAction.DEFAULT),
+                budsTripleTap = p.enum(Keys.BUDS_TRIPLE_TAP, BudsTapAction.DEFAULT),
+                budsConnectSource = p.enum(Keys.BUDS_CONNECT_SOURCE, BudsConnectSource.NONE),
+                budsBatteryAlert = p[Keys.BUDS_BATTERY_ALERT] ?: true,
+                spatialAudio = p[Keys.SPATIAL_AUDIO] ?: true,
                 rememberQueue = p[Keys.REMEMBER_QUEUE] ?: true,
                 
                 // Nouvelle option : reprendre après un appel
@@ -386,7 +410,6 @@ class SettingsRepository @Inject constructor(
                 // Audio & Lecture avancée
                 autoRewindSec = p[Keys.AUTO_REWIND_SEC] ?: 0,
                 keepScreenOnNowPlaying = p[Keys.KEEP_SCREEN_ON] ?: false,
-                voiceWakeEnabled = p[Keys.VOICE_WAKE] ?: false,
                 shakeToSkip = p[Keys.SHAKE_TO_SKIP] ?: false,
                 karaokeEnabled = p[Keys.KARAOKE_ENABLED] ?: false,
                 partyEnabled = p[Keys.PARTY_ENABLED] ?: false,
@@ -413,6 +436,12 @@ class SettingsRepository @Inject constructor(
     suspend fun setAudioFocusPause(value: Boolean) = put(Keys.AUDIO_FOCUS_PAUSE, value)
     suspend fun setResumeOnHeadsetConnect(value: Boolean) = put(Keys.RESUME_ON_HEADSET, value)
     suspend fun setHeadsetMultiClick(value: Boolean) = put(Keys.HEADSET_MULTI_CLICK, value)
+    suspend fun setBudsAutoEq(value: Boolean) = put(Keys.BUDS_AUTO_EQ, value)
+    suspend fun setBudsDoubleTap(value: BudsTapAction) = put(Keys.BUDS_DOUBLE_TAP, value.name)
+    suspend fun setBudsTripleTap(value: BudsTapAction) = put(Keys.BUDS_TRIPLE_TAP, value.name)
+    suspend fun setBudsConnectSource(value: BudsConnectSource) = put(Keys.BUDS_CONNECT_SOURCE, value.name)
+    suspend fun setBudsBatteryAlert(value: Boolean) = put(Keys.BUDS_BATTERY_ALERT, value)
+    suspend fun setSpatialAudio(value: Boolean) = put(Keys.SPATIAL_AUDIO, value)
     suspend fun setRememberQueue(value: Boolean) = put(Keys.REMEMBER_QUEUE, value)
 
     suspend fun setMinDurationSec(value: Int) = put(Keys.MIN_DURATION, value)
@@ -519,7 +548,6 @@ class SettingsRepository @Inject constructor(
     // Audio & Lecture avancée
     suspend fun setAutoRewindSec(value: Int) = put(Keys.AUTO_REWIND_SEC, value)
     suspend fun setKeepScreenOnNowPlaying(value: Boolean) = put(Keys.KEEP_SCREEN_ON, value)
-    suspend fun setVoiceWakeEnabled(value: Boolean) = put(Keys.VOICE_WAKE, value)
     suspend fun setShakeToSkip(value: Boolean) = put(Keys.SHAKE_TO_SKIP, value)
     suspend fun setKaraokeEnabled(value: Boolean) = put(Keys.KARAOKE_ENABLED, value)
     suspend fun setPartyEnabled(value: Boolean) = put(Keys.PARTY_ENABLED, value)

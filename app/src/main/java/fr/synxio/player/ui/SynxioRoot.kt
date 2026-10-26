@@ -284,13 +284,6 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
         viewModel.messages.collect { snackbarHost.showSnackbar(it) }
     }
 
-    // Écoute vocale : (re)lancée à chaque retour au premier plan, seul moment où Android
-    // accorde le micro au service ; il a pu être arrêté pendant que l'app était cachée.
-    val voiceWakeEnabled = viewModel.settings.collectAsStateWithLifecycle().value.voiceWakeEnabled
-    LifecycleStartEffect(voiceWakeEnabled) {
-        viewModel.syncVoiceWake(voiceWakeEnabled)
-        onStopOrDispose { }
-    }
     LaunchedEffect(Unit) {
         viewModel.actionMessages.collect { message ->
             val result = snackbarHost.showSnackbar(

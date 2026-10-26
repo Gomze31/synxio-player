@@ -18,6 +18,12 @@ import dagger.hilt.android.HiltAndroidApp
 @HiltAndroidApp
 class SynxioApp : Application(), SingletonImageLoader.Factory {
 
+    override fun onCreate() {
+        super.onCreate()
+        // La commande vocale (5.2 à 5.4) téléchargeait un modèle de 42 Mo : on libère la place.
+        Thread { runCatching { filesDir.resolve("voice").deleteRecursively() } }.start()
+    }
+
     /**
      * Les pochettes viennent toutes de MediaStore : un cache disque généreux évite
      * de re-décoder les mêmes JPEG à chaque scroll de la bibliothèque.

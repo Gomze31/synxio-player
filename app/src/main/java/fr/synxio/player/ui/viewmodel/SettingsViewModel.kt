@@ -34,8 +34,7 @@ class SettingsViewModel @Inject constructor(
     private val loudness: LoudnessRepository,
     private val similarity: SimilarityRepository,
     private val music: MusicRepository,
-    private val voiceModels: fr.synxio.player.voice.VoskModelStore,
-    private val voiceWake: fr.synxio.player.voice.VoiceWakeController,
+    private val budsMonitor: fr.synxio.player.buds.BudsMonitor,
 ) : ViewModel() {
 
     // ========================================================================
@@ -145,6 +144,28 @@ class SettingsViewModel @Inject constructor(
     /** Double et triple appui sur la télécommande du casque */
     fun setHeadsetMultiClick(value: Boolean) = update { settings.setHeadsetMultiClick(value) }
 
+    // ========================================================================
+    // GALAXY BUDS
+    // ========================================================================
+
+    val buds: StateFlow<fr.synxio.player.buds.BudsState?> = budsMonitor.state
+
+    fun hasBluetoothPermission(): Boolean = budsMonitor.hasBluetoothPermission()
+
+    /** Réponse à la demande BLUETOOTH_CONNECT : batterie et codec s'écoutent dès l'accord. */
+    fun onBluetoothPermissionResult() = budsMonitor.onPermissionChanged()
+
+    fun spatialStatus(): fr.synxio.player.buds.SpatialStatus = fr.synxio.player.buds.SpatialAudio.status(context)
+    fun isWearableInstalled(): Boolean = fr.synxio.player.buds.GalaxyWearable.isInstalled(context)
+    fun openWearable() = fr.synxio.player.buds.GalaxyWearable.open(context)
+
+    fun setBudsAutoEq(value: Boolean) = update { settings.setBudsAutoEq(value) }
+    fun setBudsDoubleTap(value: fr.synxio.player.buds.BudsTapAction) = update { settings.setBudsDoubleTap(value) }
+    fun setBudsTripleTap(value: fr.synxio.player.buds.BudsTapAction) = update { settings.setBudsTripleTap(value) }
+    fun setBudsConnectSource(value: fr.synxio.player.buds.BudsConnectSource) = update { settings.setBudsConnectSource(value) }
+    fun setBudsBatteryAlert(value: Boolean) = update { settings.setBudsBatteryAlert(value) }
+    fun setSpatialAudio(value: Boolean) = update { settings.setSpatialAudio(value) }
+
     /** Arrêter après inactivité (en minutes, 0 = désactivé) */
     fun setStopAfterInactivity(value: Int) = update { settings.setStopAfterInactivity(value) }
 
@@ -206,15 +227,6 @@ class SettingsViewModel @Inject constructor(
 
     fun setAutoRewindSec(value: Int) = update { settings.setAutoRewindSec(value) }
     fun setKeepScreenOnNowPlaying(value: Boolean) = update { settings.setKeepScreenOnNowPlaying(value) }
-
-    val voiceModelState = voiceModels.state
-
-    /** Active l'écoute du mot-clé : télécharge d'abord le modèle vocal s'il manque. */
-    fun setVoiceWake(enabled: Boolean) = viewModelScope.launch {
-        if (enabled && !voiceModels.ensureInstalled()) return@launch
-        settings.setVoiceWakeEnabled(enabled)
-        voiceWake.sync(enabled)
-    }
 
     /** Nettoyer tous les caches (pochettes, temporaires) */
     fun clearAllCaches(onComplete: () -> Unit = {}) = viewModelScope.launch {

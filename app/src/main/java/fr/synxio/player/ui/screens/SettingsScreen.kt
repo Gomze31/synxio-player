@@ -5,8 +5,15 @@ import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material.icons.rounded.Mic
-import fr.synxio.player.voice.VoiceModelState
+import androidx.compose.material.icons.rounded.BatteryAlert
+import androidx.compose.material.icons.rounded.Earbuds
+import androidx.compose.material.icons.rounded.EarbudsBattery
+import androidx.compose.material.icons.rounded.SpatialAudio
+import androidx.compose.material.icons.rounded.TouchApp
+import fr.synxio.player.buds.BudsConnectSource
+import fr.synxio.player.buds.BudsState
+import fr.synxio.player.buds.BudsTapAction
+import fr.synxio.player.buds.SpatialStatus
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -210,7 +217,7 @@ enum class SettingsSubMenu(
     ),
     PLAYBACK(
         "Lecture & Audio",
-        "Fondu, gapless, minuterie, commande vocale et réveils",
+        "Fondu, gapless, minuterie, Galaxy Buds et réveils",
         Icons.Rounded.PlayCircle,
     ),
     VOLUME(
@@ -649,11 +656,8 @@ fun SettingsScreen(
                             )
                         }
 
-                        group(5, "voice", "Commande vocale") {
-                            VoiceWakeSetting(
-                                enabled = settings.voiceWakeEnabled,
-                                settingsViewModel = settingsViewModel,
-                            )
+                        group(5, "buds", "Galaxy Buds") {
+                            BudsSettings(settings = settings, settingsViewModel = settingsViewModel)
                         }
 
                         group(6, "alarms", "Réveil") {
@@ -1205,42 +1209,141 @@ private fun lumenSliderColors() = SliderDefaults.colors(
 )
 
 /**
- * Commande vocale mains libres. L'activer demande le micro (et les notifications, pour la
- * notification d'écoute), puis télécharge le modèle vocal la première fois.
+ * Galaxy Buds3 Pro, Buds FE et autres Galaxy Buds : état, égaliseur, touchers, connexion,
+ * alerte batterie, audio 360, et raccourci vers Galaxy Wearable pour ce qu'Android n'expose
+ * pas (réduction de bruit, son ambiant).
  */
 @Composable
-private fun VoiceWakeSetting(enabled: Boolean, settingsViewModel: SettingsViewModel) {
-    val model by settingsViewModel.voiceModelState.collectAsStateWithLifecycle()
-    val permissions = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { granted ->
-        if (granted[Manifest.permission.RECORD_AUDIO] == true) settingsViewModel.setVoiceWake(true)
+private fun BudsSettings(settings: fr.synxio.player.core.prefs.Settings, settingsViewModel: SettingsViewModel) {
+    val buds by settingsViewModel.buds.collectAsStateWithLifecycle()
+    var permitted by remember { mutableStateOf(settingsViewModel.hasBluetoothPermission()) }
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        permitted = granted
+        settingsViewModel.onBluetoothPermissionResult()
     }
-    val subtitle = when (val state = model) {
-        is VoiceModelState.Downloading ->
-            "Téléchargement du modèle vocal (42 Mo)… " + (state.progress?.let { "${(it * 100).toInt()} %" } ?: "")
-        is VoiceModelState.Failed -> "Échec : ${state.message}"
-        else -> "Dis « Synxio » puis : pause, suivant, plus fort, volume cinquante, arrête dans vingt minutes… " +
-            "Reconnaissance sur le téléphone, rien n'est envoyé."
+    val askPermission = {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) permission.launch(Manifest.permission.BLUETOOTH_CONNECT)
     }
+    // Relu à chaque changement d'écouteurs : la disponibilité dépend de la sortie.
+    val spatial = remember(buds) { settingsViewModel.spatialStatus() }
+    val wearableInstalled = remember { settingsViewModel.isWearableInstalled() }
+
+    BudsStatusRow(buds = buds, permitted = permitted, onAskPermission = askPermission)
+    GroupDivider()
     SwitchSetting(
-        title = "Commande vocale mains libres",
-        subtitle = subtitle,
-        icon = Icons.Rounded.Mic,
-        checked = enabled || model is VoiceModelState.Downloading,
+        title = "Correction auto de l'égaliseur",
+        subtitle = "Courbe dédiée aux Buds3 Pro et Buds FE à chaque connexion, sauf si tu as associé une autre courbe à tes écouteurs",
+        icon = Icons.Rounded.GraphicEq,
+        checked = settings.budsAutoEq,
+        onCheckedChange = settingsViewModel::setBudsAutoEq,
+    )
+    GroupDivider()
+    TapActionSetting(
+        title = "Double toucher",
+        defaultLabel = "Titre suivant",
+        selected = settings.budsDoubleTap,
+        onSelect = settingsViewModel::setBudsDoubleTap,
+    )
+    GroupDivider()
+    TapActionSetting(
+        title = "Triple toucher",
+        defaultLabel = "Titre précédent",
+        selected = settings.budsTripleTap,
+        onSelect = settingsViewModel::setBudsTripleTap,
+    )
+    GroupDivider()
+    ChipSetting(
+        title = "À la connexion, si rien ne joue",
+        options = BudsConnectSource.entries.map { it.label },
+        selectedIndex = settings.budsConnectSource.ordinal,
+        onSelect = { settingsViewModel.setBudsConnectSource(BudsConnectSource.entries[it]) },
+        icon = Icons.Rounded.Earbuds,
+    )
+    GroupDivider()
+    SwitchSetting(
+        title = "Alerte batterie faible",
+        subtitle = if (permitted) "Notification à 15 % puis à 5 %"
+        else "Demande l'accès Bluetooth pour lire la batterie des écouteurs",
+        icon = Icons.Rounded.BatteryAlert,
+        checked = settings.budsBatteryAlert && permitted,
         onCheckedChange = { on ->
-            if (!on) {
-                settingsViewModel.setVoiceWake(false)
-            } else if (model !is VoiceModelState.Downloading) {
-                permissions.launch(
-                    buildList {
-                        add(Manifest.permission.RECORD_AUDIO)
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
-                    }.toTypedArray()
-                )
-            }
+            if (on && !permitted) askPermission()
+            settingsViewModel.setBudsBatteryAlert(on)
         },
     )
+    GroupDivider()
+    SwitchSetting(
+        title = "Audio 360",
+        subtitle = spatial.describe(),
+        icon = Icons.Rounded.SpatialAudio,
+        checked = settings.spatialAudio,
+        onCheckedChange = settingsViewModel::setSpatialAudio,
+    )
+    GroupDivider()
+    ClickableSetting(
+        title = "Réduction de bruit et son ambiant",
+        subtitle = if (wearableInstalled) "Se règlent dans Galaxy Wearable, avec la détection du port et la localisation"
+        else "Installe Galaxy Wearable pour les régler",
+        icon = Icons.Rounded.Tune,
+        onClick = { settingsViewModel.openWearable() },
+    )
+}
+
+/** Écouteurs connectés, batterie et codec ; sans permission, la ligne la demande. */
+@Composable
+private fun BudsStatusRow(buds: BudsState?, permitted: Boolean, onAskPermission: () -> Unit) {
+    val title = buds?.model?.displayName ?: "Aucun Galaxy Buds connecté"
+    val details = buds?.let { b ->
+        listOfNotNull(
+            b.batteryPercent?.let { "Batterie $it %" },
+            b.codec?.let { "Codec $it" },
+        ).joinToString(" · ").ifEmpty {
+            if (permitted) "Batterie et codec s'afficheront à leur prochaine annonce" else null
+        }
+    }
+    val subtitle = if (permitted) details ?: "Connecte tes Buds3 Pro ou Buds FE"
+    else listOfNotNull(details, "Touche pour autoriser l'accès Bluetooth (batterie, codec)").joinToString(" · ")
+    val icon = if (buds?.batteryPercent != null) Icons.Rounded.EarbudsBattery else Icons.Rounded.Earbuds
+    if (!permitted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        ClickableSetting(title = title, subtitle = subtitle, icon = icon, onClick = onAskPermission)
+    } else {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = RowMinHeight)
+                .semantics(mergeDescendants = true) { }
+                .padding(RowPadding),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SettingIconTile(icon)
+            SettingTexts(title, subtitle, Modifier.weight(1f))
+        }
+    }
+}
+
+/** Action d'un toucher ; « par défaut » porte le nom de ce que fait le firmware. */
+@Composable
+private fun TapActionSetting(
+    title: String,
+    defaultLabel: String,
+    selected: BudsTapAction,
+    onSelect: (BudsTapAction) -> Unit,
+) {
+    ChipSetting(
+        title = title,
+        options = BudsTapAction.entries.map { if (it == BudsTapAction.DEFAULT) defaultLabel else it.label },
+        selectedIndex = selected.ordinal,
+        onSelect = { onSelect(BudsTapAction.entries[it]) },
+        icon = Icons.Rounded.TouchApp,
+    )
+}
+
+private fun SpatialStatus.describe(): String = when {
+    !supported -> "Ce téléphone ne spatialise pas la musique"
+    !available -> "Disponible avec des écouteurs compatibles"
+    !enabled -> "Active « Son spatial » dans les réglages Bluetooth de tes écouteurs"
+    headTracking -> "Actif, avec suivi des mouvements de la tête"
+    else -> "Actif sur ces écouteurs"
 }
 
 /**

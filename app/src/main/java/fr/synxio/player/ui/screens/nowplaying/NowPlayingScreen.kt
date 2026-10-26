@@ -53,6 +53,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.BluetoothAudio
+import androidx.compose.material.icons.rounded.Earbuds
 import androidx.compose.material.icons.rounded.DirectionsCar
 import androidx.compose.material.icons.rounded.Headphones
 import androidx.compose.material.icons.rounded.Hearing
@@ -170,6 +171,7 @@ fun NowPlayingScreen(
     val favorites by viewModel.favoriteIds.collectAsStateWithLifecycle()
     val sleepTimer by viewModel.sleepTimerState.collectAsStateWithLifecycle()
     val audioOutput by viewModel.audioOutput.collectAsStateWithLifecycle()
+    val buds by viewModel.buds.collectAsStateWithLifecycle()
 
     val lyricsViewModel: LyricsViewModel = hiltViewModel()
     val lyricsState by lyricsViewModel.state.collectAsStateWithLifecycle()
@@ -438,7 +440,7 @@ fun NowPlayingScreen(
                     onEqualizer = onOpenEqualizer,
                 )
 
-                AudioOutputPill(output = audioOutput)
+                AudioOutputPill(output = audioOutput, buds = buds)
             }
         }
     }
@@ -654,16 +656,21 @@ private fun ActionBar(
 /**
  * Sortie audio active, sous la barre d'actions : n'apparaît que lorsque la musique part
  * ailleurs que dans le haut-parleur (casque, Bluetooth, voiture). Un toucher ouvre le
- * sélecteur de sortie du système.
+ * sélecteur de sortie du système. Des Galaxy Buds s'affichent par leur modèle, avec
+ * leur batterie quand elle est connue.
  */
 @Composable
-private fun AudioOutputPill(output: AudioOutput) {
+private fun AudioOutputPill(output: AudioOutput, buds: fr.synxio.player.buds.BudsState?) {
     val reduce = LocalReduceMotion.current
     val context = LocalContext.current
     val scheme = MaterialTheme.colorScheme
     // Pendant la sortie, la pastille garde le dernier appareil au lieu de se vider.
     var shown by remember { mutableStateOf(output) }
     if (output.isExternal) shown = output
+    val shownBuds = buds?.takeIf { it.name == shown.name }
+    val label = shownBuds?.let { b ->
+        b.model.displayName + (b.batteryPercent?.let { " · $it %" } ?: "")
+    } ?: shown.name
 
     AnimatedVisibility(
         visible = output.isExternal,
@@ -682,19 +689,23 @@ private fun AudioOutputPill(output: AudioOutput) {
                     .clickable(role = Role.Button, onClickLabel = "Changer de sortie audio") {
                         openSystemOutputSwitcher(context)
                     }
-                    .semantics(mergeDescendants = true) { contentDescription = "Lecture sur ${shown.name}" }
+                    .semantics(mergeDescendants = true) {
+                        contentDescription = "Lecture sur " + (shownBuds?.let { b ->
+                            b.model.displayName + (b.batteryPercent?.let { ", batterie $it %" } ?: "")
+                        } ?: shown.name)
+                    }
                     .padding(horizontal = 14.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Icon(
-                    imageVector = shown.kind.icon(),
+                    imageVector = if (shownBuds != null) Icons.Rounded.Earbuds else shown.kind.icon(),
                     contentDescription = null,
                     tint = scheme.primary,
                     modifier = Modifier.size(16.dp),
                 )
                 Text(
-                    text = shown.name,
+                    text = label,
                     style = MaterialTheme.typography.labelMedium,
                     color = scheme.onSurface.copy(alpha = 0.86f),
                     maxLines = 1,
