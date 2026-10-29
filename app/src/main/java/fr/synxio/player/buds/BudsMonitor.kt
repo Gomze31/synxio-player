@@ -16,6 +16,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import androidx.core.content.ContextCompat
+import androidx.annotation.RequiresApi
 import androidx.core.content.IntentCompat
 import dagger.hilt.android.qualifiers.ApplicationContext
 import fr.synxio.player.di.ApplicationScope
@@ -123,7 +124,9 @@ class BudsMonitor @Inject constructor(
                         val level = intent.getIntExtra(EXTRA_BATTERY_LEVEL, -1)
                         if (level in 0..100) batteries[name] = level else batteries.remove(name)
                     }
-                    ACTION_CODEC_CONFIG_CHANGED -> {
+                    // BluetoothCodecStatus n'est public qu'à partir d'Android 13 : avant, y
+                    // toucher pouvait faire planter le récepteur.
+                    ACTION_CODEC_CONFIG_CHANGED -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         val status = IntentCompat.getParcelableExtra(
                             intent, BluetoothCodecStatus.EXTRA_CODEC_STATUS, BluetoothCodecStatus::class.java,
                         )
@@ -174,9 +177,11 @@ class BudsMonitor @Inject constructor(
         level.takeIf { it in 0..100 }
     }.getOrNull()
 
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     private fun codecName(status: BluetoothCodecStatus?): String? {
         val config = status?.codecConfig ?: return null
-        val extended = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        // getExtendedCodecType date d'Android 15, pas 14 : sur 14, l'appel échouait.
+        val extended = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
             runCatching { config.extendedCodecType?.codecName }.getOrNull()
         } else null
         @Suppress("DEPRECATION")
