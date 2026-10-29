@@ -26,6 +26,7 @@ import fr.synxio.player.data.repo.SearchResults
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.merge
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -43,7 +44,14 @@ class MediaLibraryTree @Inject constructor(
     private val music: MusicRepository,
     private val playlists: PlaylistRepository,
     private val radios: RadioRepository,
+    podcastProgressDao: fr.synxio.player.data.db.PodcastProgressDao,
+    @fr.synxio.player.di.ApplicationScope scope: kotlinx.coroutines.CoroutineScope,
 ) {
+
+    /** Positions de reprise tenues à jour en continu : l'hôte lit l'arborescence sans attendre. */
+    private val positions = podcastProgressDao.observeAll()
+        .map { list -> list.associateBy { it.songId } }
+        .stateIn(scope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptyMap())
 
     private val source = object : BrowseSource {
         override val hasPermission: Boolean get() = hasAudioPermission()
@@ -58,6 +66,9 @@ class MediaLibraryTree @Inject constructor(
         override val mostPlayed: List<Song> get() = music.mostPlayed.value
         override val recentlyAdded: List<Song> get() = music.recentlyAdded.value
         override val radios: List<RadioStation> get() = this@MediaLibraryTree.radios.favoriteStationsNow
+        override val audiobooks: List<Song> get() = music.library.value.audiobooks
+        override val podcasts: List<Song> get() = music.library.value.podcasts
+        override val savedPositions get() = positions.value
         override fun search(query: String, limitPerSection: Int): SearchResults = music.search(query, limitPerSection)
     }
 
@@ -184,6 +195,8 @@ class MediaLibraryTree @Inject constructor(
             BrowseIds.CAT_GENRES -> MediaMetadata.MEDIA_TYPE_FOLDER_GENRES
             BrowseIds.TAB_PLAYLISTS -> MediaMetadata.MEDIA_TYPE_FOLDER_PLAYLISTS
             BrowseIds.TAB_RADIOS -> MediaMetadata.MEDIA_TYPE_FOLDER_RADIO_STATIONS
+            BrowseIds.CAT_AUDIOBOOKS -> MediaMetadata.MEDIA_TYPE_FOLDER_AUDIO_BOOKS
+            BrowseIds.CAT_PODCASTS -> MediaMetadata.MEDIA_TYPE_FOLDER_PODCASTS
             else -> MediaMetadata.MEDIA_TYPE_FOLDER_MIXED
         }
     }
@@ -223,6 +236,9 @@ class MediaLibraryTree @Inject constructor(
             BrowseIcon.NEW -> R.drawable.ic_auto_new
             BrowseIcon.SHUFFLE -> R.drawable.ic_auto_shuffle
             BrowseIcon.INFO -> R.drawable.ic_auto_info
+            BrowseIcon.BOOKS -> R.drawable.ic_auto_book
+            BrowseIcon.PODCASTS -> R.drawable.ic_auto_podcast
+            BrowseIcon.RESUME -> R.drawable.ic_auto_resume
         }
         return Uri.Builder()
             .scheme(ContentResolver.SCHEME_ANDROID_RESOURCE)

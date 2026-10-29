@@ -1837,7 +1837,7 @@ class PlaybackService : MediaLibraryService() {
     private fun BrowseQueue.toStartPosition() = MediaSession.MediaItemsWithStartPosition(
         forActivePlayer(songs.toMediaItems()),
         startIndex.coerceIn(0, (songs.size - 1).coerceAtLeast(0)),
-        0L,
+        startPositionMs.coerceAtLeast(0L),
     )
 
     /** Précisions de l'Assistant (`MediaStore.EXTRA_MEDIA_*`) jointes à la requête vocale. */

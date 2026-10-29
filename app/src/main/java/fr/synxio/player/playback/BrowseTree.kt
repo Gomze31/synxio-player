@@ -1,13 +1,22 @@
 package fr.synxio.player.playback
 
 import fr.synxio.player.core.util.fuzzyScore
+import fr.synxio.player.core.util.asLongDuration
 import fr.synxio.player.core.util.normalizeForSearch
+import fr.synxio.player.data.db.PodcastProgressEntity
 import fr.synxio.player.data.model.Album
 import fr.synxio.player.data.model.Artist
+import fr.synxio.player.data.model.BookProgress
+import fr.synxio.player.data.model.EpisodeState
 import fr.synxio.player.data.model.Genre
 import fr.synxio.player.data.model.Playlist
 import fr.synxio.player.data.model.RadioStation
 import fr.synxio.player.data.model.Song
+import fr.synxio.player.data.model.chapterLabel
+import fr.synxio.player.data.model.episodeState
+import fr.synxio.player.data.model.inBookOrder
+import fr.synxio.player.data.model.remainingLabel
+import fr.synxio.player.data.model.statusLabel
 import fr.synxio.player.data.repo.SearchResults
 
 /**
@@ -33,11 +42,16 @@ object BrowseIds {
     const val CAT_RECENT = "synxio://recent"
     const val CAT_RECENTLY_PLAYED = "synxio://recently-played"
     const val CAT_MOST_PLAYED = "synxio://most-played"
+    const val CAT_CONTINUE = "synxio://continue"
+    const val CAT_AUDIOBOOKS = "synxio://audiobooks"
+    const val CAT_PODCASTS = "synxio://podcasts"
 
     const val ALBUM_PREFIX = "synxio://album/"
     const val ARTIST_PREFIX = "synxio://artist/"
     const val GENRE_PREFIX = "synxio://genre/"
     const val PLAYLIST_PREFIX = "synxio://playlist/"
+    /** Livre audio : `synxio://book/` suivi du chemin de son dossier. */
+    const val BOOK_PREFIX = "synxio://book/"
     const val RADIO_PREFIX = "synxio://radio/"
     const val SEARCH_PREFIX = "synxio://search/"
     const val INFO_PREFIX = "synxio://info/"
@@ -60,7 +74,7 @@ object BrowseIds {
 }
 
 /** Icônes de catégorie, traduites en ressources par [MediaLibraryTree]. */
-enum class BrowseIcon { HOME, LIBRARY, PLAYLISTS, RADIOS, ALBUMS, ARTISTS, GENRES, SONGS, FAVORITES, HISTORY, MOST_PLAYED, NEW, SHUFFLE, INFO }
+enum class BrowseIcon { HOME, LIBRARY, PLAYLISTS, RADIOS, ALBUMS, ARTISTS, GENRES, SONGS, FAVORITES, HISTORY, MOST_PLAYED, NEW, SHUFFLE, INFO, BOOKS, PODCASTS, RESUME }
 
 /** Mise en page demandée à l'hôte pour les enfants d'un nœud. */
 enum class ChildStyle { LIST, GRID, CATEGORY_LIST, CATEGORY_GRID }
@@ -118,6 +132,10 @@ interface BrowseSource {
     val mostPlayed: List<Song>
     val recentlyAdded: List<Song>
     val radios: List<RadioStation>
+    val audiobooks: List<Song> get() = emptyList()
+    val podcasts: List<Song> get() = emptyList()
+    /** Positions de reprise des podcasts et chapitres, par identifiant de morceau. */
+    val savedPositions: Map<Long, PodcastProgressEntity> get() = emptyMap()
     fun search(query: String, limitPerSection: Int): SearchResults
 }
 
@@ -142,8 +160,8 @@ data class VoiceRequest(
     }
 }
 
-/** File à lancer et titre de départ. */
-data class BrowseQueue(val songs: List<Song>, val startIndex: Int = 0)
+/** File à lancer, titre de départ et position dans ce titre (reprise d'un livre ou d'un podcast). */
+data class BrowseQueue(val songs: List<Song>, val startIndex: Int = 0, val startPositionMs: Long = 0L)
 
 /**
  * Arborescence de navigation pour la voiture, sans dépendance à Android.
@@ -180,6 +198,11 @@ class BrowseTree(
             parentId == BrowseIds.CAT_ALBUMS -> albums(source.albums.sortedBy { it.title.lowercase() })
             parentId == BrowseIds.CAT_ARTISTS -> artists()
             parentId == BrowseIds.CAT_GENRES -> genres()
+            parentId == BrowseIds.CAT_AUDIOBOOKS -> books()
+            parentId == BrowseIds.CAT_CONTINUE -> continueListening().map { it.node }
+            // Un livre ou des podcasts se lisent dans l'ordre : pas de lecture aléatoire.
+            parentId == BrowseIds.CAT_PODCASTS -> source.podcasts.map { episodeNode(BrowseIds.CAT_PODCASTS, it) }
+            parentId.startsWith(BrowseIds.BOOK_PREFIX) -> songsOf(parentId).orEmpty().map { songNode(parentId, it) }
             parentId.startsWith(BrowseIds.ARTIST_PREFIX) -> artistDetail(parentId)
             else -> songsOf(parentId)?.let { songs ->
                 if (songs.isEmpty()) listOf(emptyFor(parentId)) else withShuffle(parentId, songs) + songNodes(parentId, songs)
@@ -192,6 +215,7 @@ class BrowseTree(
         if (id == BrowseIds.ROOT) return BrowseNode(BrowseIds.ROOT, "Synxio", kind = NodeKind.FOLDER)
         root().firstOrNull { it.id == id }?.let { return it }
         BrowseIds.parseSongInContext(id)?.let { (parent, songId) ->
+            if (parent == BrowseIds.CAT_CONTINUE) return continueListening().firstOrNull { it.song.id == songId }?.node
             val song = songsOf(parent)?.firstOrNull { it.id == songId } ?: return null
             return songNode(parent, song)
         }
@@ -201,7 +225,7 @@ class BrowseTree(
         }
         // Les catégories et dossiers se retrouvent dans leur parent.
         return listOf(BrowseIds.TAB_HOME, BrowseIds.TAB_LIBRARY, BrowseIds.TAB_PLAYLISTS, BrowseIds.TAB_RADIOS,
-            BrowseIds.CAT_ALBUMS, BrowseIds.CAT_ARTISTS, BrowseIds.CAT_GENRES)
+            BrowseIds.CAT_ALBUMS, BrowseIds.CAT_ARTISTS, BrowseIds.CAT_GENRES, BrowseIds.CAT_AUDIOBOOKS)
             .asSequence()
             .flatMap { children(it).asSequence() }
             .firstOrNull { it.id == id }
@@ -219,6 +243,7 @@ class BrowseTree(
             return BrowseQueue(shuffle(songs), 0)
         }
         val (parent, songId) = BrowseIds.parseSongInContext(id) ?: return null
+        if (parent == BrowseIds.CAT_CONTINUE) return continueListening().firstOrNull { it.song.id == songId }?.queue
         val songs = songsOf(parent) ?: return null
         val index = songs.indexOfFirst { it.id == songId }
         return if (index >= 0) BrowseQueue(songs, index) else null
@@ -280,6 +305,12 @@ class BrowseTree(
     // --- Onglets --------------------------------------------------------------------
 
     private fun home(): List<BrowseNode> = buildList {
+        // En voiture, reprendre un livre ou un podcast entamé passe avant tout le reste.
+        val resumable = continueListening()
+        if (resumable.isNotEmpty()) {
+            add(BrowseNode(BrowseIds.CAT_CONTINUE, "Continuer l'écoute", resumable.first().node.title,
+                NodeKind.FOLDER, NodeArt.Icon(BrowseIcon.RESUME), playableStyle = ChildStyle.LIST))
+        }
         if (source.songs.isNotEmpty()) {
             add(BrowseNode(BrowseIds.SHUFFLE_ALL, "Lecture aléatoire", titles(source.songs.size),
                 NodeKind.ACTION, NodeArt.Icon(BrowseIcon.SHUFFLE)))
@@ -295,8 +326,20 @@ class BrowseTree(
         add(BrowseNode(id, title, titles(songs.size), NodeKind.FOLDER, NodeArt.Icon(icon), playableStyle = ChildStyle.LIST))
     }
 
-    private fun library(): List<BrowseNode> {
-        if (source.songs.isEmpty()) return emptyList()
+    private fun library(): List<BrowseNode> = buildList {
+        if (source.songs.isNotEmpty()) addAll(musicCategories())
+        val books = source.audiobooks.groupBy { it.folderPath }
+        if (books.isNotEmpty()) {
+            add(BrowseNode(BrowseIds.CAT_AUDIOBOOKS, "Livres audio", plural(books.size, "livre"), NodeKind.FOLDER,
+                NodeArt.Icon(BrowseIcon.BOOKS), browsableStyle = ChildStyle.LIST))
+        }
+        if (source.podcasts.isNotEmpty()) {
+            add(BrowseNode(BrowseIds.CAT_PODCASTS, "Podcasts", plural(source.podcasts.size, "épisode"), NodeKind.FOLDER,
+                NodeArt.Icon(BrowseIcon.PODCASTS), playableStyle = ChildStyle.LIST))
+        }
+    }
+
+    private fun musicCategories(): List<BrowseNode> {
         return listOf(
             BrowseNode(BrowseIds.CAT_ALBUMS, "Albums", plural(source.albums.size, "album"), NodeKind.FOLDER,
                 NodeArt.Icon(BrowseIcon.ALBUMS), browsableStyle = ChildStyle.GRID),
@@ -360,6 +403,11 @@ class BrowseTree(
                 ?.let { id -> source.playlists.firstOrNull { it.id == id } }?.songs
         parentId.startsWith(BrowseIds.SEARCH_PREFIX) ->
             source.search(parentId.removePrefix(BrowseIds.SEARCH_PREFIX), SEARCH_LIMIT).songs
+        parentId == BrowseIds.CAT_PODCASTS -> source.podcasts
+        parentId == BrowseIds.CAT_CONTINUE -> continueListening().map { it.song }
+        parentId.startsWith(BrowseIds.BOOK_PREFIX) -> parentId.removePrefix(BrowseIds.BOOK_PREFIX).let { path ->
+            source.audiobooks.filter { it.folderPath == path }.inBookOrder().takeIf { it.isNotEmpty() }
+        }
         else -> null
     }
 
@@ -369,6 +417,68 @@ class BrowseTree(
             NodeKind.ACTION, NodeArt.Icon(BrowseIcon.SHUFFLE)))
 
     private fun songNodes(parentId: String, songs: List<Song>): List<BrowseNode> = songs.map { songNode(parentId, it) }
+
+    // --- Livres audio et podcasts ----------------------------------------------------
+
+    /** Élément de « Continuer l'écoute » : son nœud, et la file qui reprend au bon endroit. */
+    private class Resumable(val node: BrowseNode, val song: Song, val queue: BrowseQueue, val lastPlayedSec: Long)
+
+    /**
+     * Livres entamés et pas finis, puis épisodes de podcast en cours, le plus récent en tête.
+     * Chaque élément reprend le fichier en cours à sa position enregistrée.
+     */
+    private fun continueListening(): List<Resumable> {
+        val saved = source.savedPositions
+        val books = source.audiobooks.groupBy { it.folderPath }.mapNotNull { (path, songs) ->
+            val files = songs.inBookOrder()
+            val progress = BookProgress.of(files, saved) ?: return@mapNotNull null
+            if (!progress.started || progress.finished) return@mapNotNull null
+            val file = files[progress.fileIndex]
+            val start = BookProgress.resumePosition(saved[file.id]?.positionMs ?: 0L, file.durationMs)
+            val node = BrowseNode(
+                BrowseIds.songInContext(BrowseIds.CAT_CONTINUE, file.id), bookName(path),
+                "${progress.chapterLabel()} · ${progress.remainingLabel()}", NodeKind.SONG, NodeArt.OfSong(file),
+                groupTitle = "Livres audio", song = file,
+            )
+            Resumable(node, file, BrowseQueue(files, progress.fileIndex, start), progress.lastPlayedSec)
+        }
+        val episodes = source.podcasts.mapNotNull { episode ->
+            val entry = saved[episode.id] ?: return@mapNotNull null
+            if (episodeState(entry, episode.durationMs) != EpisodeState.IN_PROGRESS) return@mapNotNull null
+            val index = source.podcasts.indexOf(episode)
+            val node = episodeNode(BrowseIds.CAT_CONTINUE, episode).copy(groupTitle = "Podcasts")
+            Resumable(node, episode, BrowseQueue(source.podcasts, index, entry.positionMs), entry.lastPlayedSec)
+        }
+        return books.sortedByDescending { it.lastPlayedSec } + episodes.sortedByDescending { it.lastPlayedSec }
+    }
+
+    private fun books(): List<BrowseNode> = source.audiobooks.groupBy { it.folderPath }
+        .map { (path, songs) ->
+            val files = songs.inBookOrder()
+            val progress = BookProgress.of(files, source.savedPositions)
+            BrowseNode(
+                BrowseIds.BOOK_PREFIX + path, bookName(path),
+                progress?.statusLabel() ?: "${plural(files.size, "chapitre")} · ${files.sumOf { it.durationMs }.asLongDuration()}",
+                NodeKind.ALBUM, files.firstOrNull()?.let(NodeArt::OfSong), playableStyle = ChildStyle.LIST,
+            )
+        }
+        .sortedBy { it.title.lowercase() }
+
+    /** Épisode : son émission, et où en est l'écoute s'il est entamé ou fini. */
+    private fun episodeNode(parentId: String, episode: Song): BrowseNode {
+        val entry = source.savedPositions[episode.id]
+        val state = when (episodeState(entry, episode.durationMs)) {
+            EpisodeState.PLAYED -> "Lu"
+            EpisodeState.IN_PROGRESS -> "encore " +
+                (episode.durationMs - (entry?.positionMs ?: 0L)).coerceAtLeast(0L).asLongDuration()
+            EpisodeState.NEW -> null
+        }
+        val show = episode.album.ifBlank { episode.displayArtist }.cleanTitle()
+        return BrowseNode(BrowseIds.songInContext(parentId, episode.id), episode.title.cleanTitle(),
+            listOfNotNull(show, state).joinToString(" · "), NodeKind.SONG, NodeArt.OfSong(episode), song = episode)
+    }
+
+    private fun bookName(path: String) = path.substringAfterLast('/', path)
 
     // --- Nœuds ----------------------------------------------------------------------
 

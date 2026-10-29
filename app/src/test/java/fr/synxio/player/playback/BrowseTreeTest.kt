@@ -1,5 +1,6 @@
 package fr.synxio.player.playback
 
+import fr.synxio.player.data.db.PodcastProgressEntity
 import fr.synxio.player.data.model.Album
 import fr.synxio.player.data.model.Artist
 import fr.synxio.player.data.model.Genre
@@ -48,6 +49,9 @@ class BrowseTreeTest {
         override var mostPlayed: List<Song> = emptyList(),
         override var recentlyAdded: List<Song> = emptyList(),
         override var radios: List<RadioStation> = emptyList(),
+        override var audiobooks: List<Song> = emptyList(),
+        override var podcasts: List<Song> = emptyList(),
+        override var savedPositions: Map<Long, PodcastProgressEntity> = emptyMap(),
     ) : BrowseSource {
         override fun search(query: String, limitPerSection: Int): SearchResults {
             val q = query.lowercase()
@@ -290,5 +294,88 @@ class BrowseTreeTest {
         assertEquals("1 titre", BrowseTree.titles(1))
         assertEquals("2 titres", BrowseTree.titles(2))
         assertNotNull(BrowseTree.plural(3, "album"))
+    }
+
+    // --- Livres audio et podcasts ------------------------------------------------------
+
+    private fun chapter(id: Long, track: Int, book: String = "Dune") =
+        song(id = id, title = "Partie $track", track = track, durationMs = 600_000, path = "/livres/$book/$track.mp3")
+            .copy(isAudiobook = true)
+
+    private fun episode(id: Long, title: String) =
+        song(id = id, title = title, album = "Le Code a changé", durationMs = 1_200_000).copy(isPodcast = true)
+
+    private val dune = listOf(chapter(101, 2), chapter(100, 1), chapter(102, 3))
+    private val episodes = listOf(episode(200, "Épisode 1"), episode(201, "Épisode 2"))
+
+    private fun at(songId: Long, positionMs: Long, lastPlayedSec: Long) =
+        PodcastProgressEntity(songId = songId, positionMs = positionMs, lastPlayedSec = lastPlayedSec)
+
+    private fun listeningSource() = fullSource().apply {
+        audiobooks = dune
+        podcasts = episodes
+        savedPositions = listOf(
+            at(100, 600_000, lastPlayedSec = 10), // chapitre 1 fini
+            at(101, 120_000, lastPlayedSec = 20), // chapitre 2 entamé
+            at(201, 300_000, lastPlayedSec = 5), // épisode 2 entamé
+        ).associateBy { it.songId }
+    }
+
+    @Test
+    fun `bibliotheque - livres audio et podcasts apres la musique`() {
+        val library = tree(listeningSource()).children(BrowseIds.TAB_LIBRARY)
+        assertEquals(
+            listOf(BrowseIds.CAT_ALBUMS, BrowseIds.CAT_ARTISTS, BrowseIds.CAT_GENRES, BrowseIds.CAT_SONGS,
+                BrowseIds.CAT_AUDIOBOOKS, BrowseIds.CAT_PODCASTS),
+            library.map { it.id },
+        )
+        assertEquals("1 livre", library[4].subtitle)
+        assertEquals("2 épisodes", library[5].subtitle)
+    }
+
+    @Test
+    fun `livre - chapitres dans l'ordre, sans lecture aleatoire, progression en sous-titre`() {
+        val t = tree(listeningSource())
+        val book = t.children(BrowseIds.CAT_AUDIOBOOKS).single()
+        assertEquals(BrowseIds.BOOK_PREFIX + "/livres/Dune", book.id)
+        assertEquals("Dune", book.title)
+        assertEquals("Chapitre 2 sur 3 · encore 18 min", book.subtitle)
+        val chapters = t.children(book.id)
+        assertEquals(listOf(100L, 101L, 102L), chapters.map { it.song?.id })
+        assertTrue(chapters.none { it.kind == NodeKind.ACTION })
+        assertEquals(BrowseQueue(listOf(dune[1], dune[0], dune[2]), 1), t.queueFor(chapters[1].id))
+    }
+
+    @Test
+    fun `continuer l'ecoute - en tete de l'accueil, livre puis podcast, reprise a la position`() {
+        val t = tree(listeningSource())
+        val home = t.children(BrowseIds.TAB_HOME)
+        assertEquals(BrowseIds.CAT_CONTINUE, home.first().id)
+        assertEquals("Dune", home.first().subtitle)
+
+        val items = t.children(BrowseIds.CAT_CONTINUE)
+        assertEquals(listOf(101L, 201L), items.map { it.song?.id })
+        assertEquals("Dune", items[0].title)
+        assertEquals("Le Code a changé · encore 15 min", items[1].subtitle)
+
+        val book = t.queueFor(items[0].id)!!
+        assertEquals(listOf(100L, 101L, 102L), book.songs.map { it.id })
+        assertEquals(1, book.startIndex)
+        assertEquals(120_000L, book.startPositionMs)
+
+        val podcast = t.queueFor(items[1].id)!!
+        assertEquals(1, podcast.startIndex)
+        assertEquals(300_000L, podcast.startPositionMs)
+        assertEquals("Dune", t.item(items[0].id)?.title)
+    }
+
+    @Test
+    fun `continuer l'ecoute - absent sans rien d'entame, livres finis ecartes`() {
+        val source = listeningSource().apply {
+            savedPositions = mapOf(102L to at(102, 600_000, lastPlayedSec = 1), 200L to at(200, 1_200_000, lastPlayedSec = 2))
+        }
+        val t = tree(source)
+        assertTrue(t.children(BrowseIds.TAB_HOME).none { it.id == BrowseIds.CAT_CONTINUE })
+        assertTrue(t.children(BrowseIds.CAT_PODCASTS).first().subtitle!!.endsWith("Lu"))
     }
 }
