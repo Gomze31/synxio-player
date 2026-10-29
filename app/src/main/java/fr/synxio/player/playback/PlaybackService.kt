@@ -152,20 +152,11 @@ class PlaybackService : MediaLibraryService() {
     private var partyServer: PartyServer? = null
     private var castServer: CastMediaServer? = null
 
-    // Suivi d'écoute pour les statistiques et le scrobbling.
-    private var trackedSongId: Long = -1L
-    private var listenedMs: Long = 0L
-    private var lastResumeUptime: Long = 0L
-    private var trackStartedAtSec: Long = 0L
-
-    /**
-     * Dernière position connue du morceau suivi, pour la reprise des podcasts et livres.
-     *
-     * Au changement de piste, le lecteur est déjà sur le morceau suivant : lire
-     * `currentPosition` à ce moment enregistrait la position du nouveau morceau (≈ 0)
-     * pour l'ancien, et un chapitre à moitié écouté perdait sa place au premier zap.
-     */
-    private var trackedPositionMs: Long = 0L
+    /** Suivi d'écoute pour les statistiques, le scrobbling et la reprise des livres. */
+    private val tracker = ListeningTracker(
+        uptime = { SystemClock.elapsedRealtime() },
+        wallClockSec = { System.currentTimeMillis() / 1000 },
+    )
     private var persistSoonJob: Job? = null
     private var positionSaveJob: Job? = null
     private var widgetJob: Job? = null
@@ -202,9 +193,8 @@ class PlaybackService : MediaLibraryService() {
     /** Dernier morceau annoncé à Last.fm / Discord : une annonce par morceau, en lecture seulement. */
     private var announcedSongId: Long = -1L
 
-    /** Instant et morceau de la dernière pause, pour le retour en arrière automatique. */
-    private var pausedAtUptime: Long = 0L
-    private var pausedMediaId: String? = null
+    /** Dernière pause, pour le retour en arrière automatique. */
+    private val autoRewind = AutoRewind { SystemClock.elapsedRealtime() }
     private var inactivityJob: Job? = null
 
     /**
@@ -808,13 +798,9 @@ class PlaybackService : MediaLibraryService() {
     // --- Suivi d'écoute ----------------------------------------------------------------
 
     private fun startTracking(item: MediaItem?) {
-        trackedSongId = item?.songId ?: -1L
-        trackedPositionMs = 0L
-        listenedMs = 0L
-        lastResumeUptime = if (activePlayer.isPlaying) SystemClock.elapsedRealtime() else 0L
-        trackStartedAtSec = System.currentTimeMillis() / 1000
+        tracker.start(item?.songId, playing = activePlayer.isPlaying)
 
-        val song = musicRepository.songById(trackedSongId) ?: return
+        val song = musicRepository.songById(tracker.songId) ?: return
         announceIfPlaying(song)
         publishPresence(song)
     }
@@ -824,36 +810,28 @@ class PlaybackService : MediaLibraryService() {
      * seulement quand il joue vraiment : restaurer la file en pause au démarrage, ou
      * zapper en pause, publiait sinon des écoutes qui n'avaient pas lieu.
      */
-    private fun announceIfPlaying(song: Song? = musicRepository.songById(trackedSongId)) {
+    private fun announceIfPlaying(song: Song? = musicRepository.songById(tracker.songId)) {
         if (song == null || !activePlayer.isPlaying || announcedSongId == song.id) return
         announcedSongId = song.id
         serviceScope.launch { scrobbler.updateNowPlaying(song) }
         serviceScope.launch { discord.announce(song) }
     }
 
-    private fun accumulate() {
-        if (lastResumeUptime > 0L) {
-            listenedMs += SystemClock.elapsedRealtime() - lastResumeUptime
-            lastResumeUptime = 0L
-        }
-    }
-
     /**
-     * Un morceau écouté à plus de la moitié compte comme lu ; en dessous, c'est un skip.
-     * C'est ce qui rend « Les plus écoutés » fiable au lieu de compter chaque effleurement.
+     * Enregistre l'écoute du morceau qui se termine : lu au-delà de la moitié, sauté en
+     * dessous ([ListeningTracker.finish]). C'est ce qui rend « Les plus écoutés » fiable
+     * au lieu de compter chaque effleurement.
      */
     private fun finalizeCurrentTrack(skipped: Boolean, finished: Boolean = !skipped) {
-        accumulate()
+        tracker.accumulate()
         persistPodcastProgress(finished = finished)
 
-        val song: Song = musicRepository.songById(trackedSongId) ?: return
-        val listened = listenedMs
-        val startedAt = trackStartedAtSec
-        if (listened < 3_000) return
-
-        val counted = !skipped || listened >= song.durationMs / 2
+        val song: Song = musicRepository.songById(tracker.songId) ?: return
+        val listen = tracker.finish(skipped, song.durationMs) ?: return
+        val listened = listen.listenedMs
+        val startedAt = listen.startedAtSec
         writeScope.launch {
-            if (counted) {
+            if (listen.counted) {
                 musicRepository.registerPlay(song, listened)
                 // Le journal d'écoute n'était jamais alimenté : l'historique restait vide
                 // et les statistiques par période ne voyaient aucune lecture.
@@ -864,32 +842,18 @@ class PlaybackService : MediaLibraryService() {
 
             if (scrobbler.qualifies(song, listened)) scrobbler.scrobble(song, startedAt)
         }
-        listenedMs = 0L
     }
 
-    /**
-     * Position du morceau suivi : celle du lecteur tant qu'il est dessus, sinon la
-     * dernière relevée ([trackedPositionMs]).
-     */
-    private fun trackedPosition(): Long {
-        if (activePlayer.currentMediaItem?.songId == trackedSongId) {
-            trackedPositionMs = activePlayer.currentPosition.coerceAtLeast(0)
-        }
-        return trackedPositionMs
-    }
+    /** Position du morceau suivi, relue sur le lecteur tant qu'il est dessus. */
+    private fun trackedPosition(): Long =
+        tracker.position(activePlayer.currentMediaItem?.songId, activePlayer.currentPosition)
 
-    /**
-     * Enregistre la position de reprise d'un podcast ou d'un chapitre de livre audio.
-     *
-     * Fini, l'épisode ou le chapitre garde sa durée, ce qui le marque lu : la progression
-     * d'un livre passe au chapitre suivant, et une nouvelle écoute repart du début
-     * ([fr.synxio.player.data.model.BookProgress.resumePosition]).
-     */
+    /** Enregistre la position de reprise d'un podcast ou d'un chapitre ([ResumePolicy]). */
     private fun persistPodcastProgress(finished: Boolean = false) {
-        val song = musicRepository.songById(trackedSongId) ?: return
-        if (!song.isPodcast && !song.isAudiobook) return
+        val song = musicRepository.songById(tracker.songId) ?: return
+        if (!ResumePolicy.tracksProgress(song)) return
 
-        val position = if (finished) song.durationMs else trackedPosition()
+        val position = ResumePolicy.positionToSave(song, finished, if (finished) 0L else trackedPosition())
         writeScope.launch {
             podcastProgressDao.saveProgress(
                 fr.synxio.player.data.db.PodcastProgressEntity(
@@ -957,11 +921,7 @@ class PlaybackService : MediaLibraryService() {
     private inner class PlayerListener : Player.Listener {
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            // Seule une fin naturelle (ou une répétition) termine la piste. Choisir un autre
-            // titre (PLAYLIST_CHANGED) ou zapper (SEEK) l'interrompt : compter cela comme
-            // « terminé » remettait à zéro la progression d'un podcast à moitié écouté.
-            val endedNaturally = reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
-                reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT
+            val endedNaturally = ResumePolicy.endsTrack(reason)
             finalizeCurrentTrack(skipped = !endedNaturally, finished = endedNaturally)
 
             // Nouvelle file lancée alors que l'aléatoire était déjà actif : l'ordre tiré
@@ -982,18 +942,14 @@ class PlaybackService : MediaLibraryService() {
             // Reprise d'un podcast ou d'un chapitre de livre audio là où il a été laissé.
             val current = currentSong()
             currentShowKey.value = fr.synxio.player.data.model.ShowKeys.of(current)
-            if (current != null && (current.isPodcast || current.isAudiobook) &&
-                reason != Player.MEDIA_ITEM_TRANSITION_REASON_SEEK
-            ) {
+            if (current != null && ResumePolicy.restoresOnTransition(current, reason)) {
                 val mediaId = mediaItem?.mediaId
                 serviceScope.launch {
                     val progress = withContext(Dispatchers.IO) { podcastProgressDao.getProgress(current.id) }
-                    val resumeAt = progress?.let {
-                        fr.synxio.player.data.model.BookProgress.resumePosition(it.positionMs, current.durationMs)
-                    } ?: 0L
+                    val resumeAt = ResumePolicy.restoreTarget(current, progress)
                     // L'utilisateur a pu zapper pendant la lecture en base : on ne saute
                     // jamais dans un autre morceau à la position du podcast.
-                    if (resumeAt > 0 && activePlayer.currentMediaItem?.mediaId == mediaId) {
+                    if (resumeAt != null && activePlayer.currentMediaItem?.mediaId == mediaId) {
                         activePlayer.seekTo(resumeAt)
                     }
                 }
@@ -1005,12 +961,10 @@ class PlaybackService : MediaLibraryService() {
                 activePlayer.mediaItemCount > 0 &&
                 isNearEndOfPlaybackOrder()
             ) {
-                if (current != null && !current.isPodcast) {
+                if (current != null) {
                     val queued = (0 until activePlayer.mediaItemCount)
                         .mapTo(HashSet()) { activePlayer.getMediaItemAt(it).songId }
-                    val similarSongs = musicRepository.library.value.songs.filter {
-                        (it.genre == current.genre || it.artistId == current.artistId) && it.id !in queued
-                    }.shuffled().take(5)
+                    val similarSongs = AutoDj.pick(musicRepository.library.value.songs, current, queued)
 
                     if (similarSongs.isNotEmpty()) {
                         activePlayer.addMediaItems(forActivePlayer(similarSongs.toMediaItems()))
@@ -1098,15 +1052,14 @@ class PlaybackService : MediaLibraryService() {
                 // (notification au premier plan), le contrôleur n'a plus à le lâcher.
                 _stopRequested.value = false
                 applyAutoRewind()
-                lastResumeUptime = SystemClock.elapsedRealtime()
-                if (trackedSongId < 0) startTracking(activePlayer.currentMediaItem)
+                tracker.onResumed()
+                if (!tracker.isTracking) startTracking(activePlayer.currentMediaItem)
                 announceIfPlaying()
                 startPositionSaver()
             } else {
-                accumulate()
+                tracker.accumulate()
                 persistPodcastProgress()
-                pausedAtUptime = SystemClock.elapsedRealtime()
-                pausedMediaId = activePlayer.currentMediaItem?.mediaId
+                autoRewind.onPaused(activePlayer.currentMediaItem?.mediaId)
                 scheduleInactivityStop()
             }
 
@@ -1130,9 +1083,7 @@ class PlaybackService : MediaLibraryService() {
             reason: Int,
         ) {
             // Position exacte du morceau que l'on quitte, avant que le lecteur passe au suivant.
-            if (oldPosition.mediaItem?.songId == trackedSongId) {
-                trackedPositionMs = oldPosition.positionMs.coerceAtLeast(0)
-            }
+            tracker.notePosition(oldPosition.mediaItem?.songId, oldPosition.positionMs)
             if (reason == Player.DISCONTINUITY_REASON_SEEK) {
                 fade.resetVolume()
                 // Une recherche manuelle est un point de reprise que l'on veut retrouver.
@@ -1142,17 +1093,14 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
-    /**
-     * « Retour en arrière à la reprise » : après une vraie pause sur le même morceau, on
-     * recule de quelques secondes pour retrouver le fil (livres audio, podcasts).
-     */
+    /** « Retour en arrière à la reprise » ([AutoRewind]). */
     private fun applyAutoRewind() {
-        val seconds = latestSettings?.autoRewindSec ?: 0
-        val pausedFor = SystemClock.elapsedRealtime() - pausedAtUptime
-        val sameTrack = pausedMediaId != null && pausedMediaId == activePlayer.currentMediaItem?.mediaId
-        if (seconds <= 0 || pausedAtUptime == 0L || !sameTrack || pausedFor < AUTO_REWIND_MIN_PAUSE_MS) return
-        pausedAtUptime = 0L
-        activePlayer.seekTo((activePlayer.currentPosition - seconds * 1_000L).coerceAtLeast(0L))
+        val target = autoRewind.onResumed(
+            rewindSeconds = latestSettings?.autoRewindSec ?: 0,
+            currentMediaId = activePlayer.currentMediaItem?.mediaId,
+            positionMs = activePlayer.currentPosition,
+        ) ?: return
+        activePlayer.seekTo(target)
     }
 
     /** « Arrêter après inactivité » : libère le service si la pause dure trop longtemps. */
@@ -1976,7 +1924,6 @@ class PlaybackService : MediaLibraryService() {
         private const val POSITION_SAVE_INTERVAL_MS = 10_000L
         private const val PERSIST_DEBOUNCE_MS = 500L
         private const val FINAL_WRITE_TIMEOUT_MS = 1_500L
-        private const val AUTO_REWIND_MIN_PAUSE_MS = 5_000L
         private const val BROWSE_NOTIFY_DEBOUNCE_MS = 1_500L
         private const val CHILDREN_SCAN_WAIT_MS = 4_000L
     }
