@@ -811,7 +811,8 @@ class PlaybackService : MediaLibraryService() {
      * zapper en pause, publiait sinon des écoutes qui n'avaient pas lieu.
      */
     private fun announceIfPlaying(song: Song? = musicRepository.songById(tracker.songId)) {
-        if (song == null || !activePlayer.isPlaying || announcedSongId == song.id) return
+        // Livres et podcasts ne sont pas de la musique : ni Last.fm ni webhook Discord.
+        if (song == null || ResumePolicy.tracksProgress(song) || !activePlayer.isPlaying || announcedSongId == song.id) return
         announcedSongId = song.id
         serviceScope.launch { scrobbler.updateNowPlaying(song) }
         serviceScope.launch { discord.announce(song) }
@@ -827,6 +828,9 @@ class PlaybackService : MediaLibraryService() {
         persistPodcastProgress(finished = finished)
 
         val song: Song = musicRepository.songById(tracker.songId) ?: return
+        // Statistiques et scrobble restent réservés à la musique : un chapitre de livre ne
+        // doit pas entrer dans « Les plus écoutés » ni dans le récap.
+        if (ResumePolicy.tracksProgress(song)) return
         val listen = tracker.finish(skipped, song.durationMs) ?: return
         val listened = listen.listenedMs
         val startedAt = listen.startedAtSec
@@ -905,6 +909,7 @@ class PlaybackService : MediaLibraryService() {
      */
     private fun publishPresence(song: Song?) {
         val current = song ?: currentSong() ?: return
+        if (ResumePolicy.tracksProgress(current)) return
         val position = activePlayer.currentPosition.coerceAtLeast(0)
         val playing = activePlayer.isPlaying
         serviceScope.launch { discordPresence.update(current, position, playing) }

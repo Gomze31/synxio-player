@@ -374,7 +374,10 @@ class MusicRepository @Inject constructor(
     }
 
     private fun publish(library: Library) {
-        _songsById.value = library.songs.associateBy { it.id }
+        // Podcasts et livres audio compris : sans eux, le service ne retrouvait jamais le
+        // morceau en cours d'un livre, et n'en enregistrait ni ne restaurait la position ;
+        // la file d'un livre disparaissait aussi au redémarrage.
+        _songsById.value = (library.songs + library.podcasts + library.audiobooks).associateBy { it.id }
         _library.value = library
     }
 

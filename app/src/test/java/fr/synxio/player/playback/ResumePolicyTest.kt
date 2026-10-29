@@ -77,7 +77,7 @@ class ResumePolicyTest {
     }
 
     @Test
-    fun `auto-dj - meme genre ou artiste, hors file, cinq au plus, rien pour un podcast`() {
+    fun `auto-dj - meme genre ou artiste, hors file, cinq au plus, rien pour un podcast ou un livre`() {
         val library = (10L..20L).map { song(id = it, genre = if (it % 2 == 0L) "Rock" else "Jazz") }
             .map { it.copy(artistId = 99) }
         val picked = AutoDj.pick(library, music.copy(artistId = 1), queued = setOf(10L, 12L)) { it }
@@ -86,5 +86,6 @@ class ResumePolicyTest {
         val many = (30L..45L).map { song(id = it, genre = "Rock") }
         assertEquals(AutoDj.BATCH_SIZE, AutoDj.pick(many, music, emptySet()) { it }.size)
         assertTrue(AutoDj.pick(library, episode, emptySet()).isEmpty())
+        assertTrue(AutoDj.pick(library, chapter, emptySet()).isEmpty())
     }
 }

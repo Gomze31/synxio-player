@@ -84,7 +84,8 @@ object AutoDj {
 
     /**
      * Titres de [library] du même genre ou du même artiste que [current], absents de la
-     * file ([queued]), mélangés par [shuffle]. Rien pour un podcast.
+     * file ([queued]), mélangés par [shuffle]. Rien pour un podcast ni un livre audio :
+     * leur file ne se prolonge pas avec de la musique.
      */
     fun pick(
         library: List<Song>,
@@ -92,7 +93,7 @@ object AutoDj {
         queued: Set<Long>,
         shuffle: (List<Song>) -> List<Song> = { it.shuffled() },
     ): List<Song> {
-        if (current.isPodcast) return emptyList()
+        if (current.isPodcast || current.isAudiobook) return emptyList()
         val similar = library.filter {
             (it.genre == current.genre || it.artistId == current.artistId) && it.id !in queued
         }
