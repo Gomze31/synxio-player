@@ -22,6 +22,8 @@ data class BookProgress(
     val elapsedMs: Long,
     val totalMs: Long,
     val finished: Boolean,
+    /** Dernière écoute du livre (secondes epoch), 0 si jamais écouté. */
+    val lastPlayedSec: Long = 0L,
 ) {
     val remainingMs: Long get() = (totalMs - elapsedMs).coerceAtLeast(0L)
 
@@ -75,12 +77,13 @@ data class BookProgress(
 
             val (index, entry) = latest
             val chapter = chapters[index]
-            if (!isAtEnd(entry.positionMs, chapter.durationMs)) {
-                return at(chapters, index, entry.positionMs)
+            val progress = when {
+                !isAtEnd(entry.positionMs, chapter.durationMs) -> at(chapters, index, entry.positionMs)
+                // Chapitre terminé : on attend au début du suivant, ou le livre est fini.
+                index < chapters.lastIndex -> at(chapters, index + 1, 0L)
+                else -> at(chapters, index, chapter.durationMs).copy(finished = true)
             }
-            // Chapitre terminé : on attend au début du suivant, ou le livre est fini.
-            return if (index < chapters.lastIndex) at(chapters, index + 1, 0L)
-            else at(chapters, index, chapter.durationMs).copy(finished = true)
+            return progress.copy(lastPlayedSec = entry.lastPlayedSec)
         }
 
         /**
@@ -111,6 +114,16 @@ data class BookProgress(
         }
     }
 }
+
+/**
+ * Livre à proposer en reprise : le dernier écouté parmi ceux entamés et pas finis, avec
+ * son chemin de dossier ; `null` si aucun.
+ */
+fun Map<String, BookProgress>.bookToResume(): Pair<String, BookProgress>? =
+    entries
+        .filter { (_, p) -> p.started && !p.finished }
+        .maxByOrNull { (_, p) -> p.lastPlayedSec }
+        ?.toPair()
 
 /** Chapitres d'un livre dans l'ordre de lecture, comme sur l'écran du livre. */
 fun List<Song>.inBookOrder(): List<Song> = sortedBy { it.track }

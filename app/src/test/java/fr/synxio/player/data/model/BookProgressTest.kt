@@ -132,4 +132,22 @@ class BookProgressTest {
         val shuffled = listOf(chapters[2], chapters[0], chapters[1])
         assertEquals(listOf(1L, 2L, 3L), shuffled.inBookOrder().map { it.id })
     }
+
+    @Test
+    fun `livre a reprendre - le dernier ecoute parmi les livres entames`() {
+        val other = listOf(song(id = 10, track = 1, durationMs = 600_000))
+        val done = listOf(song(id = 20, track = 1, durationMs = 600_000))
+        val progress = mapOf(
+            "/livres/a" to BookProgress.of(chapters, saved(at(2, 60_000, lastPlayedSec = 100)))!!,
+            "/livres/b" to BookProgress.of(other, saved(at(10, 60_000, lastPlayedSec = 300)))!!,
+            // Plus récent, mais fini : pas proposé.
+            "/livres/c" to BookProgress.of(done, saved(at(20, 600_000, lastPlayedSec = 900)))!!,
+            // Jamais écouté : pas proposé.
+            "/livres/d" to BookProgress.of(chapters, emptyMap())!!,
+        )
+        val (path, p) = progress.bookToResume()!!
+        assertEquals("/livres/b", path)
+        assertEquals(300L, p.lastPlayedSec)
+        assertNull(mapOf("/livres/d" to progress.getValue("/livres/d")).bookToResume())
+    }
 }

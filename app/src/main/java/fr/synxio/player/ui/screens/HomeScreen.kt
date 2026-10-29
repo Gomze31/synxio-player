@@ -47,7 +47,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.synxio.player.core.util.asLongDuration
 import fr.synxio.player.core.util.pluralSongs
+import fr.synxio.player.data.model.BookProgress
 import fr.synxio.player.data.model.Song
+import fr.synxio.player.data.model.bookToResume
+import fr.synxio.player.data.model.chapterLabel
+import fr.synxio.player.data.model.inBookOrder
+import fr.synxio.player.data.model.remainingLabel
 import fr.synxio.player.data.repo.SmartPlaylist
 import fr.synxio.player.data.repo.SmartPlaylistId
 import fr.synxio.player.ui.components.AlbumCard
@@ -56,6 +61,7 @@ import fr.synxio.player.ui.components.Artwork
 import fr.synxio.player.ui.components.ArtworkMosaic
 import fr.synxio.player.ui.components.BrandButton
 import fr.synxio.player.ui.components.BrandPlayButton
+import fr.synxio.player.ui.components.BrandProgressBar
 import fr.synxio.player.ui.components.EmptyState
 import fr.synxio.player.ui.components.LumenChip
 import fr.synxio.player.ui.components.PlayingIndicator
@@ -112,8 +118,10 @@ fun HomeScreen(
     onSeeRecents: () -> Unit,
     modifier: Modifier = Modifier,
     onOpenSmartPlaylist: ((SmartPlaylistId) -> Unit)? = null,
+    onOpenBook: ((String) -> Unit)? = null,
 ) {
     val library by viewModel.library.collectAsStateWithLifecycle()
+    val bookProgress by viewModel.bookProgress.collectAsStateWithLifecycle()
     val recentlyAdded by viewModel.recentlyAdded.collectAsStateWithLifecycle()
     val mostPlayed by viewModel.mostPlayed.collectAsStateWithLifecycle()
     val recentlyPlayed by viewModel.recentlyPlayed.collectAsStateWithLifecycle()
@@ -155,6 +163,13 @@ fun HomeScreen(
         currentSongId?.let { id -> library.songs.firstOrNull { it.id == id } }
     }
     val heroSong = currentSong ?: recentlyPlayed.firstOrNull()
+    // Le livre entamé écouté en dernier, avec ses chapitres dans l'ordre de lecture.
+    val resumeBook = remember(bookProgress, library.audiobooks) {
+        bookProgress.bookToResume()?.let { (path, progress) ->
+            val chapters = library.audiobooks.filter { it.folderPath == path }.inBookOrder()
+            if (chapters.isEmpty()) null else Triple(path, progress, chapters)
+        }
+    }
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -203,6 +218,30 @@ fun HomeScreen(
                         .animateItem(fadeInSpec = null, fadeOutSpec = null)
                         .enterCascade(heroIndex, "home-hero"),
                 )
+            }
+        }
+
+        if (resumeBook != null) {
+            val index = order++
+            val (path, progress, chapters) = resumeBook
+            item(key = "book", contentType = "book") {
+                HomeSection(
+                    title = "Reprendre ce livre",
+                    eyebrow = "Livre audio",
+                    modifier = Modifier.enterCascade(index, "home-book"),
+                ) {
+                    ResumeBookCard(
+                        name = path.substringAfterLast('/', path),
+                        progress = progress,
+                        chapters = chapters,
+                        isPlaying = isPlaying && chapters.any { it.id == currentSongId },
+                        onOpen = onOpenBook?.let { { it(path) } },
+                        onResume = {
+                            if (chapters.any { it.id == currentSongId }) viewModel.togglePlayPause()
+                            else viewModel.resumeBook(chapters)
+                        },
+                    )
+                }
             }
         }
 
@@ -450,6 +489,63 @@ private fun QuickActions(
  * un halo diffus s'étale depuis le coin. La teinte change en fondu lent d'un morceau à
  * l'autre, au rythme de l'aurore du fond.
  */
+/**
+ * Carte de reprise d'un livre audio : couverture, titre, chapitre en cours et temps
+ * restant, barre d'avancement. Le bouton reprend au bon endroit ; la carte ouvre le livre.
+ */
+@Composable
+private fun ResumeBookCard(
+    name: String,
+    progress: BookProgress,
+    chapters: List<Song>,
+    isPlaying: Boolean,
+    onOpen: (() -> Unit)?,
+    onResume: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        modifier
+            .padding(horizontal = Space.gutter)
+            .fillMaxWidth()
+            .clip(SynxioShape.card)
+            .glass(SynxioShape.card, strength = 0.45f)
+            .then(
+                if (onOpen != null) {
+                    Modifier.clickable(onClickLabel = "Ouvrir le livre", role = Role.Button, onClick = onOpen)
+                } else Modifier
+            )
+            .padding(Space.md),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Space.lg),
+    ) {
+        Artwork(
+            model = chapters.firstOrNull()?.artworkUri,
+            modifier = Modifier.size(64.dp),
+            shape = SynxioShape.artworkSm,
+        )
+        Column(Modifier.weight(1f)) {
+            Text(
+                name,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(Space.xxs))
+            Text(
+                "${progress.chapterLabel()} · ${progress.remainingLabel()}",
+                style = MaterialTheme.typography.bodyMedium.merge(TabularNumbers),
+                color = scheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(Space.xs))
+            BrandProgressBar(progress = progress.fraction)
+        }
+        BrandPlayButton(isPlaying = isPlaying, onClick = onResume, size = 48.dp)
+    }
+}
+
 @Composable
 private fun HeroCard(
     song: Song,

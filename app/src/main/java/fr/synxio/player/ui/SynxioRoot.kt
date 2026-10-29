@@ -745,6 +745,7 @@ private fun AppNavHost(
                 onSeeAll = { navController.navigateToTopLevel(TopLevel.LIBRARY.route) },
                 onSeeRecents = { navController.navigate(Routes.RECENTS) },
                 onOpenSmartPlaylist = { navController.navigate(Routes.smart(it)) },
+                onOpenBook = { navController.navigate(Routes.folder(it)) },
             )
         }
 
