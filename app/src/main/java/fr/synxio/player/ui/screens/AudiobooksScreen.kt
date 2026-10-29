@@ -60,8 +60,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.synxio.player.core.util.asLongDuration
+import fr.synxio.player.core.util.asDuration
+import fr.synxio.player.data.model.BookProgress
 import fr.synxio.player.data.model.Folder
+import fr.synxio.player.data.model.Song
+import fr.synxio.player.data.model.chapterLabel
+import fr.synxio.player.data.model.remainingLabel
+import fr.synxio.player.data.model.statusLabel
 import fr.synxio.player.ui.components.Artwork
+import fr.synxio.player.ui.components.BrandProgressBar
 import fr.synxio.player.ui.components.EmptyState
 import fr.synxio.player.ui.components.GlassButton
 import fr.synxio.player.ui.components.ScreenHeader
@@ -101,6 +108,7 @@ fun AudiobooksScreen(
     val library by viewModel.library.collectAsStateWithLifecycle()
     val audiobooks by viewModel.audiobooks.collectAsStateWithLifecycle()
     val audiobookFolders by viewModel.audiobookFolders.collectAsStateWithLifecycle()
+    val progress by viewModel.bookProgress.collectAsStateWithLifecycle()
     val reduce = LocalReduceMotion.current
 
     var showManageFolders by rememberSaveable { mutableStateOf(false) }
@@ -208,6 +216,7 @@ fun AudiobooksScreen(
                 itemsIndexed(books, key = { _, it -> it.path }, contentType = { _, _ -> "book" }) { index, folder ->
                     BookRow(
                         book = folder,
+                        progress = progress[folder.path],
                         onClick = { onOpenFolder(folder.path) },
                         modifier = Modifier
                             .animateItem()
@@ -230,13 +239,20 @@ fun AudiobooksScreen(
 
 /**
  * Un livre : carte de verre avec la couverture du premier chapitre, le titre (nom du
- * dossier), le nombre de chapitres et la durée totale en chiffres tabulaires.
+ * dossier), le nombre de chapitres et la durée totale en chiffres tabulaires. Commencé,
+ * il montre le chapitre en cours, le temps restant et une barre d'avancement.
  */
 @Composable
-private fun BookRow(book: Folder, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun BookRow(
+    book: Folder,
+    progress: BookProgress?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val scheme = MaterialTheme.colorScheme
     val chapters = book.songCount
     val duration = remember(book) { book.songs.sumOf { it.durationMs }.asLongDuration() }
+    val status = progress?.statusLabel()
     Row(
         modifier
             .pressBounce(0.98f)
@@ -262,18 +278,90 @@ private fun BookRow(book: Folder, onClick: () -> Unit, modifier: Modifier = Modi
             )
             Spacer(Modifier.height(Space.xxs))
             Text(
-                "${if (chapters <= 1) "$chapters chapitre" else "$chapters chapitres"} · $duration",
+                status ?: "${if (chapters <= 1) "$chapters chapitre" else "$chapters chapitres"} · $duration",
                 style = MaterialTheme.typography.bodyMedium.merge(TabularNumbers),
                 color = scheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (progress != null && progress.started) {
+                Spacer(Modifier.height(Space.xs))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Space.sm),
+                ) {
+                    BrandProgressBar(progress = progress.fraction, modifier = Modifier.weight(1f))
+                    Text(
+                        "${progress.percent} %",
+                        style = MaterialTheme.typography.labelMedium.merge(TabularNumbers),
+                        color = scheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
         Icon(
             Icons.AutoMirrored.Rounded.KeyboardArrowRight,
             contentDescription = null,
             tint = scheme.onSurfaceVariant,
         )
+    }
+}
+
+/**
+ * Où en est l'écoute, sous les boutons de l'écran d'un livre : chapitre en cours et sa
+ * position, barre d'avancement du livre, temps écouté et temps restant.
+ */
+@Composable
+fun BookProgressCard(progress: BookProgress, chapter: Song?, modifier: Modifier = Modifier) {
+    val scheme = MaterialTheme.colorScheme
+    Column(
+        modifier
+            .fillMaxWidth()
+            .clip(SynxioShape.card)
+            .glass(SynxioShape.card, strength = 0.45f)
+            .padding(Space.md)
+            .semantics(mergeDescendants = true) {},
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (progress.finished) "Livre terminé" else progress.chapterLabel(),
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                "${progress.percent} %",
+                style = MaterialTheme.typography.titleSmall.merge(TabularNumbers),
+                color = scheme.primary,
+            )
+        }
+        if (chapter != null && !progress.finished) {
+            Spacer(Modifier.height(Space.xxs))
+            Text(
+                "${chapter.title} · ${progress.chapterPositionMs.asDuration()} / ${chapter.durationMs.asDuration()}",
+                style = MaterialTheme.typography.bodySmall.merge(TabularNumbers),
+                color = scheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Spacer(Modifier.height(Space.sm))
+        BrandProgressBar(progress = progress.fraction, height = 4.dp)
+        Spacer(Modifier.height(Space.xs))
+        Row {
+            Text(
+                "${progress.elapsedMs.asLongDuration()} d'écoute",
+                style = MaterialTheme.typography.bodySmall.merge(TabularNumbers),
+                color = scheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                progress.remainingLabel(),
+                style = MaterialTheme.typography.bodySmall.merge(TabularNumbers),
+                color = scheme.onSurfaceVariant,
+            )
+        }
     }
 }
 

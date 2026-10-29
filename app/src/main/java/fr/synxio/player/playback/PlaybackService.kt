@@ -157,6 +157,15 @@ class PlaybackService : MediaLibraryService() {
     private var listenedMs: Long = 0L
     private var lastResumeUptime: Long = 0L
     private var trackStartedAtSec: Long = 0L
+
+    /**
+     * Dernière position connue du morceau suivi, pour la reprise des podcasts et livres.
+     *
+     * Au changement de piste, le lecteur est déjà sur le morceau suivant : lire
+     * `currentPosition` à ce moment enregistrait la position du nouveau morceau (≈ 0)
+     * pour l'ancien, et un chapitre à moitié écouté perdait sa place au premier zap.
+     */
+    private var trackedPositionMs: Long = 0L
     private var persistSoonJob: Job? = null
     private var positionSaveJob: Job? = null
     private var widgetJob: Job? = null
@@ -693,6 +702,9 @@ class PlaybackService : MediaLibraryService() {
                 // Dix secondes de lecture continue : la lecture fonctionne vraiment.
                 errorPolicy.onListened(POSITION_SAVE_INTERVAL_MS)
                 persistQueue()
+                // Sinon la place dans un livre n'était écrite qu'à la pause : un processus
+                // tué en pleine écoute la ramenait au dernier arrêt.
+                persistPodcastProgress()
             }
         }
     }
@@ -797,6 +809,7 @@ class PlaybackService : MediaLibraryService() {
 
     private fun startTracking(item: MediaItem?) {
         trackedSongId = item?.songId ?: -1L
+        trackedPositionMs = 0L
         listenedMs = 0L
         lastResumeUptime = if (activePlayer.isPlaying) SystemClock.elapsedRealtime() else 0L
         trackStartedAtSec = System.currentTimeMillis() / 1000
@@ -854,11 +867,32 @@ class PlaybackService : MediaLibraryService() {
         listenedMs = 0L
     }
 
+    /**
+     * Position du morceau suivi : celle du lecteur tant qu'il est dessus, sinon la
+     * dernière relevée ([trackedPositionMs]).
+     */
+    private fun trackedPosition(): Long {
+        if (activePlayer.currentMediaItem?.songId == trackedSongId) {
+            trackedPositionMs = activePlayer.currentPosition.coerceAtLeast(0)
+        }
+        return trackedPositionMs
+    }
+
+    /**
+     * Enregistre la position de reprise d'un podcast ou d'un chapitre de livre audio.
+     *
+     * Fini, un podcast repart de zéro ; un chapitre garde sa durée, ce qui le marque lu :
+     * la progression du livre passe alors au chapitre suivant.
+     */
     private fun persistPodcastProgress(finished: Boolean = false) {
         val song = musicRepository.songById(trackedSongId) ?: return
-        if (!song.isPodcast) return
+        if (!song.isPodcast && !song.isAudiobook) return
 
-        val position = if (finished) 0L else activePlayer.currentPosition.coerceAtLeast(0)
+        val position = when {
+            !finished -> trackedPosition()
+            song.isAudiobook -> song.durationMs
+            else -> 0L
+        }
         writeScope.launch {
             podcastProgressDao.saveProgress(
                 fr.synxio.player.data.db.PodcastProgressEntity(
@@ -948,19 +982,22 @@ class PlaybackService : MediaLibraryService() {
 
             startTracking(mediaItem)
 
-            // Restore podcast progress
+            // Reprise d'un podcast ou d'un chapitre de livre audio là où il a été laissé.
             val current = currentSong()
             currentShowKey.value = fr.synxio.player.data.model.ShowKeys.of(current)
-            if (current != null && current.isPodcast && reason != Player.MEDIA_ITEM_TRANSITION_REASON_SEEK) {
+            if (current != null && (current.isPodcast || current.isAudiobook) &&
+                reason != Player.MEDIA_ITEM_TRANSITION_REASON_SEEK
+            ) {
                 val mediaId = mediaItem?.mediaId
                 serviceScope.launch {
                     val progress = withContext(Dispatchers.IO) { podcastProgressDao.getProgress(current.id) }
+                    val resumeAt = progress?.let {
+                        fr.synxio.player.data.model.BookProgress.resumePosition(it.positionMs, current.durationMs)
+                    } ?: 0L
                     // L'utilisateur a pu zapper pendant la lecture en base : on ne saute
                     // jamais dans un autre morceau à la position du podcast.
-                    if (progress != null && progress.positionMs > 0 &&
-                        activePlayer.currentMediaItem?.mediaId == mediaId
-                    ) {
-                        activePlayer.seekTo(progress.positionMs)
+                    if (resumeAt > 0 && activePlayer.currentMediaItem?.mediaId == mediaId) {
+                        activePlayer.seekTo(resumeAt)
                     }
                 }
             }
@@ -1095,6 +1132,10 @@ class PlaybackService : MediaLibraryService() {
             newPosition: Player.PositionInfo,
             reason: Int,
         ) {
+            // Position exacte du morceau que l'on quitte, avant que le lecteur passe au suivant.
+            if (oldPosition.mediaItem?.songId == trackedSongId) {
+                trackedPositionMs = oldPosition.positionMs.coerceAtLeast(0)
+            }
             if (reason == Player.DISCONTINUITY_REASON_SEEK) {
                 fade.resetVolume()
                 // Une recherche manuelle est un point de reprise que l'on veut retrouver.

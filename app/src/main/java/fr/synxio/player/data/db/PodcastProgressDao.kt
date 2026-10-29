@@ -4,7 +4,9 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import kotlinx.coroutines.flow.Flow
 
+/** Positions de reprise des podcasts et des chapitres de livres audio, par morceau. */
 @Dao
 interface PodcastProgressDao {
     @Query("SELECT * FROM podcast_progress WHERE songId = :songId")
@@ -12,4 +14,7 @@ interface PodcastProgressDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveProgress(progress: PodcastProgressEntity)
+
+    @Query("SELECT * FROM podcast_progress")
+    fun observeAll(): Flow<List<PodcastProgressEntity>>
 }

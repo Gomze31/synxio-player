@@ -112,6 +112,9 @@ import fr.synxio.player.core.util.asDuration
 import fr.synxio.player.data.model.NowPlayingSkin
 import fr.synxio.player.data.model.RepeatMode
 import fr.synxio.player.data.model.Song
+import fr.synxio.player.data.model.chapterLabel
+import fr.synxio.player.data.model.inBookOrder
+import fr.synxio.player.data.model.remainingLabel
 import fr.synxio.player.playback.AudioOutput
 import fr.synxio.player.playback.AudioOutputKind
 import fr.synxio.player.playback.openSystemOutputSwitcher
@@ -187,6 +190,11 @@ fun NowPlayingScreen(
     var playlistSong by remember { mutableStateOf<Song?>(null) }
 
     val song = state.currentSong
+    val audiobooks by viewModel.audiobooks.collectAsStateWithLifecycle()
+    val bookPath = song?.takeIf { it.isAudiobook }?.folderPath
+    val bookChapters = remember(bookPath, audiobooks) {
+        if (bookPath == null) emptyList() else audiobooks.filter { it.folderPath == bookPath }.inBookOrder()
+    }
 
     LaunchedEffect(song?.id, showLyrics) {
         if (showLyrics) lyricsViewModel.load(song)
@@ -402,6 +410,21 @@ fun NowPlayingScreen(
                     HeartButton(
                         isFavorite = song.id in favorites,
                         onToggle = { viewModel.toggleFavorite(song) },
+                    )
+                }
+
+                // Livre audio : le chapitre seul ne dit pas où l'on en est dans le livre.
+                val book = remember(bookChapters, song.id, state.positionMs) {
+                    fr.synxio.player.data.model.BookProgress.live(bookChapters, song.id, state.positionMs)
+                }
+                if (book != null) {
+                    Text(
+                        text = "${book.chapterLabel()} · ${book.percent} % · ${book.remainingLabel()}",
+                        style = MaterialTheme.typography.bodyMedium.merge(fr.synxio.player.ui.theme.TabularNumbers),
+                        color = scheme.onSurface.copy(alpha = 0.72f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
 

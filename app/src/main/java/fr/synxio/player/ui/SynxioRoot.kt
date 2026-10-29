@@ -842,15 +842,34 @@ private fun AppNavHost(
         screen(Routes.FOLDER) { entry ->
             val path = entry.arguments?.getString("folderPath")?.let(Routes::decode).orEmpty()
             val folder = viewModel.folderByPath(path)
+            val songs = folder?.songs.orEmpty()
+            // Un dossier de livre audio est un livre : on y montre où en est l'écoute, et
+            // le bouton principal reprend au chapitre en cours plutôt qu'au premier.
+            val isBook = songs.isNotEmpty() && songs.all { it.isAudiobook }
+            val bookProgress by viewModel.bookProgress.collectAsStateWithLifecycle()
+            val progress = if (isBook) bookProgress[path] else null
+            val resumable = progress != null && progress.started && !progress.finished
             SongListScreen(
                 viewModel = viewModel,
                 title = folder?.name ?: "Dossier",
                 subtitle = path,
-                eyebrow = "Dossier",
-                songs = folder?.songs.orEmpty(),
-                artworkModel = folder?.songs?.firstOrNull()?.artworkUri,
+                eyebrow = if (isBook) "Livre audio" else "Dossier",
+                songs = songs,
+                artworkModel = songs.firstOrNull()?.artworkUri,
                 onBack = { navController.popBackStack() },
                 onEditTags = { navController.navigate(Routes.tags(it)) },
+                showTrackNumbers = isBook,
+                playLabel = if (resumable) "Reprendre" else "Lire",
+                onPlay = if (isBook) ({ viewModel.resumeBook(songs) }) else null,
+                headerExtras = {
+                    if (progress != null && progress.started) {
+                        fr.synxio.player.ui.screens.BookProgressCard(
+                            progress = progress,
+                            chapter = songs.firstOrNull { it.id == progress.chapterSongId },
+                            modifier = Modifier.padding(top = Space.lg),
+                        )
+                    }
+                },
             )
         }
 

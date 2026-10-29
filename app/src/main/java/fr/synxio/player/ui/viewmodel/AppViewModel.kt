@@ -15,6 +15,7 @@ import fr.synxio.player.data.model.ArtistSort
 import fr.synxio.player.data.model.Playlist
 import fr.synxio.player.data.model.Song
 import fr.synxio.player.data.model.SongSort
+import fr.synxio.player.data.model.inBookOrder
 import fr.synxio.player.data.repo.Library
 import fr.synxio.player.data.repo.MusicRepository
 import fr.synxio.player.data.repo.PlaylistRepository
@@ -79,7 +80,38 @@ class AppViewModel @Inject constructor(
     budsMonitor: fr.synxio.player.buds.BudsMonitor,
     private val ratingRepository: fr.synxio.player.data.repo.RatingRepository,
     private val showSpeedDao: fr.synxio.player.data.db.ShowSpeedDao,
+    podcastProgressDao: fr.synxio.player.data.db.PodcastProgressDao,
 ) : ViewModel() {
+
+    /**
+     * Progression de chaque livre audio, par chemin de dossier (un dossier = un livre).
+     *
+     * Tirée des positions enregistrées par le service : elle suit la lecture à dix
+     * secondes près, et chaque pause.
+     */
+    val bookProgress: StateFlow<Map<String, fr.synxio.player.data.model.BookProgress>> = combine(
+        musicRepository.library.map { it.audiobooks }.distinctUntilChanged(),
+        podcastProgressDao.observeAll(),
+    ) { books, saved ->
+        val byId = saved.associateBy { it.songId }
+        books.groupBy { it.folderPath }.mapNotNull { (path, chapters) ->
+            fr.synxio.player.data.model.BookProgress.of(chapters.inBookOrder(), byId)?.let { path to it }
+        }.toMap()
+    }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /**
+     * Reprend un livre au chapitre en cours ; le service y replace la position enregistrée.
+     * Un livre fini repart du premier chapitre.
+     */
+    fun resumeBook(chapters: List<Song>) {
+        if (chapters.isEmpty()) return
+        val ordered = chapters.inBookOrder()
+        val progress = bookProgress.value[ordered.first().folderPath]
+        val index = if (progress == null || progress.finished) 0 else progress.chapterIndex
+        player.play(ordered, index.coerceIn(0, ordered.lastIndex))
+    }
 
     val similarityProgress = similarityRepository.progress
     val similarityAnalysedCount = similarityRepository.analysedCount

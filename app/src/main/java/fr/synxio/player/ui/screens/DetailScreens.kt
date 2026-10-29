@@ -178,6 +178,8 @@ fun SongListScreen(
     subtitleClickLabel: String? = null,
     eyebrow: String? = null,
     heroSharedKey: Any? = null,
+    playLabel: String = "Lire",
+    onPlay: (() -> Unit)? = null,
 ) {
     val library by viewModel.library.collectAsStateWithLifecycle()
     val currentSongId by viewModel.currentSongId.collectAsStateWithLifecycle()
@@ -239,7 +241,8 @@ fun SongListScreen(
                     title = title,
                     subtitle = shownSubtitle,
                     stats = stats,
-                    onPlay = { viewModel.play(songs) },
+                    onPlay = onPlay ?: { viewModel.play(songs) },
+                    playLabel = playLabel,
                     onShuffle = { viewModel.shufflePlay(songs) },
                     topInset = padding.calculateTopPadding(),
                     listState = listState,
@@ -508,6 +511,7 @@ private fun DetailHero(
     topInset: Dp,
     listState: LazyListState,
     sharedKey: Any?,
+    playLabel: String = "Lire",
     artworkShape: Shape = SynxioShape.artworkLg,
     onSubtitleClick: (() -> Unit)? = null,
     subtitleClickLabel: String? = null,
@@ -614,7 +618,7 @@ private fun DetailHero(
                 horizontalArrangement = Arrangement.spacedBy(Space.md),
             ) {
                 BrandButton(
-                    text = "Lire",
+                    text = playLabel,
                     onClick = onPlay,
                     icon = Icons.Rounded.PlayArrow,
                     modifier = Modifier.weight(1f),
