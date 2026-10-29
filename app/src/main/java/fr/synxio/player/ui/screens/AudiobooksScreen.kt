@@ -1,6 +1,7 @@
 package fr.synxio.player.ui.screens
 
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -54,13 +55,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.synxio.player.core.util.asLongDuration
 import fr.synxio.player.core.util.asDuration
+import fr.synxio.player.data.media.StorageTreePaths
 import fr.synxio.player.data.model.BookProgress
 import fr.synxio.player.data.model.Folder
 import fr.synxio.player.data.model.Song
@@ -372,23 +376,21 @@ fun ManageAudiobookFoldersDialog(
     onRemove: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    // Un choix refusé l'était sans un mot : le dossier n'apparaissait simplement pas.
+    var pickError by remember { mutableStateOf<String?>(null) }
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri: Uri? ->
-        if (uri != null) {
-            val path = uri.path
-            if (path != null && path.contains(":")) {
-                val segments = path.split(":")
-                if (segments.size == 2) {
-                    val volumeId = segments[0].substringAfterLast("/")
-                    val folder = segments[1]
-                    val realPath = if (volumeId.equals("primary", ignoreCase = true)) {
-                        "/storage/emulated/0/$folder"
-                    } else {
-                        "/storage/$volumeId/$folder"
-                    }
-                    onAdd(realPath)
-                }
+        if (uri == null) return@rememberLauncherForActivityResult
+        val documentId = runCatching { DocumentsContract.getTreeDocumentId(uri) }.getOrNull()
+        val path = StorageTreePaths.pathOf(uri.authority, documentId)
+        when {
+            path == null -> pickError =
+                "Ce dossier n'est pas sur le stockage du téléphone ou une carte SD. Choisis-le depuis le stockage interne."
+            path in folders -> pickError = "Ce dossier est déjà dans la liste."
+            else -> {
+                pickError = null
+                onAdd(path)
             }
         }
     }
@@ -460,6 +462,15 @@ fun ManageAudiobookFoldersDialog(
                         onClick = { launcher.launch(null) },
                         icon = Icons.Rounded.CreateNewFolder,
                         modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                pickError?.let { error ->
+                    Spacer(Modifier.height(Space.sm))
+                    Text(
+                        error,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = scheme.error,
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                     )
                 }
             }
