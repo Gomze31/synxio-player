@@ -15,6 +15,7 @@ import fr.synxio.player.data.model.ArtistSort
 import fr.synxio.player.data.model.Playlist
 import fr.synxio.player.data.model.Song
 import fr.synxio.player.data.model.SongSort
+import fr.synxio.player.core.util.asDuration
 import fr.synxio.player.data.model.inBookOrder
 import fr.synxio.player.data.repo.Library
 import fr.synxio.player.data.repo.MusicRepository
@@ -82,6 +83,7 @@ class AppViewModel @Inject constructor(
     private val showSpeedDao: fr.synxio.player.data.db.ShowSpeedDao,
     private val podcastProgressDao: fr.synxio.player.data.db.PodcastProgressDao,
     private val chapterRepository: fr.synxio.player.data.repo.ChapterRepository,
+    private val bookmarkDao: fr.synxio.player.data.db.BookmarkDao,
 ) : ViewModel() {
 
     /** Positions de reprise des podcasts et chapitres, par identifiant de morceau. */
@@ -158,6 +160,47 @@ class AppViewModel @Inject constructor(
             }
             player.play(ordered, index)
         }
+    }
+
+    /** Signets du livre rangé dans [bookPath], dans l'ordre de création. */
+    fun bookmarks(bookPath: String): kotlinx.coroutines.flow.Flow<List<fr.synxio.player.data.db.BookmarkEntity>> =
+        bookmarkDao.observeFor(bookPath)
+
+    /** Pose un signet dans le fichier [song] d'un livre, à [positionMs], avec une note facultative. */
+    fun addBookmark(song: Song, positionMs: Long, note: String) {
+        if (!song.isAudiobook) return
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                bookmarkDao.insert(
+                    fr.synxio.player.data.db.BookmarkEntity(
+                        songId = song.id,
+                        songPath = song.path,
+                        bookPath = song.folderPath,
+                        positionMs = positionMs.coerceAtLeast(0L),
+                        note = note.trim(),
+                        createdAt = System.currentTimeMillis(),
+                    )
+                )
+            }
+            _messages.emit("Signet ajouté à ${positionMs.asDuration()}")
+        }
+    }
+
+    fun deleteBookmark(id: Long) = viewModelScope.launch {
+        withContext(Dispatchers.IO) { bookmarkDao.delete(id) }
+    }
+
+    /**
+     * Saute à un signet. Le fichier est retrouvé par son identifiant, sinon par son chemin
+     * (identifiant changé après une réindexation).
+     */
+    fun openBookmark(files: List<Song>, bookmark: fr.synxio.player.data.db.BookmarkEntity) {
+        val file = files.firstOrNull { it.id == bookmark.songId } ?: files.firstOrNull { it.path == bookmark.songPath }
+        if (file == null) {
+            viewModelScope.launch { _messages.emit("Le fichier de ce signet n'est plus dans le livre.") }
+            return
+        }
+        jumpInBook(files, file.id, bookmark.positionMs)
     }
 
     /**

@@ -223,4 +223,6 @@ dependencies {
     implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
 
     testImplementation(libs.junit)
+    // Tests de migration Room sur la JVM : vraie base SQLite, schémas exportés relus en JSON.
+    testImplementation("org.xerial:sqlite-jdbc:3.46.1.3")
 }

@@ -58,6 +58,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -70,6 +71,8 @@ import fr.synxio.player.data.model.BookProgress
 import fr.synxio.player.data.model.Folder
 import fr.synxio.player.data.model.Song
 import fr.synxio.player.data.model.bookChapters
+import fr.synxio.player.data.model.bookPlace
+import fr.synxio.player.ui.components.BookmarkRow
 import fr.synxio.player.data.model.chapterLabel
 import fr.synxio.player.data.model.inBookOrder
 import fr.synxio.player.ui.components.BookChaptersSheet
@@ -316,8 +319,8 @@ private fun BookRow(
 }
 
 /**
- * Sous les boutons de l'écran d'un livre : où en est l'écoute, puis l'accès aux chapitres
- * intégrés quand les fichiers en déclarent.
+ * Sous les boutons de l'écran d'un livre : où en est l'écoute, l'accès aux chapitres
+ * intégrés quand les fichiers en déclarent, puis les signets posés depuis le lecteur.
  */
 @Composable
 fun BookHeaderExtras(viewModel: AppViewModel, files: List<Song>, progress: BookProgress?) {
@@ -326,6 +329,9 @@ fun BookHeaderExtras(viewModel: AppViewModel, files: List<Song>, progress: BookP
     val chapters = remember(ordered, embedded) { bookChapters(ordered, embedded) }
     val hasEmbedded = ordered.any { !embedded[it.id].isNullOrEmpty() }
     var showChapters by rememberSaveable { mutableStateOf(false) }
+    val bookPath = ordered.firstOrNull()?.folderPath.orEmpty()
+    val bookmarks by remember(bookPath) { viewModel.bookmarks(bookPath) }
+        .collectAsStateWithLifecycle(initialValue = emptyList())
 
     if (progress != null && progress.started) {
         BookProgressCard(progress = progress, modifier = Modifier.padding(top = Space.lg))
@@ -338,6 +344,30 @@ fun BookHeaderExtras(viewModel: AppViewModel, files: List<Song>, progress: BookP
             icon = Icons.AutoMirrored.Rounded.List,
             modifier = Modifier.fillMaxWidth(),
         )
+    }
+    if (bookmarks.isNotEmpty()) {
+        Spacer(Modifier.height(Space.lg))
+        Text(
+            "Signets",
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics { heading() },
+        )
+        Spacer(Modifier.height(Space.xs))
+        Column(verticalArrangement = Arrangement.spacedBy(Space.xs)) {
+            bookmarks.forEach { bookmark ->
+                val file = ordered.firstOrNull { it.id == bookmark.songId }
+                    ?: ordered.firstOrNull { it.path == bookmark.songPath }
+                BookmarkRow(
+                    bookmark = bookmark,
+                    place = file?.let { bookPlace(ordered, embedded, it.id, bookmark.positionMs) }
+                        ?: "Fichier introuvable",
+                    onOpen = { viewModel.openBookmark(ordered, bookmark) },
+                    onDelete = { viewModel.deleteBookmark(bookmark.id) },
+                )
+            }
+        }
     }
     if (showChapters) {
         BookChaptersSheet(

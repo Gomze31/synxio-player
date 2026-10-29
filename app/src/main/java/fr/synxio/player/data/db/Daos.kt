@@ -423,3 +423,17 @@ interface ShowSpeedDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun put(entity: ShowSpeedEntity)
 }
+
+@Dao
+interface BookmarkDao {
+
+    /** Signets d'un livre, dans l'ordre de création. */
+    @Query("SELECT * FROM bookmarks WHERE bookPath = :bookPath ORDER BY createdAt")
+    fun observeFor(bookPath: String): Flow<List<BookmarkEntity>>
+
+    @Insert
+    suspend fun insert(bookmark: BookmarkEntity): Long
+
+    @Query("DELETE FROM bookmarks WHERE id = :id")
+    suspend fun delete(id: Long)
+}

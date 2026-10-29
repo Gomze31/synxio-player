@@ -1,6 +1,7 @@
 package fr.synxio.player.data.model
 
 import androidx.compose.runtime.Immutable
+import fr.synxio.player.core.util.asDuration
 import fr.synxio.player.core.util.asLongDuration
 import fr.synxio.player.data.db.PodcastProgressEntity
 import fr.synxio.player.data.media.Chapter
@@ -191,6 +192,20 @@ fun Map<String, BookProgress>.bookToResume(): Pair<String, BookProgress>? =
 
 /** Chapitres d'un livre dans l'ordre de lecture, comme sur l'écran du livre. */
 fun List<Song>.inBookOrder(): List<Song> = sortedBy { it.track }
+
+/**
+ * Où tombe une position du livre, pour nommer un signet : `Partie 3 · 12:34` (titre du
+ * chapitre et position dans ce chapitre). `null` si le fichier n'est plus dans le livre.
+ */
+fun bookPlace(
+    files: List<Song>,
+    embedded: Map<Long, List<Chapter>>,
+    songId: Long,
+    positionMs: Long,
+): String? {
+    val p = BookProgress.live(files, songId, positionMs, embedded) ?: return null
+    return "${p.chapterTitle} · ${p.chapterPositionMs.asDuration()}"
+}
 
 /** `Chapitre 3 sur 12`. */
 fun BookProgress.chapterLabel(): String = "Chapitre ${chapterIndex + 1} sur $chapterCount"

@@ -230,3 +230,20 @@ data class ShowSpeedEntity(
     @PrimaryKey val showKey: String,
     val speed: Float,
 )
+
+/**
+ * Signet dans un livre audio : une position dans un fichier, avec une note facultative.
+ *
+ * [bookPath] (dossier du livre) regroupe les signets d'un livre ; [songPath] retrouve le
+ * fichier si son identifiant MediaStore change après une réindexation.
+ */
+@Entity(tableName = "bookmarks", indices = [Index("bookPath")])
+data class BookmarkEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val songId: Long,
+    val songPath: String,
+    val bookPath: String,
+    val positionMs: Long,
+    val note: String,
+    val createdAt: Long,
+)

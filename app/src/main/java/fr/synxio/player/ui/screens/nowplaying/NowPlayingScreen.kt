@@ -50,6 +50,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.BookmarkAdd
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.BluetoothAudio
@@ -69,6 +70,7 @@ import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -197,6 +199,8 @@ fun NowPlayingScreen(
     }
     val embeddedChapters by viewModel.embeddedChapters.collectAsStateWithLifecycle()
     var showChapters by remember { mutableStateOf(false) }
+    // Position figée au toucher du bouton signet : la lecture continue pendant la saisie.
+    var bookmarkAt by remember { mutableStateOf<Long?>(null) }
 
     LaunchedEffect(song?.id, showLyrics) {
         if (showLyrics) lyricsViewModel.load(song)
@@ -421,17 +425,37 @@ fun NowPlayingScreen(
                     fr.synxio.player.data.model.BookProgress.live(bookFiles, song.id, state.positionMs, embeddedChapters)
                 }
                 if (book != null) {
-                    Text(
-                        text = "${book.chapterLabel()} · ${book.percent} % · ${book.remainingLabel()}",
-                        style = MaterialTheme.typography.bodyMedium.merge(fr.synxio.player.ui.theme.TabularNumbers),
-                        color = scheme.onSurface.copy(alpha = 0.72f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(onClickLabel = "Voir les chapitres") { showChapters = true }
-                            .padding(vertical = Space.xxs),
-                    )
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "${book.chapterLabel()} · ${book.percent} % · ${book.remainingLabel()}",
+                            style = MaterialTheme.typography.bodyMedium.merge(fr.synxio.player.ui.theme.TabularNumbers),
+                            color = scheme.onSurface.copy(alpha = 0.72f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable(onClickLabel = "Voir les chapitres") { showChapters = true }
+                                .padding(vertical = Space.xxs),
+                        )
+                        IconButton(onClick = { bookmarkAt = state.positionMs }) {
+                            Icon(
+                                Icons.Rounded.BookmarkAdd,
+                                contentDescription = "Ajouter un signet",
+                                tint = scheme.onSurface.copy(alpha = 0.72f),
+                            )
+                        }
+                    }
+                    bookmarkAt?.let { at ->
+                        fr.synxio.player.ui.components.AddBookmarkDialog(
+                            place = fr.synxio.player.data.model.bookPlace(bookFiles, embeddedChapters, song.id, at)
+                                ?: at.asDuration(),
+                            onConfirm = { note ->
+                                viewModel.addBookmark(song, at, note)
+                                bookmarkAt = null
+                            },
+                            onDismiss = { bookmarkAt = null },
+                        )
+                    }
                     if (showChapters) {
                         fr.synxio.player.ui.components.BookChaptersSheet(
                             chapters = remember(bookFiles, embeddedChapters) {
