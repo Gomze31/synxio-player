@@ -23,3 +23,6 @@ release/
 # Sorties generees et espaces de travail (non versionnes)
 graphify-out/
 .superpowers/
+
+# Journaux et sessions du démon Kotlin
+.kotlin/
