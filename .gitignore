@@ -26,3 +26,7 @@ graphify-out/
 
 # Journaux et sessions du démon Kotlin
 .kotlin/
+
+# Journaux de build Gradle redirigés à la racine
+build.log
+build_output.log
