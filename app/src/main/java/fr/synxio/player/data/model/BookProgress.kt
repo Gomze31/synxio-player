@@ -207,6 +207,27 @@ fun bookPlace(
     return "${p.chapterTitle} · ${p.chapterPositionMs.asDuration()}"
 }
 
+/** Au-delà de ce temps dans un chapitre, « précédent » revient au début du chapitre. */
+const val CHAPTER_RESTART_THRESHOLD_MS = 3_000L
+
+/**
+ * Cible de « chapitre précédent », comme sur un lecteur : le début du chapitre en cours
+ * après quelques secondes d'écoute, sinon le chapitre d'avant (ou le premier, au début).
+ */
+fun List<BookChapter>.previousFrom(progress: BookProgress): BookChapter? =
+    if (progress.chapterPositionMs > CHAPTER_RESTART_THRESHOLD_MS) getOrNull(progress.chapterIndex)
+    else getOrNull(progress.chapterIndex - 1) ?: getOrNull(progress.chapterIndex)
+
+/** Chapitre suivant, `null` au dernier. */
+fun List<BookChapter>.nextAfter(progress: BookProgress): BookChapter? = getOrNull(progress.chapterIndex + 1)
+
+/**
+ * Temps réel avant la fin du chapitre en cours à la vitesse [speed] : à 1,5×, douze
+ * minutes de chapitre passent en huit.
+ */
+fun BookProgress.msToChapterEnd(speed: Float): Long =
+    ((chapterDurationMs - chapterPositionMs).coerceAtLeast(0L) / speed.coerceAtLeast(0.25f)).toLong()
+
 /** `Chapitre 3 sur 12`. */
 fun BookProgress.chapterLabel(): String = "Chapitre ${chapterIndex + 1} sur $chapterCount"
 

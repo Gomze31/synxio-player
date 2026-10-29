@@ -115,6 +115,10 @@ import fr.synxio.player.data.model.NowPlayingSkin
 import fr.synxio.player.data.model.RepeatMode
 import fr.synxio.player.data.model.Song
 import fr.synxio.player.data.model.chapterLabel
+import fr.synxio.player.data.model.previousFrom
+import fr.synxio.player.data.model.nextAfter
+import fr.synxio.player.data.model.msToChapterEnd
+import androidx.compose.material.icons.automirrored.rounded.List
 import fr.synxio.player.data.model.inBookOrder
 import fr.synxio.player.data.model.remainingLabel
 import fr.synxio.player.playback.AudioOutput
@@ -199,6 +203,13 @@ fun NowPlayingScreen(
     }
     val embeddedChapters by viewModel.embeddedChapters.collectAsStateWithLifecycle()
     var showChapters by remember { mutableStateOf(false) }
+    // Livre audio : où l'on en est, en direct, et ses chapitres pour naviguer de l'un à l'autre.
+    val liveBook = remember(bookFiles, embeddedChapters, song?.id, state.positionMs) {
+        song?.let { fr.synxio.player.data.model.BookProgress.live(bookFiles, it.id, state.positionMs, embeddedChapters) }
+    }
+    val chapterList = remember(bookFiles, embeddedChapters) {
+        fr.synxio.player.data.model.bookChapters(bookFiles, embeddedChapters)
+    }
     // Position figée au toucher du bouton signet : la lecture continue pendant la saisie.
     var bookmarkAt by remember { mutableStateOf<Long?>(null) }
 
@@ -420,29 +431,44 @@ fun NowPlayingScreen(
                 }
 
                 // Livre audio : le chapitre seul ne dit pas où l'on en est dans le livre.
-                // Toucher la ligne ouvre la liste des chapitres, pour passer de l'un à l'autre.
-                val book = remember(bookFiles, embeddedChapters, song.id, state.positionMs) {
-                    fr.synxio.player.data.model.BookProgress.live(bookFiles, song.id, state.positionMs, embeddedChapters)
-                }
+                // Toucher la ligne ouvre la liste des chapitres ; dessous, chapitre précédent,
+                // liste, chapitre suivant et signet.
+                val book = liveBook
                 if (book != null) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "${book.chapterLabel()} · ${book.percent} % · ${book.remainingLabel()}",
-                            style = MaterialTheme.typography.bodyMedium.merge(fr.synxio.player.ui.theme.TabularNumbers),
-                            color = scheme.onSurface.copy(alpha = 0.72f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier
-                                .weight(1f)
-                                .clickable(onClickLabel = "Voir les chapitres") { showChapters = true }
-                                .padding(vertical = Space.xxs),
-                        )
+                    val muted = scheme.onSurface.copy(alpha = 0.72f)
+                    Text(
+                        text = "${book.chapterLabel()} · ${book.percent} % · ${book.remainingLabel()}",
+                        style = MaterialTheme.typography.bodyMedium.merge(fr.synxio.player.ui.theme.TabularNumbers),
+                        color = muted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(onClickLabel = "Voir les chapitres") { showChapters = true }
+                            .padding(vertical = Space.xxs),
+                    )
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconButton(onClick = {
+                            chapterList.previousFrom(book)?.let { viewModel.jumpInBook(bookFiles, it.songId, it.startInFileMs) }
+                        }) {
+                            Icon(Icons.Rounded.SkipPrevious, contentDescription = "Chapitre précédent", tint = muted)
+                        }
+                        IconButton(onClick = { showChapters = true }) {
+                            Icon(Icons.AutoMirrored.Rounded.List, contentDescription = "Liste des chapitres", tint = muted)
+                        }
+                        val next = chapterList.nextAfter(book)
+                        IconButton(
+                            onClick = { next?.let { viewModel.jumpInBook(bookFiles, it.songId, it.startInFileMs) } },
+                            enabled = next != null,
+                        ) {
+                            Icon(Icons.Rounded.SkipNext, contentDescription = "Chapitre suivant", tint = muted)
+                        }
                         IconButton(onClick = { bookmarkAt = state.positionMs }) {
-                            Icon(
-                                Icons.Rounded.BookmarkAdd,
-                                contentDescription = "Ajouter un signet",
-                                tint = scheme.onSurface.copy(alpha = 0.72f),
-                            )
+                            Icon(Icons.Rounded.BookmarkAdd, contentDescription = "Ajouter un signet", tint = muted)
                         }
                     }
                     bookmarkAt?.let { at ->
@@ -458,9 +484,7 @@ fun NowPlayingScreen(
                     }
                     if (showChapters) {
                         fr.synxio.player.ui.components.BookChaptersSheet(
-                            chapters = remember(bookFiles, embeddedChapters) {
-                                fr.synxio.player.data.model.bookChapters(bookFiles, embeddedChapters)
-                            },
+                            chapters = chapterList,
                             currentIndex = book.chapterIndex,
                             onSelect = { chapter ->
                                 showChapters = false
@@ -541,6 +565,18 @@ fun NowPlayingScreen(
             onStart = { minutes, finishTrack -> viewModel.startSleepTimer(minutes, finishTrack) },
             onCancel = viewModel::cancelSleepTimer,
             onDismiss = { showSleepTimer = false },
+            chapterEndLabel = liveBook?.let { b ->
+                // Chapitre = fichier entier : arrêt exact sur la fin de piste, pas de compte.
+                if (embeddedChapters[b.chapterSongId].isNullOrEmpty()) null
+                else "dans ${b.msToChapterEnd(state.speed).asDuration()}"
+            },
+            onChapterEnd = liveBook?.let { b ->
+                {
+                    val delay = if (embeddedChapters[b.chapterSongId].isNullOrEmpty()) null
+                    else b.msToChapterEnd(state.speed)
+                    viewModel.sleepAtChapterEnd(delay)
+                }
+            },
         )
     }
 

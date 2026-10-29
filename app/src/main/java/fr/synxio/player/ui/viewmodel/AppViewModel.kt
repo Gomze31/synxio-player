@@ -591,6 +591,16 @@ class AppViewModel @Inject constructor(
 
     // --- Minuterie -----------------------------------------------------------------------
 
+    /**
+     * Veille à la fin du chapitre en cours d'un livre. Un chapitre qui est tout un fichier
+     * s'arrête exactement sur la fin de piste ; un chapitre intégré, au bout de [delayMs].
+     */
+    fun sleepAtChapterEnd(delayMs: Long?) {
+        if (delayMs == null) player.startSleepTimer(0L, finishCurrentTrack = true)
+        else player.startSleepTimer(delayMs, finishCurrentTrack = false)
+        emit("Arrêt à la fin du chapitre")
+    }
+
     fun startSleepTimer(minutes: Int, finishTrack: Boolean) {
         player.startSleepTimer(minutes * 60_000L, finishTrack)
         emit("Veille dans $minutes min")

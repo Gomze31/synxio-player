@@ -43,6 +43,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Album
@@ -591,6 +592,9 @@ fun SleepTimerSheet(
     onStart: (Int, Boolean) -> Unit,
     onCancel: () -> Unit,
     onDismiss: () -> Unit,
+    /** Livre audio : « Fin du chapitre », avec le temps qu'il reste (`dans 12 min`). */
+    chapterEndLabel: String? = null,
+    onChapterEnd: (() -> Unit)? = null,
 ) {
     var minutes by remember { mutableIntStateOf(30) }
     var finishTrack by remember { mutableStateOf(false) }
@@ -670,6 +674,16 @@ fun SleepTimerSheet(
                     modifier = Modifier.weight(1f),
                 )
                 Switch(checked = finishTrack, onCheckedChange = null)
+            }
+
+            if (onChapterEnd != null) {
+                Spacer(Modifier.height(Space.md))
+                GlassButton(
+                    text = listOfNotNull("Fin du chapitre", chapterEndLabel).joinToString(" · "),
+                    onClick = { onChapterEnd(); onDismiss() },
+                    icon = Icons.AutoMirrored.Rounded.MenuBook,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
 
             Spacer(Modifier.height(Space.lg))
