@@ -881,18 +881,15 @@ class PlaybackService : MediaLibraryService() {
     /**
      * Enregistre la position de reprise d'un podcast ou d'un chapitre de livre audio.
      *
-     * Fini, un podcast repart de zéro ; un chapitre garde sa durée, ce qui le marque lu :
-     * la progression du livre passe alors au chapitre suivant.
+     * Fini, l'épisode ou le chapitre garde sa durée, ce qui le marque lu : la progression
+     * d'un livre passe au chapitre suivant, et une nouvelle écoute repart du début
+     * ([fr.synxio.player.data.model.BookProgress.resumePosition]).
      */
     private fun persistPodcastProgress(finished: Boolean = false) {
         val song = musicRepository.songById(trackedSongId) ?: return
         if (!song.isPodcast && !song.isAudiobook) return
 
-        val position = when {
-            !finished -> trackedPosition()
-            song.isAudiobook -> song.durationMs
-            else -> 0L
-        }
+        val position = if (finished) song.durationMs else trackedPosition()
         writeScope.launch {
             podcastProgressDao.saveProgress(
                 fr.synxio.player.data.db.PodcastProgressEntity(

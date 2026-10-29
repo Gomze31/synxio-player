@@ -80,8 +80,15 @@ class AppViewModel @Inject constructor(
     budsMonitor: fr.synxio.player.buds.BudsMonitor,
     private val ratingRepository: fr.synxio.player.data.repo.RatingRepository,
     private val showSpeedDao: fr.synxio.player.data.db.ShowSpeedDao,
-    podcastProgressDao: fr.synxio.player.data.db.PodcastProgressDao,
+    private val podcastProgressDao: fr.synxio.player.data.db.PodcastProgressDao,
 ) : ViewModel() {
+
+    /** Positions de reprise des podcasts et chapitres, par identifiant de morceau. */
+    val listeningPositions: StateFlow<Map<Long, fr.synxio.player.data.db.PodcastProgressEntity>> =
+        podcastProgressDao.observeAll()
+            .map { list -> list.associateBy { it.songId } }
+            .flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /**
      * Progression de chaque livre audio, par chemin de dossier (un dossier = un livre).
@@ -91,9 +98,8 @@ class AppViewModel @Inject constructor(
      */
     val bookProgress: StateFlow<Map<String, fr.synxio.player.data.model.BookProgress>> = combine(
         musicRepository.library.map { it.audiobooks }.distinctUntilChanged(),
-        podcastProgressDao.observeAll(),
-    ) { books, saved ->
-        val byId = saved.associateBy { it.songId }
+        listeningPositions,
+    ) { books, byId ->
         books.groupBy { it.folderPath }.mapNotNull { (path, chapters) ->
             fr.synxio.player.data.model.BookProgress.of(chapters.inBookOrder(), byId)?.let { path to it }
         }.toMap()
@@ -111,6 +117,26 @@ class AppViewModel @Inject constructor(
         val progress = bookProgress.value[ordered.first().folderPath]
         val index = if (progress == null || progress.finished) 0 else progress.chapterIndex
         player.play(ordered, index.coerceIn(0, ordered.lastIndex))
+    }
+
+    /**
+     * Marque des épisodes ou les chapitres d'un livre comme lus (chacun à sa fin) ou non
+     * lus (position oubliée). [label] nomme ce qui a été marqué dans la confirmation.
+     */
+    fun setPlayed(songs: List<Song>, played: Boolean, label: String) {
+        if (songs.isEmpty()) return
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                if (played) {
+                    podcastProgressDao.saveAll(
+                        fr.synxio.player.data.model.markedPlayed(songs, System.currentTimeMillis() / 1000)
+                    )
+                } else {
+                    podcastProgressDao.deleteFor(songs.map { it.id })
+                }
+            }
+            _messages.emit(if (played) "« $label » marqué comme lu" else "« $label » marqué comme non lu")
+        }
     }
 
     val similarityProgress = similarityRepository.progress

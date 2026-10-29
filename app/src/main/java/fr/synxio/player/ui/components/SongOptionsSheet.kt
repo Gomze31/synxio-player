@@ -30,6 +30,8 @@ import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.DoneAll
+import androidx.compose.material.icons.rounded.RemoveDone
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
@@ -87,6 +89,9 @@ data class SongActions(
     val onStartRadio: (() -> Unit)? = null,
     val onRemoveFromPlaylist: (() -> Unit)? = null,
     val onDelete: (() -> Unit)? = null,
+    /** Podcasts et livres audio seulement : bascule l'état lu / non lu. */
+    val onTogglePlayed: (() -> Unit)? = null,
+    val isPlayed: Boolean = false,
 )
 
 /**
@@ -159,6 +164,12 @@ fun SongOptionsSheet(
             }
             actions.onStartRadio?.let {
                 SheetAction(Icons.Rounded.Radio, "Lancer une radio") { it(); onDismiss() }
+            }
+            actions.onTogglePlayed?.let {
+                SheetAction(
+                    icon = if (actions.isPlayed) Icons.Rounded.RemoveDone else Icons.Rounded.DoneAll,
+                    label = if (actions.isPlayed) "Marquer comme non lu" else "Marquer comme lu",
+                ) { it(); onDismiss() }
             }
 
             GroupSpacer()

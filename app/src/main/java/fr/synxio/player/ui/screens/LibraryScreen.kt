@@ -108,10 +108,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import fr.synxio.player.core.util.asLongDuration
 import fr.synxio.player.core.util.pluralAlbums
 import fr.synxio.player.core.util.pluralSongs
 import fr.synxio.player.data.model.AlbumSort
 import fr.synxio.player.data.model.ArtistSort
+import fr.synxio.player.data.model.EpisodeState
+import fr.synxio.player.data.model.episodeState
 import fr.synxio.player.data.model.LibraryTab
 import fr.synxio.player.data.model.Song
 import fr.synxio.player.data.model.SongSort
@@ -720,6 +723,7 @@ private fun PodcastsTab(
     onEditTags: (Long) -> Unit,
 ) {
     val podcasts by viewModel.podcasts.collectAsStateWithLifecycle()
+    val positions by viewModel.listeningPositions.collectAsStateWithLifecycle()
     val currentSongId by viewModel.currentSongId.collectAsStateWithLifecycle()
     val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
     val favorites by viewModel.favoriteIds.collectAsStateWithLifecycle()
@@ -748,6 +752,7 @@ private fun PodcastsTab(
                 isPlaying = isPlaying,
                 isFavorite = song.id in favorites,
                 onMenuClick = { menuSong = song },
+                trailing = { EpisodeStateBadge(song, positions[song.id]) },
                 modifier = Modifier
                     .animateItem()
                     .enterCascade(index, song.id)
@@ -764,6 +769,28 @@ private fun PodcastsTab(
         onOpenArtist = onOpenArtist,
         onEditTags = onEditTags,
     )
+}
+
+/** Épisode lu : une coche ; entamé : le temps qu'il reste ; jamais écouté : rien. */
+@Composable
+private fun EpisodeStateBadge(song: Song, saved: fr.synxio.player.data.db.PodcastProgressEntity?) {
+    val scheme = MaterialTheme.colorScheme
+    when (episodeState(saved, song.durationMs)) {
+        EpisodeState.PLAYED -> Icon(
+            Icons.Rounded.Check,
+            contentDescription = "Lu",
+            tint = scheme.primary,
+            modifier = Modifier.padding(horizontal = Space.xs),
+        )
+        EpisodeState.IN_PROGRESS -> Text(
+            "encore ${(song.durationMs - (saved?.positionMs ?: 0L)).coerceAtLeast(0L).asLongDuration()}",
+            style = MaterialTheme.typography.labelMedium.merge(TabularNumbers),
+            color = scheme.primary,
+            maxLines = 1,
+            modifier = Modifier.padding(horizontal = Space.xs),
+        )
+        EpisodeState.NEW -> Unit
+    }
 }
 
 @Composable

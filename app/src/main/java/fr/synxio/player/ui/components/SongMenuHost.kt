@@ -8,7 +8,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import fr.synxio.player.data.model.EpisodeState
 import fr.synxio.player.data.model.Song
+import fr.synxio.player.data.model.episodeState
 import fr.synxio.player.ui.viewmodel.AppViewModel
 
 /**
@@ -29,6 +31,10 @@ fun SongMenuHost(
 
     val context = LocalContext.current
     val favorites by viewModel.favoriteIds.collectAsStateWithLifecycle()
+    val positions by viewModel.listeningPositions.collectAsStateWithLifecycle()
+    val tracksProgress = song.isPodcast || song.isAudiobook
+    val isPlayed = tracksProgress &&
+        episodeState(positions[song.id], song.durationMs) == EpisodeState.PLAYED
     // Réinitialisés à chaque nouveau titre ouvert.
     var showOptions by remember(song.id) { mutableStateOf(true) }
     var showPlaylistPicker by remember(song.id) { mutableStateOf(false) }
@@ -60,6 +66,10 @@ fun SongMenuHost(
             },
             onRemoveFromPlaylist = onRemoveFromPlaylist,
             onDelete = { viewModel.deleteSong(song) },
+            onTogglePlayed = if (tracksProgress) {
+                { viewModel.setPlayed(listOf(song), played = !isPlayed, label = song.title) }
+            } else null,
+            isPlayed = isPlayed,
         ),
         onDismiss = {
             showOptions = false

@@ -66,9 +66,11 @@ data class BookProgress(
          */
         fun of(chapters: List<Song>, saved: Map<Long, PodcastProgressEntity>): BookProgress? {
             if (chapters.isEmpty()) return null
+            // À la seconde près, un chapitre fini et le suivant qui démarre sont ex aequo :
+            // le plus avancé dans le livre l'emporte.
             val latest = chapters.indices
                 .mapNotNull { i -> saved[chapters[i].id]?.let { i to it } }
-                .maxByOrNull { (_, entry) -> entry.lastPlayedSec }
+                .maxWithOrNull(compareBy({ (_, entry) -> entry.lastPlayedSec }, { (i, _) -> i }))
                 ?: return at(chapters, 0, 0L)
 
             val (index, entry) = latest

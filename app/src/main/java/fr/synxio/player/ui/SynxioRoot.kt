@@ -75,6 +75,8 @@ import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.DoneAll
+import androidx.compose.material.icons.rounded.RemoveDone
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -861,6 +863,21 @@ private fun AppNavHost(
                 showTrackNumbers = isBook,
                 playLabel = if (resumable) "Reprendre" else "Lire",
                 onPlay = if (isBook) ({ viewModel.resumeBook(songs) }) else null,
+                topBarActions = {
+                    if (isBook) {
+                        val finished = progress?.finished == true
+                        IconButton(
+                            onClick = {
+                                viewModel.setPlayed(songs, played = !finished, label = folder?.name ?: "Livre")
+                            },
+                        ) {
+                            Icon(
+                                if (finished) Icons.Rounded.RemoveDone else Icons.Rounded.DoneAll,
+                                contentDescription = if (finished) "Marquer le livre comme non lu" else "Marquer le livre comme lu",
+                            )
+                        }
+                    }
+                },
                 headerExtras = {
                     if (progress != null && progress.started) {
                         fr.synxio.player.ui.screens.BookProgressCard(
