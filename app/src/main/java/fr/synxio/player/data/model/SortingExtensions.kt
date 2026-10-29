@@ -95,6 +95,27 @@ data class BackupData(
     val history: List<BackupPlayHistory> = emptyList(),
     val settings: BackupSettings? = null,
     val ratings: List<BackupRating> = emptyList(),
+    /** Positions de reprise des podcasts et livres audio (sauvegardes 5.5 et suivantes). */
+    val positions: List<BackupPosition> = emptyList(),
+    val bookmarks: List<BackupBookmark> = emptyList(),
+)
+
+@kotlinx.serialization.Serializable
+data class BackupPosition(
+    val songId: Long,
+    val songPath: String,
+    val positionMs: Long,
+    val lastPlayedSec: Long,
+)
+
+@kotlinx.serialization.Serializable
+data class BackupBookmark(
+    val songId: Long,
+    val songPath: String,
+    val bookPath: String,
+    val positionMs: Long,
+    val note: String = "",
+    val createdAt: Long = 0,
 )
 
 @kotlinx.serialization.Serializable

@@ -48,6 +48,8 @@ class BackupRepository @Inject constructor(
     private val playStatDao: fr.synxio.player.data.db.PlayStatDao,
     private val playHistoryDao: fr.synxio.player.data.db.PlayHistoryDao,
     private val songRatingDao: fr.synxio.player.data.db.SongRatingDao,
+    private val podcastProgressDao: fr.synxio.player.data.db.PodcastProgressDao,
+    private val bookmarkDao: fr.synxio.player.data.db.BookmarkDao,
     private val settingsRepository: SettingsRepository,
     private val database: SynxioDatabase,
     @ApplicationScope private val scope: CoroutineScope
@@ -107,6 +109,8 @@ class BackupRepository @Inject constructor(
                 val stats = playStatDao.observeAll().first()
                 val history = playHistoryDao.observeAll().first()
                 val ratings = songRatingDao.observeAll().first()
+                val positions = podcastProgressDao.observeAll().first()
+                val bookmarks = bookmarkDao.all()
                 val settings = settingsRepository.settings.first()
 
                 // Convertir en format BackupData
@@ -161,6 +165,9 @@ class BackupRepository @Inject constructor(
                             updatedAt = rating.updatedAt,
                         )
                     },
+                    // Les positions ne gardent que l'identifiant : le chemin vient de la bibliothèque.
+                    positions = ListeningBackup.export(positions) { id -> musicRepository.songById(id)?.path },
+                    bookmarks = ListeningBackup.export(bookmarks),
                     settings = BackupSettings(
                         themeMode = settings.themeMode.name,
                         accentSource = settings.accentSource.name,
@@ -263,6 +270,18 @@ class BackupRepository @Inject constructor(
                         )
                     )
                 }
+
+                // Positions de reprise et signets : retrouvés par chemin, jamais en recul.
+                val library = musicRepository.library.value
+                val everySong = library.songs + library.podcasts + library.audiobooks
+                val idByPath = everySong.associate { it.path to it.id }
+                val knownIds = everySong.mapTo(HashSet()) { it.id }
+                val existingPositions = podcastProgressDao.observeAll().first().associateBy { it.songId }
+                podcastProgressDao.saveAll(
+                    ListeningBackup.positionsToRestore(backupData.positions, existingPositions, idByPath::get, knownIds)
+                )
+                ListeningBackup.bookmarksToRestore(backupData.bookmarks, bookmarkDao.all(), idByPath::get, knownIds)
+                    .forEach { bookmarkDao.insert(it) }
 
                 } // fin de la transaction
 
