@@ -3,27 +3,73 @@ package fr.synxio.player.data.model
 import androidx.compose.runtime.Immutable
 import fr.synxio.player.core.util.asLongDuration
 import fr.synxio.player.data.db.PodcastProgressEntity
+import fr.synxio.player.data.media.Chapter
+
+/**
+ * Un chapitre du livre : un fichier entier, ou un chapitre intégré à un fichier.
+ *
+ * [startInFileMs] situe le chapitre dans son fichier [songId], [startInBookMs] dans le
+ * livre entier.
+ */
+@Immutable
+data class BookChapter(
+    val songId: Long,
+    val title: String,
+    val startInFileMs: Long,
+    val durationMs: Long,
+    val startInBookMs: Long,
+)
+
+/**
+ * Chapitres du livre formé par [files] (dans l'ordre de lecture) : les chapitres intégrés
+ * d'un fichier quand il en a ([embedded], par identifiant de morceau), le fichier sinon.
+ */
+fun bookChapters(files: List<Song>, embedded: Map<Long, List<Chapter>> = emptyMap()): List<BookChapter> {
+    val result = ArrayList<BookChapter>()
+    var bookOffset = 0L
+    for (file in files) {
+        val inner = embedded[file.id].orEmpty()
+        if (inner.isEmpty()) {
+            result += BookChapter(file.id, file.title, 0L, file.durationMs, bookOffset)
+        } else {
+            inner.forEach { c ->
+                result += BookChapter(file.id, c.title, c.startMs, c.durationMs, bookOffset + c.startMs)
+            }
+        }
+        bookOffset += file.durationMs
+    }
+    return result
+}
 
 /**
  * Où en est l'écoute d'un livre audio : chapitre en cours, position dans ce chapitre et
  * dans le livre entier.
  *
- * Les positions viennent de la table `podcast_progress`, une ligne par chapitre écouté.
- * Le chapitre en cours est le dernier écouté ; un chapitre fini renvoie au suivant.
+ * Les positions viennent de la table `podcast_progress`, une ligne par fichier écouté.
+ * Le fichier en cours est le dernier écouté ; un fichier fini renvoie au suivant. Les
+ * chapitres comptés sont ceux de [bookChapters] : un livre en un seul fichier à chapitres
+ * intégrés en a autant que le fichier en déclare.
  */
 @Immutable
 data class BookProgress(
-    /** Index du chapitre en cours dans la liste ordonnée des chapitres (0 = le premier). */
+    /** Index du chapitre en cours parmi les chapitres du livre (0 = le premier). */
     val chapterIndex: Int,
     val chapterCount: Int,
-    /** Identifiant du morceau du chapitre en cours. */
+    /** Identifiant du fichier (morceau) en cours. */
     val chapterSongId: Long,
+    /** Position dans le chapitre en cours. */
     val chapterPositionMs: Long,
     val elapsedMs: Long,
     val totalMs: Long,
     val finished: Boolean,
     /** Dernière écoute du livre (secondes epoch), 0 si jamais écouté. */
     val lastPlayedSec: Long = 0L,
+    /** Index du fichier en cours parmi les fichiers du livre. */
+    val fileIndex: Int = chapterIndex,
+    /** Position dans le fichier en cours. */
+    val filePositionMs: Long = chapterPositionMs,
+    val chapterTitle: String = "",
+    val chapterDurationMs: Long = 0L,
 ) {
     val remainingMs: Long get() = (totalMs - elapsedMs).coerceAtLeast(0L)
 
@@ -66,22 +112,27 @@ data class BookProgress(
          * Progression du livre formé par [chapters] (déjà dans l'ordre de lecture), d'après
          * les positions enregistrées. Sans chapitre, pas de livre : `null`.
          */
-        fun of(chapters: List<Song>, saved: Map<Long, PodcastProgressEntity>): BookProgress? {
+        fun of(
+            chapters: List<Song>,
+            saved: Map<Long, PodcastProgressEntity>,
+            embedded: Map<Long, List<Chapter>> = emptyMap(),
+        ): BookProgress? {
             if (chapters.isEmpty()) return null
+            val all = bookChapters(chapters, embedded)
             // À la seconde près, un chapitre fini et le suivant qui démarre sont ex aequo :
             // le plus avancé dans le livre l'emporte.
             val latest = chapters.indices
                 .mapNotNull { i -> saved[chapters[i].id]?.let { i to it } }
                 .maxWithOrNull(compareBy({ (_, entry) -> entry.lastPlayedSec }, { (i, _) -> i }))
-                ?: return at(chapters, 0, 0L)
+                ?: return at(chapters, all, 0, 0L)
 
             val (index, entry) = latest
             val chapter = chapters[index]
             val progress = when {
-                !isAtEnd(entry.positionMs, chapter.durationMs) -> at(chapters, index, entry.positionMs)
-                // Chapitre terminé : on attend au début du suivant, ou le livre est fini.
-                index < chapters.lastIndex -> at(chapters, index + 1, 0L)
-                else -> at(chapters, index, chapter.durationMs).copy(finished = true)
+                !isAtEnd(entry.positionMs, chapter.durationMs) -> at(chapters, all, index, entry.positionMs)
+                // Fichier terminé : on attend au début du suivant, ou le livre est fini.
+                index < chapters.lastIndex -> at(chapters, all, index + 1, 0L)
+                else -> at(chapters, all, index, chapter.durationMs).copy(finished = true)
             }
             return progress.copy(lastPlayedSec = entry.lastPlayedSec)
         }
@@ -90,26 +141,39 @@ data class BookProgress(
          * Progression pendant la lecture, au chapitre [currentSongId] et à [positionMs].
          * `null` si ce morceau n'appartient pas au livre.
          */
-        fun live(chapters: List<Song>, currentSongId: Long, positionMs: Long): BookProgress? {
+        fun live(
+            chapters: List<Song>,
+            currentSongId: Long,
+            positionMs: Long,
+            embedded: Map<Long, List<Chapter>> = emptyMap(),
+        ): BookProgress? {
             val index = chapters.indexOfFirst { it.id == currentSongId }
             if (index < 0) return null
-            return at(chapters, index, positionMs)
+            return at(chapters, bookChapters(chapters, embedded), index, positionMs)
         }
 
-        private fun at(chapters: List<Song>, index: Int, positionMs: Long): BookProgress {
-            val chapter = chapters[index]
+        private fun at(files: List<Song>, all: List<BookChapter>, index: Int, positionMs: Long): BookProgress {
+            val file = files[index]
             val position = positionMs.coerceAtLeast(0L).let {
-                if (chapter.durationMs > 0L) it.coerceAtMost(chapter.durationMs) else it
+                if (file.durationMs > 0L) it.coerceAtMost(file.durationMs) else it
             }
-            val before = chapters.subList(0, index).sumOf { it.durationMs }
+            val before = files.subList(0, index).sumOf { it.durationMs }
+            // Chapitre qui contient la position : le dernier du fichier commencé avant elle.
+            val chapterIndex = all.indices.lastOrNull { all[it].songId == file.id && all[it].startInFileMs <= position }
+                ?: all.indexOfFirst { it.songId == file.id }.coerceAtLeast(0)
+            val chapter = all.getOrNull(chapterIndex)
             return BookProgress(
-                chapterIndex = index,
-                chapterCount = chapters.size,
-                chapterSongId = chapter.id,
-                chapterPositionMs = position,
+                chapterIndex = chapterIndex,
+                chapterCount = all.size,
+                chapterSongId = file.id,
+                chapterPositionMs = (position - (chapter?.startInFileMs ?: 0L)).coerceAtLeast(0L),
                 elapsedMs = before + position,
-                totalMs = chapters.sumOf { it.durationMs },
+                totalMs = files.sumOf { it.durationMs },
                 finished = false,
+                fileIndex = index,
+                filePositionMs = position,
+                chapterTitle = chapter?.title ?: file.title,
+                chapterDurationMs = chapter?.durationMs ?: file.durationMs,
             )
         }
     }

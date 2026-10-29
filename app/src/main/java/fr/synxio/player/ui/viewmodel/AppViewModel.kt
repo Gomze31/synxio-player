@@ -81,6 +81,7 @@ class AppViewModel @Inject constructor(
     private val ratingRepository: fr.synxio.player.data.repo.RatingRepository,
     private val showSpeedDao: fr.synxio.player.data.db.ShowSpeedDao,
     private val podcastProgressDao: fr.synxio.player.data.db.PodcastProgressDao,
+    private val chapterRepository: fr.synxio.player.data.repo.ChapterRepository,
 ) : ViewModel() {
 
     /** Positions de reprise des podcasts et chapitres, par identifiant de morceau. */
@@ -96,27 +97,67 @@ class AppViewModel @Inject constructor(
      * Tirée des positions enregistrées par le service : elle suit la lecture à dix
      * secondes près, et chaque pause.
      */
+    /**
+     * Chapitres intégrés aux fichiers de livres audio (m4b, mp3 à trames CHAP), par
+     * identifiant de morceau. Seuls les fichiers qui en déclarent figurent ici.
+     */
+    val embeddedChapters: StateFlow<Map<Long, List<fr.synxio.player.data.media.Chapter>>> =
+        musicRepository.library.map { it.audiobooks }.distinctUntilChanged()
+            .mapLatest { books -> chapterRepository.chaptersOf(books) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
     val bookProgress: StateFlow<Map<String, fr.synxio.player.data.model.BookProgress>> = combine(
         musicRepository.library.map { it.audiobooks }.distinctUntilChanged(),
         listeningPositions,
-    ) { books, byId ->
+        embeddedChapters,
+    ) { books, byId, embedded ->
         books.groupBy { it.folderPath }.mapNotNull { (path, chapters) ->
-            fr.synxio.player.data.model.BookProgress.of(chapters.inBookOrder(), byId)?.let { path to it }
+            fr.synxio.player.data.model.BookProgress.of(chapters.inBookOrder(), byId, embedded)?.let { path to it }
         }.toMap()
     }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /**
-     * Reprend un livre au chapitre en cours ; le service y replace la position enregistrée.
+     * Reprend un livre au fichier en cours ; le service y replace la position enregistrée.
      * Un livre fini repart du premier chapitre.
      */
     fun resumeBook(chapters: List<Song>) {
         if (chapters.isEmpty()) return
         val ordered = chapters.inBookOrder()
         val progress = bookProgress.value[ordered.first().folderPath]
-        val index = if (progress == null || progress.finished) 0 else progress.chapterIndex
+        val index = if (progress == null || progress.finished) 0 else progress.fileIndex
         player.play(ordered, index.coerceIn(0, ordered.lastIndex))
+    }
+
+    /**
+     * Saute à [positionMs] dans le fichier [songId] d'un livre (chapitre, signet).
+     *
+     * Fichier déjà en lecture : simple recherche. Sinon la position est enregistrée avant
+     * de lancer le livre, et le service la retrouve au démarrage du fichier, comme une
+     * reprise : un seekTo lancé ici se ferait écraser par cette reprise.
+     */
+    fun jumpInBook(files: List<Song>, songId: Long, positionMs: Long) {
+        val ordered = files.inBookOrder()
+        val index = ordered.indexOfFirst { it.id == songId }
+        if (index < 0) return
+        if (player.state.value.currentSong?.id == songId) {
+            player.seekTo(positionMs)
+            player.resume()
+            return
+        }
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                podcastProgressDao.saveProgress(
+                    fr.synxio.player.data.db.PodcastProgressEntity(
+                        songId = songId,
+                        positionMs = positionMs.coerceAtLeast(0L),
+                        lastPlayedSec = System.currentTimeMillis() / 1000,
+                    )
+                )
+            }
+            player.play(ordered, index)
+        }
     }
 
     /**

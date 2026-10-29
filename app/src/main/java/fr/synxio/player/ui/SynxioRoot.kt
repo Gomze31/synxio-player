@@ -880,13 +880,7 @@ private fun AppNavHost(
                     }
                 },
                 headerExtras = {
-                    if (progress != null && progress.started) {
-                        fr.synxio.player.ui.screens.BookProgressCard(
-                            progress = progress,
-                            chapter = songs.firstOrNull { it.id == progress.chapterSongId },
-                            modifier = Modifier.padding(top = Space.lg),
-                        )
-                    }
+                    if (isBook) fr.synxio.player.ui.screens.BookHeaderExtras(viewModel, songs, progress)
                 },
             )
         }

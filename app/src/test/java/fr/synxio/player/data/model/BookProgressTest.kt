@@ -1,6 +1,7 @@
 package fr.synxio.player.data.model
 
 import fr.synxio.player.data.db.PodcastProgressEntity
+import fr.synxio.player.data.media.Chapter
 import fr.synxio.player.song
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -149,5 +150,48 @@ class BookProgressTest {
         assertEquals("/livres/b", path)
         assertEquals(300L, p.lastPlayedSec)
         assertNull(mapOf("/livres/d" to progress.getValue("/livres/d")).bookToResume())
+    }
+
+    /** Livre en un seul fichier d'une heure, quatre chapitres intégrés de 15 min. */
+    private val single = listOf(song(id = 7, track = 1, durationMs = 3_600_000))
+    private val inner = mapOf(
+        7L to (0 until 4).map { Chapter("Partie ${it + 1}", it * 900_000L, (it + 1) * 900_000L) },
+    )
+
+    @Test
+    fun `chapitres integres - comptes et chapitre en cours retrouve dans le fichier`() {
+        val p = BookProgress.of(single, saved(at(7, 2_000_000, lastPlayedSec = 1)), inner)!!
+        assertEquals(4, p.chapterCount)
+        assertEquals(2, p.chapterIndex)
+        assertEquals("Partie 3", p.chapterTitle)
+        assertEquals(200_000L, p.chapterPositionMs)
+        assertEquals(900_000L, p.chapterDurationMs)
+        assertEquals(0, p.fileIndex)
+        assertEquals(2_000_000L, p.filePositionMs)
+        assertEquals("Chapitre 3 sur 4", p.chapterLabel())
+    }
+
+    @Test
+    fun `chapitres integres - progression en direct et fin du livre`() {
+        val live = BookProgress.live(single, currentSongId = 7, positionMs = 3_000_000, embedded = inner)!!
+        assertEquals(3, live.chapterIndex)
+        val done = BookProgress.of(single, saved(at(7, 3_600_000, lastPlayedSec = 1)), inner)!!
+        assertTrue(done.finished)
+        assertEquals(3, done.chapterIndex)
+    }
+
+    @Test
+    fun `chapitres du livre - fichiers sans chapitres et fichiers decoupes melanges`() {
+        val files = listOf(song(id = 1, title = "Intro", track = 1, durationMs = 60_000)) + single.map { it.copy(track = 2) }
+        val all = bookChapters(files, inner)
+        assertEquals(5, all.size)
+        assertEquals("Intro", all[0].title)
+        assertEquals(listOf(0L, 60_000L, 960_000L, 1_860_000L, 2_760_000L), all.map { it.startInBookMs })
+        assertEquals(listOf(0L, 0L, 900_000L, 1_800_000L, 2_700_000L), all.map { it.startInFileMs })
+        // Le premier chapitre du second fichier est le deuxième du livre.
+        val p = BookProgress.of(files, saved(at(7, 100_000, lastPlayedSec = 1)), inner)!!
+        assertEquals(1, p.chapterIndex)
+        assertEquals(1, p.fileIndex)
+        assertEquals(160_000L, p.elapsedMs)
     }
 }

@@ -192,9 +192,11 @@ fun NowPlayingScreen(
     val song = state.currentSong
     val audiobooks by viewModel.audiobooks.collectAsStateWithLifecycle()
     val bookPath = song?.takeIf { it.isAudiobook }?.folderPath
-    val bookChapters = remember(bookPath, audiobooks) {
+    val bookFiles = remember(bookPath, audiobooks) {
         if (bookPath == null) emptyList() else audiobooks.filter { it.folderPath == bookPath }.inBookOrder()
     }
+    val embeddedChapters by viewModel.embeddedChapters.collectAsStateWithLifecycle()
+    var showChapters by remember { mutableStateOf(false) }
 
     LaunchedEffect(song?.id, showLyrics) {
         if (showLyrics) lyricsViewModel.load(song)
@@ -414,8 +416,9 @@ fun NowPlayingScreen(
                 }
 
                 // Livre audio : le chapitre seul ne dit pas où l'on en est dans le livre.
-                val book = remember(bookChapters, song.id, state.positionMs) {
-                    fr.synxio.player.data.model.BookProgress.live(bookChapters, song.id, state.positionMs)
+                // Toucher la ligne ouvre la liste des chapitres, pour passer de l'un à l'autre.
+                val book = remember(bookFiles, embeddedChapters, song.id, state.positionMs) {
+                    fr.synxio.player.data.model.BookProgress.live(bookFiles, song.id, state.positionMs, embeddedChapters)
                 }
                 if (book != null) {
                     Text(
@@ -424,8 +427,24 @@ fun NowPlayingScreen(
                         color = scheme.onSurface.copy(alpha = 0.72f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(onClickLabel = "Voir les chapitres") { showChapters = true }
+                            .padding(vertical = Space.xxs),
                     )
+                    if (showChapters) {
+                        fr.synxio.player.ui.components.BookChaptersSheet(
+                            chapters = remember(bookFiles, embeddedChapters) {
+                                fr.synxio.player.data.model.bookChapters(bookFiles, embeddedChapters)
+                            },
+                            currentIndex = book.chapterIndex,
+                            onSelect = { chapter ->
+                                showChapters = false
+                                viewModel.jumpInBook(bookFiles, chapter.songId, chapter.startInFileMs)
+                            },
+                            onDismiss = { showChapters = false },
+                        )
+                    }
                 }
 
                 // Hors flux et radios : la note est attachée à un titre de la bibliothèque.

@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.rounded.List
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.CreateNewFolder
 import androidx.compose.material.icons.rounded.Folder
@@ -68,7 +69,10 @@ import fr.synxio.player.data.media.StorageTreePaths
 import fr.synxio.player.data.model.BookProgress
 import fr.synxio.player.data.model.Folder
 import fr.synxio.player.data.model.Song
+import fr.synxio.player.data.model.bookChapters
 import fr.synxio.player.data.model.chapterLabel
+import fr.synxio.player.data.model.inBookOrder
+import fr.synxio.player.ui.components.BookChaptersSheet
 import fr.synxio.player.data.model.remainingLabel
 import fr.synxio.player.data.model.statusLabel
 import fr.synxio.player.ui.components.Artwork
@@ -312,11 +316,48 @@ private fun BookRow(
 }
 
 /**
+ * Sous les boutons de l'écran d'un livre : où en est l'écoute, puis l'accès aux chapitres
+ * intégrés quand les fichiers en déclarent.
+ */
+@Composable
+fun BookHeaderExtras(viewModel: AppViewModel, files: List<Song>, progress: BookProgress?) {
+    val embedded by viewModel.embeddedChapters.collectAsStateWithLifecycle()
+    val ordered = remember(files) { files.inBookOrder() }
+    val chapters = remember(ordered, embedded) { bookChapters(ordered, embedded) }
+    val hasEmbedded = ordered.any { !embedded[it.id].isNullOrEmpty() }
+    var showChapters by rememberSaveable { mutableStateOf(false) }
+
+    if (progress != null && progress.started) {
+        BookProgressCard(progress = progress, modifier = Modifier.padding(top = Space.lg))
+    }
+    if (hasEmbedded) {
+        Spacer(Modifier.height(Space.md))
+        GlassButton(
+            text = "Chapitres (${chapters.size})",
+            onClick = { showChapters = true },
+            icon = Icons.AutoMirrored.Rounded.List,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+    if (showChapters) {
+        BookChaptersSheet(
+            chapters = chapters,
+            currentIndex = progress?.chapterIndex ?: -1,
+            onSelect = { chapter ->
+                showChapters = false
+                viewModel.jumpInBook(ordered, chapter.songId, chapter.startInFileMs)
+            },
+            onDismiss = { showChapters = false },
+        )
+    }
+}
+
+/**
  * Où en est l'écoute, sous les boutons de l'écran d'un livre : chapitre en cours et sa
  * position, barre d'avancement du livre, temps écouté et temps restant.
  */
 @Composable
-fun BookProgressCard(progress: BookProgress, chapter: Song?, modifier: Modifier = Modifier) {
+fun BookProgressCard(progress: BookProgress, modifier: Modifier = Modifier) {
     val scheme = MaterialTheme.colorScheme
     Column(
         modifier
@@ -340,10 +381,10 @@ fun BookProgressCard(progress: BookProgress, chapter: Song?, modifier: Modifier 
                 color = scheme.primary,
             )
         }
-        if (chapter != null && !progress.finished) {
+        if (!progress.finished) {
             Spacer(Modifier.height(Space.xxs))
             Text(
-                "${chapter.title} · ${progress.chapterPositionMs.asDuration()} / ${chapter.durationMs.asDuration()}",
+                "${progress.chapterTitle} · ${progress.chapterPositionMs.asDuration()} / ${progress.chapterDurationMs.asDuration()}",
                 style = MaterialTheme.typography.bodySmall.merge(TabularNumbers),
                 color = scheme.onSurfaceVariant,
                 maxLines = 1,
