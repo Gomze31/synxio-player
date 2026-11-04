@@ -14,6 +14,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import fr.synxio.player.buds.BudsConnectSource
 import fr.synxio.player.buds.BudsTapAction
+import fr.synxio.player.core.diag.Diagnostics
 import fr.synxio.player.data.model.AccentSource
 import fr.synxio.player.data.model.AlbumSort
 import fr.synxio.player.data.model.ArtistSort
@@ -23,9 +24,16 @@ import fr.synxio.player.data.model.PlaylistSort
 import fr.synxio.player.data.model.SongSort
 import fr.synxio.player.data.model.TextSize
 import fr.synxio.player.data.model.ThemeMode
+import fr.synxio.player.di.ApplicationScope
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -187,7 +195,14 @@ data class Settings(
 @Singleton
 class SettingsRepository @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val secretStore: SecretStore,
+    private val diagnostics: Diagnostics,
+    @ApplicationScope scope: CoroutineScope,
 ) {
+
+    init {
+        scope.launch { migrateSecrets() }
+    }
 
     private object Keys {
         val THEME_MODE = stringPreferencesKey("theme_mode")
@@ -303,9 +318,11 @@ class SettingsRepository @Inject constructor(
         val LAST_SCAN = longPreferencesKey("last_scan")
     }
 
-    val settings: Flow<Settings> = context.dataStore.data
+    private val preferences: Flow<Preferences> = context.dataStore.data
         .catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }
-        .map { p ->
+
+    /** Le déchiffrement des secrets touche le Keystore : jamais sur le thread principal. */
+    val settings: Flow<Settings> = combine(preferences, secretStore.changes) { p, _ ->
             Settings(
                 themeMode = p.enum(Keys.THEME_MODE, ThemeMode.SYSTEM),
                 accentSource = p.enum(Keys.ACCENT_SOURCE, AccentSource.ARTWORK),
@@ -367,14 +384,14 @@ class SettingsRepository @Inject constructor(
                 autoCheckUpdates = p[Keys.AUTO_CHECK_UPDATES] ?: true,
                 discordEnabled = p[Keys.DISCORD_ENABLED] ?: false,
                 discordPresenceEnabled = p[Keys.DISCORD_PRESENCE_ENABLED] ?: false,
-                discordWebhookUrl = p[Keys.DISCORD_WEBHOOK_URL] ?: "",
+                discordWebhookUrl = secretStore.get(SecretStore.Key.DISCORD_WEBHOOK_URL).orEmpty(),
                 lastUpdateCheck = p[Keys.LAST_UPDATE_CHECK] ?: 0L,
 
                 lyricsOnlineEnabled = p[Keys.LYRICS_ONLINE] ?: true,
                 onlineMetadataEnabled = p[Keys.ONLINE_METADATA] ?: true,
                 autoTranslateLyrics = p[Keys.AUTO_TRANSLATE_LYRICS] ?: true,
                 scrobbleEnabled = p[Keys.SCROBBLE] ?: false,
-                lastFmSessionKey = p[Keys.LASTFM_SESSION].orEmpty(),
+                lastFmSessionKey = secretStore.get(SecretStore.Key.LASTFM_SESSION).orEmpty(),
                 lastFmUsername = p[Keys.LASTFM_USER].orEmpty(),
 
                 equalizerEnabled = p[Keys.EQ_ENABLED] ?: false,
@@ -415,7 +432,7 @@ class SettingsRepository @Inject constructor(
                 partyEnabled = p[Keys.PARTY_ENABLED] ?: false,
                 autoDjEnabled = p[Keys.AUTO_DJ_ENABLED] ?: false,
             )
-        }
+        }.flowOn(Dispatchers.IO)
 
     private inline fun <reified E : Enum<E>> Preferences.enum(
         key: Preferences.Key<String>,
@@ -479,10 +496,8 @@ class SettingsRepository @Inject constructor(
     suspend fun setAutoTranslateLyrics(value: Boolean) = put(Keys.AUTO_TRANSLATE_LYRICS, value)
     suspend fun setScrobbleEnabled(value: Boolean) = put(Keys.SCROBBLE, value)
     suspend fun setLastFmSession(sessionKey: String, username: String) {
-        context.dataStore.edit {
-            it[Keys.LASTFM_SESSION] = sessionKey
-            it[Keys.LASTFM_USER] = username
-        }
+        withContext(Dispatchers.IO) { secretStore.put(SecretStore.Key.LASTFM_SESSION, sessionKey) }
+        put(Keys.LASTFM_USER, username)
     }
 
     suspend fun setEqualizerEnabled(value: Boolean) = put(Keys.EQ_ENABLED, value)
@@ -522,7 +537,9 @@ class SettingsRepository @Inject constructor(
     suspend fun setDiscordEnabled(value: Boolean) = put(Keys.DISCORD_ENABLED, value)
     suspend fun setDiscordPresenceEnabled(value: Boolean) =
         put(Keys.DISCORD_PRESENCE_ENABLED, value)
-    suspend fun setDiscordWebhookUrl(value: String) = put(Keys.DISCORD_WEBHOOK_URL, value.trim())
+    suspend fun setDiscordWebhookUrl(value: String) = withContext(Dispatchers.IO) {
+        secretStore.put(SecretStore.Key.DISCORD_WEBHOOK_URL, value.trim())
+    }
     suspend fun setLastUpdateCheck(value: Long) = put(Keys.LAST_UPDATE_CHECK, value)
     
     // Nouvelles options pour les playlists
@@ -552,6 +569,29 @@ class SettingsRepository @Inject constructor(
     suspend fun setKaraokeEnabled(value: Boolean) = put(Keys.KARAOKE_ENABLED, value)
     suspend fun setPartyEnabled(value: Boolean) = put(Keys.PARTY_ENABLED, value)
     suspend fun setAutoDj(value: Boolean) = put(Keys.AUTO_DJ_ENABLED, value)
+
+    /**
+     * Déplace les deux secrets du DataStore (en clair, sauvegardé dans le cloud) vers le
+     * Keystore. Idempotent : sans valeur en clair, ne fait rien. Si le Keystore refuse,
+     * le clair reste en place et la migration sera retentée au prochain démarrage.
+     */
+    private suspend fun migrateSecrets() = withContext(Dispatchers.IO) {
+        val p = preferences.first()
+        val webhook = p[Keys.DISCORD_WEBHOOK_URL]
+        val session = p[Keys.LASTFM_SESSION]
+        if (webhook.isNullOrBlank() && session.isNullOrBlank()) return@withContext
+        runCatching {
+            if (!webhook.isNullOrBlank()) secretStore.put(SecretStore.Key.DISCORD_WEBHOOK_URL, webhook)
+            if (!session.isNullOrBlank()) secretStore.put(SecretStore.Key.LASTFM_SESSION, session)
+            context.dataStore.edit {
+                it.remove(Keys.DISCORD_WEBHOOK_URL)
+                it.remove(Keys.LASTFM_SESSION)
+            }
+            diagnostics.log("Settings", Diagnostics.Level.I, "Secrets migrés vers le Keystore")
+        }.onFailure {
+            diagnostics.log("Settings", Diagnostics.Level.W, "Migration des secrets reportée", it)
+        }
+    }
 
     private suspend fun <T> put(key: Preferences.Key<T>, value: T) {
         context.dataStore.edit { it[key] = value }

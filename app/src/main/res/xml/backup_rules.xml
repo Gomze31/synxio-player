@@ -2,5 +2,7 @@
 <full-backup-content>
     <include domain="database" path="synxio.db" />
     <include domain="sharedpref" path="." />
+    <!-- Secrets chiffrés par une clé qui ne quitte pas l'appareil : inutiles ailleurs. -->
+    <exclude domain="sharedpref" path="synxio_secrets.xml" />
     <include domain="file" path="datastore" />
 </full-backup-content>
