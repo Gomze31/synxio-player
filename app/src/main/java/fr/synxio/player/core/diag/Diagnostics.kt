@@ -8,8 +8,8 @@ import androidx.core.content.FileProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
 import fr.synxio.player.BuildConfig
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -29,8 +29,9 @@ class Diagnostics @Inject constructor(
     private val dir = File(context.filesDir, "diagnostics")
     private val log = DiagnosticLog(dir)
     private val prefs = context.getSharedPreferences("synxio_diagnostics", Context.MODE_PRIVATE)
-    private val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.ROOT)
-    private val fileStamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT)
+    // DateTimeFormatter est immuable : log() est appelé depuis n'importe quel thread.
+    private val timestamp = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS", Locale.ROOT)
+    private val fileStamp = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss", Locale.ROOT)
 
     fun log(tag: String, level: Level, message: String, throwable: Throwable? = null) {
         when (level) {
@@ -40,7 +41,7 @@ class Diagnostics @Inject constructor(
             Level.E -> Log.e(tag, message, throwable)
         }
         val line = buildString {
-            append(timestamp.format(Date())).append(' ').append(level.name).append('/').append(tag)
+            append(timestamp.format(LocalDateTime.now())).append(' ').append(level.name).append('/').append(tag)
             append(": ").append(message)
             if (throwable != null) append('\n').append(Log.getStackTraceString(throwable))
         }
@@ -66,10 +67,10 @@ class Diagnostics @Inject constructor(
             "Appareil" to "${Build.MANUFACTURER} ${Build.MODEL}",
             "Android" to "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
             "Mémoire libre" to "${(runtime.maxMemory() - runtime.totalMemory() + runtime.freeMemory()) / (1024 * 1024)} Mo",
-            "Date" to timestamp.format(Date()),
+            "Date" to timestamp.format(LocalDateTime.now()),
         )
         val report = CrashReportFormatter.format(header, thread.name, error, log.recent(100))
-        File(dir, "crash-${fileStamp.format(Date())}.txt").writeText(report)
+        File(dir, "crash-${fileStamp.format(LocalDateTime.now())}.txt").writeText(report)
         crashReports().drop(MAX_CRASH_REPORTS).forEach { it.delete() }
     }
 
@@ -96,7 +97,7 @@ class Diagnostics @Inject constructor(
      */
     fun exportIntent(): Intent? = runCatching {
         val out = File(context.cacheDir, "diagnostics").apply { mkdirs() }
-        val file = File(out, "synxio-diagnostic-${fileStamp.format(Date())}.txt")
+        val file = File(out, "synxio-diagnostic-${fileStamp.format(LocalDateTime.now())}.txt")
         file.writeText(buildString {
             appendLine("Synxio Player ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
             appendLine("${Build.MANUFACTURER} ${Build.MODEL} — Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
