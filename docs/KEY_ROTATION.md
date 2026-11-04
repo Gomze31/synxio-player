@@ -108,17 +108,27 @@ le message « signature différente », ce qui est le comportement attendu penda
 
 Obsolète depuis la lignée v3 : la mise à jour est transparente sur Android 9+. Conservé pour mémoire.
 
-**Changer de clé oblige chaque utilisateur à désinstaller puis réinstaller l'application
-une fois.** Android refuse d'installer une mise à jour signée par une autre clé
-(`INSTALL_FAILED_UPDATE_INCOMPATIBLE`), et le programme de mise à jour in-app la refusera
-aussi. La désinstallation **efface les données locales** (playlists, statistiques, réglages) :
+## 8. Purger l'historique Git
 
-- publier la release de transition avec une note explicite ;
-- inviter les utilisateurs à faire une **sauvegarde** (Réglages → Sauvegarde/export) avant de
-  désinstaller, puis à la réimporter après installation.
+Retirer le fichier de l'arbre ne suffit pas : il reste dans tous les commits passés.
+Avec [`git filter-repo`](https://github.com/newren/git-filter-repo) :
 
-Alternative à étudier : la rotation de clé APK Signature Scheme v3
-(`apksigner rotate` + `--lineage`) permet une mise à jour transparente sur Android 9+,
-mais l'ancienne clé, compromise, reste dans la lignée : à n'utiliser qu'en connaissance de
-cause, et pas sur Android 8 (minSdk 26).
+```bash
+# Sur un clone miroir frais
+git clone --mirror https://github.com/Gomze31/synxio-player.git
+cd synxio-player.git
+git filter-repo --invert-paths --path app/synxio-release.keystore
+# Le mot de passe en clair dans build.gradle.kts : remplacer le texte
+echo 'synxioplayer==>REMOVED' > ../replacements.txt
+git filter-repo --replace-text ../replacements.txt
+git push --force --mirror
+```
 
+Avertissements :
+
+- la réécriture change **tous** les identifiants de commit : tous les clones et forks doivent
+  être re-clonés, les PR ouvertes deviennent inutilisables ;
+- les forks publics et les caches (GitHub, archives des releases, miroirs) conservent l'ancienne
+  clé : la purge **ne la rend pas secrète à nouveau**. Seule la rotation (§3 à §7) neutralise
+  le risque ; la purge évite seulement de continuer à la diffuser ;
+- contacter le support GitHub pour purger les vues en cache si nécessaire.

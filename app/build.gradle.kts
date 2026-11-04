@@ -9,7 +9,8 @@ plugins {
 }
 
 // Signature de publication. Les secrets vivent dans keystore.properties (non versionné) :
-// jamais dans le dépôt. Sans ce fichier, seul le build debug est possible.
+// jamais dans le dépôt. Sans ce fichier, seul le build debug est possible et un build
+// release échoue explicitement.
 val keystoreProperties = Properties().apply {
     val file = rootProject.file("keystore.properties")
     if (file.exists()) file.inputStream().use { load(it) }
