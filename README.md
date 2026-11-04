@@ -3,7 +3,7 @@
 <div align="center">
 
 ![GitHub Release](https://img.shields.io/github/v/release/Gomze31/synxio-player?color=4CAF50&logo=android&style=for-the-badge)
-![Platform](https://img.shields.io/badge/Platform-Android%208.0%2B%20(API%2026%2B)-blue?style=for-the-badge&logo=android)
+![Platform](https://img.shields.io/badge/Platform-Android%209%2B%20(API%2028%2B)-blue?style=for-the-badge&logo=android)
 ![Kotlin](https://img.shields.io/badge/Language-Kotlin%20%2F%20Compose-purple?style=for-the-badge&logo=kotlin)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
@@ -73,7 +73,7 @@
 ### Prérequis
 - **JDK 17**
 - **Android Studio Ladybug ou version plus récente**
-- **Android SDK Platform 37.2** (Compatibilité de Android 8.0 `minSdk 26` à Android 17 `targetSdk 37`)
+- **Android SDK Platform 37.2** (Compatibilité de Android 9 `minSdk 28` à Android 17 `targetSdk 37`)
 - **Gradle 9.8 / AGP 9.4** : le Kotlin est intégré à AGP, aucun plugin `kotlin-android` à ajouter
 
 ### Cloner et compiler en local
