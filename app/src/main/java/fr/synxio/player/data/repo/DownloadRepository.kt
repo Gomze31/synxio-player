@@ -8,6 +8,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
 import com.yausername.youtubedl_android.YoutubeDL
+import com.yausername.youtubedl_android.YoutubeDLException
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import dagger.hilt.android.qualifiers.ApplicationContext
 import fr.synxio.player.core.diag.Diagnostics
@@ -81,19 +82,22 @@ class DownloadRepository @Inject constructor(
             request.addOption("--embed-thumbnail")
             request.addOption("--add-metadata")
 
+            // La bibliothèque lève YoutubeDLException (message = stderr de yt-dlp) dès que
+            // yt-dlp sort avec un code non nul : c'est le cas normal d'échec, classé ici.
+            // CanceledException et l'annulation de la coroutine ne sont pas interceptées.
             val response = ytDlpLock.withLock {
-                YoutubeDL.getInstance().execute(request, "DownloadTask") { progress, _, _ ->
-                    onProgress(progress)
+                try {
+                    YoutubeDL.getInstance().execute(request, "DownloadTask") { progress, _, _ ->
+                        onProgress(progress)
+                    }
+                } catch (e: YoutubeDLException) {
+                    throw downloadError(e.message.orEmpty(), exitCode = null)
                 }
             }
 
+            // Code non nul sans exception : seulement quand la bibliothèque ignore les erreurs.
             if (response.exitCode != 0) {
-                diagnostics.log(TAG, Diagnostics.Level.W, "yt-dlp a échoué (${response.exitCode}) : ${response.err.takeLast(600)}")
-                val reason = response.err.lineSequence().lastOrNull { it.isNotBlank() }?.take(200)
-                    ?: "yt-dlp s'est arrêté (code ${response.exitCode})"
-                val error = if (YtDlpOutdated.looksOutdated(response.err)) DownloadError.YtDlpOutdated(reason)
-                else DownloadError.Failed(reason)
-                return@withContext Result.failure(error)
+                return@withContext Result.failure(downloadError(response.err, response.exitCode))
             }
 
             val mp3 = workDir.listFiles()
@@ -106,6 +110,7 @@ class DownloadRepository @Inject constructor(
             musicRepository.refresh()
             Result.success("« ${mp3.nameWithoutExtension} » ajouté à ta bibliothèque")
         } catch (e: Throwable) {
+            // Un DownloadError est rendu tel quel : l'écran en tire l'alerte « périmé ».
             Log.w(TAG, "Téléchargement impossible", e)
             Result.failure(e)
         } finally {
@@ -136,6 +141,16 @@ class DownloadRepository @Inject constructor(
             org.jaudiotagger.audio.AudioFileIO.write(audio)
             Log.i(TAG, "Tags déduits du titre : $artist — $cleanTitle")
         }.onFailure { Log.w(TAG, "Tags du téléchargement laissés tels quels", it) }
+    }
+
+    /** Classe un échec de yt-dlp d'après son stderr : périmé ou autre, et le journalise. */
+    private fun downloadError(stderr: String, exitCode: Int?): DownloadError {
+        val code = exitCode?.toString() ?: "non nul"
+        diagnostics.log(TAG, Diagnostics.Level.W, "yt-dlp a échoué ($code) : ${stderr.takeLast(600)}")
+        val reason = stderr.lineSequence().lastOrNull { it.isNotBlank() }?.take(200)
+            ?: "yt-dlp s'est arrêté (code $code)"
+        return if (YtDlpOutdated.looksOutdated(stderr)) DownloadError.YtDlpOutdated(reason)
+        else DownloadError.Failed(reason)
     }
 
     /** Version de yt-dlp installée (tag de release), ou `null` si la bibliothèque n'est pas initialisée. */
@@ -181,7 +196,10 @@ class DownloadRepository @Inject constructor(
     private fun fetchShaSums(version: String): String? = runCatching {
         val url = "https://github.com/yt-dlp/yt-dlp/releases/download/$version/SHA2-256SUMS"
         http.newCall(Request.Builder().url(url).build()).execute().use { response ->
-            if (!response.isSuccessful) return@runCatching null
+            if (!response.isSuccessful) {
+                diagnostics.log(TAG, Diagnostics.Level.W, "SHA2-256SUMS : HTTP ${response.code}")
+                return@runCatching null
+            }
             response.body.string()
         }
     }.onFailure { diagnostics.log(TAG, Diagnostics.Level.W, "SHA2-256SUMS inaccessible", it) }.getOrNull()

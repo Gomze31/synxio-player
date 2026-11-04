@@ -849,10 +849,13 @@ class AppViewModel @Inject constructor(
     fun downloadYoutube(url: String) = viewModelScope.launch {
         isDownloading.value = true
         emit("Démarrage du téléchargement...")
-        val result = downloadRepository.downloadAudio(url) { progress ->
-            downloadProgress.value = progress
+        val result = try {
+            downloadRepository.downloadAudio(url) { progress ->
+                downloadProgress.value = progress
+            }
+        } finally {
+            isDownloading.value = false
         }
-        isDownloading.value = false
         result.onSuccess { message ->
             ytDlpOutdated.value = false
             emit(message)
@@ -866,8 +869,11 @@ class AppViewModel @Inject constructor(
     fun updateYtDlp() = viewModelScope.launch {
         if (isUpdatingYtDlp.value) return@launch
         isUpdatingYtDlp.value = true
-        val result = downloadRepository.updateYtDlp()
-        isUpdatingYtDlp.value = false
+        val result = try {
+            downloadRepository.updateYtDlp()
+        } finally {
+            isUpdatingYtDlp.value = false
+        }
         when (result) {
             is fr.synxio.player.data.repo.ytdlp.YtDlpUpdater.Result.Updated -> {
                 ytDlpOutdated.value = false
