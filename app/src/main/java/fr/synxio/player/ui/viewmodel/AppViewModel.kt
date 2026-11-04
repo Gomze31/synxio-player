@@ -881,7 +881,11 @@ class AppViewModel @Inject constructor(
             }
             fr.synxio.player.data.repo.ytdlp.YtDlpUpdater.Result.AlreadyUpToDate -> emit("yt-dlp est déjà à jour")
             is fr.synxio.player.data.repo.ytdlp.YtDlpUpdater.Result.Rejected ->
-                emit("Mise à jour refusée, version précédente conservée : ${result.reason}")
+                if (result.lost) {
+                    emit("Mise à jour refusée : ${result.reason}")
+                } else {
+                    emit("Mise à jour refusée, version précédente conservée : ${result.reason}")
+                }
         }
         refreshYtDlpVersion()
     }

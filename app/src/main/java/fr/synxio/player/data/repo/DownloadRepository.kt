@@ -86,6 +86,7 @@ class DownloadRepository @Inject constructor(
             // yt-dlp sort avec un code non nul : c'est le cas normal d'échec, classé ici.
             // CanceledException et l'annulation de la coroutine ne sont pas interceptées.
             val response = ytDlpLock.withLock {
+                recoverInterruptedUpdate()
                 try {
                     YoutubeDL.getInstance().execute(request, "DownloadTask") { progress, _, _ ->
                         onProgress(progress)
@@ -165,6 +166,12 @@ class DownloadRepository @Inject constructor(
      * Mise à jour manuelle et vérifiée de yt-dlp. Voir [YtDlpUpdater] pour la règle ; ici
      * seulement le câblage : chemin du binaire de la bibliothèque, appel de sa mise à
      * jour, téléchargement des sommes de la release.
+     *
+     * La sauvegarde vit à côté du dossier `yt-dlp` de la bibliothèque, jamais dedans : la
+     * mise à jour de youtubedl-android supprime ce dossier entier. Les préférences de la
+     * bibliothèque (`dlpVersion`, `dlpVersionName`) sont réécrites par sa mise à jour ;
+     * après un refus, elles reprennent leur valeur d'avant pour que la version affichée
+     * soit celle du binaire réellement sur le disque.
      */
     suspend fun updateYtDlp(): YtDlpUpdater.Result = withContext(Dispatchers.IO) {
         runCatching { YoutubeDL.getInstance().init(context) }
@@ -172,9 +179,9 @@ class DownloadRepository @Inject constructor(
                 diagnostics.log(TAG, Diagnostics.Level.W, "Initialisation de yt-dlp impossible avant mise à jour", it)
                 return@withContext YtDlpUpdater.Result.Rejected("yt-dlp n'a pas pu démarrer")
             }
-        val binary = File(context.noBackupFilesDir, "youtubedl-android/yt-dlp/yt-dlp")
         val updater = YtDlpUpdater(
-            binary = binary,
+            binary = ytDlpBinary(),
+            backup = ytDlpBackup(),
             runLibraryUpdate = {
                 when (YoutubeDL.getInstance().updateYoutubeDL(context, YoutubeDL.UpdateChannel._STABLE)) {
                     YoutubeDL.UpdateStatus.DONE -> YtDlpUpdater.LibraryOutcome.UPDATED
@@ -184,13 +191,82 @@ class DownloadRepository @Inject constructor(
             installedVersion = { YoutubeDL.getInstance().version(context) },
             fetchSums = ::fetchShaSums,
         )
-        val result = ytDlpLock.withLock { updater.update() }
+        val result = ytDlpLock.withLock {
+            val libraryPrefs = context.getSharedPreferences(LIB_PREFS, Context.MODE_PRIVATE)
+            val savedVersion = libraryPrefs.getString(PREF_DLP_VERSION, null)
+            val savedVersionName = libraryPrefs.getString(PREF_DLP_VERSION_NAME, null)
+            val outcome = updater.update()
+            if (outcome is YtDlpUpdater.Result.Rejected) {
+                if (outcome.lost) {
+                    // Le binaire embarqué revient : aucune version téléchargée n'est plus en place.
+                    restoreLibraryVersion(libraryPrefs, null, null)
+                    reinstallBundledYtDlp()
+                } else {
+                    restoreLibraryVersion(libraryPrefs, savedVersion, savedVersionName)
+                }
+            }
+            outcome
+        }
         when (result) {
             is YtDlpUpdater.Result.Updated -> diagnostics.log(TAG, Diagnostics.Level.I, "yt-dlp mis à jour et vérifié : ${result.version}")
-            is YtDlpUpdater.Result.Rejected -> diagnostics.log(TAG, Diagnostics.Level.W, "yt-dlp : mise à jour rejetée, ancien binaire restauré (${result.reason})")
+            is YtDlpUpdater.Result.Rejected -> if (result.lost) {
+                diagnostics.log(TAG, Diagnostics.Level.E, "yt-dlp : mise à jour rejetée, ancien binaire perdu (${result.reason})")
+            } else {
+                diagnostics.log(TAG, Diagnostics.Level.W, "yt-dlp : mise à jour rejetée, ancien binaire restauré (${result.reason})")
+            }
             YtDlpUpdater.Result.AlreadyUpToDate -> diagnostics.log(TAG, Diagnostics.Level.I, "yt-dlp déjà à jour")
         }
         result
+    }
+
+    private fun ytDlpDir(): File = File(context.noBackupFilesDir, "youtubedl-android/yt-dlp")
+
+    private fun ytDlpBinary(): File = File(ytDlpDir(), "yt-dlp")
+
+    /** Hors du dossier `yt-dlp`, que la bibliothèque supprime pendant sa mise à jour. */
+    private fun ytDlpBackup(): File = File(context.noBackupFilesDir, "youtubedl-android/yt-dlp.bak")
+
+    /**
+     * Une sauvegarde restante signale une mise à jour interrompue (application tuée entre
+     * la copie et la vérification) : elle repasse par-dessus le binaire non vérifié avant
+     * toute commande. À appeler sous [ytDlpLock].
+     */
+    private fun recoverInterruptedUpdate() {
+        val backup = ytDlpBackup()
+        if (!backup.exists()) return
+        val recovered = YtDlpUpdater.recoverInterrupted(ytDlpBinary(), backup)
+        if (recovered) {
+            diagnostics.log(TAG, Diagnostics.Level.W, "yt-dlp : mise à jour interrompue, ancien binaire repris")
+        } else {
+            diagnostics.log(TAG, Diagnostics.Level.W, "yt-dlp : mise à jour interrompue, reprise impossible")
+            restoreLibraryVersion(context.getSharedPreferences(LIB_PREFS, Context.MODE_PRIVATE), null, null)
+            reinstallBundledYtDlp()
+        }
+    }
+
+    /** Remet les préférences de version de la bibliothèque dans leur état d'avant la mise à jour. */
+    private fun restoreLibraryVersion(prefs: android.content.SharedPreferences, version: String?, versionName: String?) {
+        runCatching {
+            val editor = prefs.edit()
+            if (version == null) editor.remove(PREF_DLP_VERSION) else editor.putString(PREF_DLP_VERSION, version)
+            if (versionName == null) editor.remove(PREF_DLP_VERSION_NAME) else editor.putString(PREF_DLP_VERSION_NAME, versionName)
+            check(editor.commit()) { "écriture des préférences refusée" }
+        }.onFailure { diagnostics.log(TAG, Diagnostics.Level.W, "Version de yt-dlp non rétablie après refus", it) }
+    }
+
+    /**
+     * Réinstalle le binaire embarqué dans l'APK. `init` ne le ferait pas : il rend la main
+     * dès que la bibliothèque est initialisée dans le processus. `init_ytdlp` ne copie
+     * le binaire embarqué que si le fichier `yt-dlp` est absent : un binaire vidé faute
+     * d'avoir pu être supprimé est retiré une dernière fois avant l'appel.
+     */
+    private fun reinstallBundledYtDlp() {
+        runCatching {
+            val binary = ytDlpBinary()
+            if (binary.exists() && binary.length() == 0L) binary.delete()
+            YoutubeDL.getInstance().init_ytdlp(context, ytDlpDir())
+        }
+            .onFailure { diagnostics.log(TAG, Diagnostics.Level.E, "Réinstallation du yt-dlp embarqué impossible", it) }
     }
 
     private fun fetchShaSums(version: String): String? = runCatching {
@@ -247,5 +323,9 @@ class DownloadRepository @Inject constructor(
     private companion object {
         const val TAG = "DownloadRepository"
         const val WORK_DIR = "yt-download"
+        /** Préférences de youtubedl-android 0.18.1, écrites par sa mise à jour. */
+        const val LIB_PREFS = "youtubedl-android"
+        const val PREF_DLP_VERSION = "dlpVersion"
+        const val PREF_DLP_VERSION_NAME = "dlpVersionName"
     }
 }

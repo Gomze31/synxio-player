@@ -86,6 +86,36 @@ jobs:
             "$BT/apksigner" verify --verbose --print-certs "$apk" | grep -E "Verified using|Signer|SHA-256"
           done
 
+      # L'application refuse toute mise à jour dont le signataire n'est pas l'empreinte
+      # épinglée : publier un APK signé par une autre clé casserait la chaîne des mises à jour.
+      - name: Check pinned signer
+        run: |
+          pinned="$(sed -n 's/.*const val PINNED_SIGNER_SHA256 = "\([^"]*\)".*/\1/p' \
+            app/src/main/java/fr/synxio/player/data/repo/UpdateSignatures.kt | head -1)"
+          pinned="$(printf '%s' "$pinned" | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          if [ -z "$pinned" ]; then
+            echo "::error title=Empreinte non épinglée::PINNED_SIGNER_SHA256 est vide dans UpdateSignatures.kt. Voir docs/KEY_ROTATION.md §6."
+            exit 1
+          fi
+          BT="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+          found=0
+          for apk in app/build/outputs/apk/release/*.apk; do
+            [ -f "$apk" ] || continue
+            found=1
+            actual="$("$BT/apksigner" verify --print-certs "$apk" \
+              | sed -n 's/^Signer #1 certificate SHA-256 digest: *//p' | head -1 \
+              | tr -d ': ' | tr '[:upper:]' '[:lower:]')"
+            if [ "$actual" != "$pinned" ]; then
+              echo "::error title=Signataire inattendu::$(basename "$apk") est signé par ${actual:-un certificat illisible}, l'empreinte épinglée est $pinned."
+              exit 1
+            fi
+            echo "$(basename "$apk") : signataire conforme à l'empreinte épinglée."
+          done
+          if [ "$found" -eq 0 ]; then
+            echo "::error title=APK absent::Aucun APK release à vérifier."
+            exit 1
+          fi
+
       - name: Scrub signing key
         if: always()
         run: rm -f "$RUNNER_TEMP/release-2.jks" "$RUNNER_TEMP/synxio.lineage" keystore.properties

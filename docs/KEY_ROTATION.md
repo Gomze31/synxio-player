@@ -29,41 +29,47 @@ l'application et par Android. Android 8.x ne reçoit plus de mise à jour.
 
 ## 1. Le risque
 
-- `app/synxio-release.keystore` est versionné dans le dépôt **public**, et son mot de passe
-  (`synxioplayer`) est écrit en clair dans `app/build.gradle.kts`.
-- Le workflow `.github/workflows/release.yml` n'a **aucun secret** configuré : chaque release
-  publiée est donc signée avec cette clé publique.
-- Conséquence : n'importe qui peut produire un APK « Synxio Player » signé avec la même clé.
-  Android l'installera **par-dessus** l'application existante (même signature), avec accès à
-  toutes ses données (bibliothèque, réglages, URL de webhook Discord, session Last.fm…).
-  Le contrôle de signature du programme de mise à jour (`UpdateRepository.hasMatchingSignature`)
-  ne protège pas non plus : il compare l'APK téléchargé à la signature installée, que
-  l'attaquant possède.
+- Jusqu'à la 5.6.0, `app/synxio-release.keystore` était versionné dans le dépôt **public**,
+  et son mot de passe était écrit en clair dans `app/build.gradle.kts`.
+- Le workflow `.github/workflows/release.yml` n'utilisait aucun secret : chaque release
+  publiée était signée avec cette clé publique.
+- Conséquence : n'importe qui pouvait produire un APK « Synxio Player » signé avec la même
+  clé. Android l'aurait installé **par-dessus** l'application existante (même signature),
+  avec accès à toutes ses données (bibliothèque, réglages, URL de webhook Discord, session
+  Last.fm…). Le contrôle de signature du programme de mise à jour comparait l'APK
+  téléchargé à la signature installée, que l'attaquant possédait aussi.
+- La 5.6.1 retire le keystore et le mot de passe de l'arbre, et la CI ne signe plus
+  qu'avec la nouvelle clé tenue en secret. Le fichier reste lisible dans l'historique
+  Git tant que la purge (§8) n'est pas faite.
 
-## 3. Générer une nouvelle clé
+## 3. Générer la nouvelle clé et la lignée
 
-Sur une machine de confiance, **hors du dépôt** :
+Tout passe par `scripts/rotate-release-key.sh`, sur une machine de confiance. Le script
+génère la nouvelle clé, signe la lignée ancienne clé → nouvelle clé et affiche
+l'empreinte SHA-256 du nouveau certificat. Les mots de passe sont demandés par `keytool`
+et `apksigner`, jamais écrits ni affichés.
 
-```bash
-keytool -genkeypair -v \
-  -keystore synxio-release-2.jks \
-  -storetype PKCS12 \
-  -alias synxio \
-  -keyalg RSA -keysize 4096 \
-  -validity 10000 \
-  -dname "CN=Synxio Player, O=Synxio, C=FR"
-```
+1. Récupérer l'ancien keystore hors du dépôt (il n'est plus dans l'arbre depuis la 5.6.1) :
 
-- Choisir un mot de passe long et unique (gestionnaire de mots de passe).
-- Sauvegarder le fichier `.jks` et le mot de passe **à deux endroits distincts** hors ligne :
-  une clé perdue = plus aucune mise à jour possible.
-- Relever l'empreinte SHA-256 du certificat (utile au §6) :
+   ```bash
+   mkdir -p ~/synxio-keys
+   git show 4a55d01:app/synxio-release.keystore > ~/synxio-keys/synxio-release-1.jks
+   ```
 
-```bash
-keytool -list -v -keystore synxio-release-2.jks -alias synxio | grep SHA256
-```
+2. Lancer le script depuis la racine du dépôt, avec le chemin de l'ancien keystore en
+   premier argument (ou dans la variable `OLD_KEYSTORE`) et, en option, le dossier de
+   sortie en second (`~/synxio-keys` par défaut) :
 
-## 4. Configurer les 4 secrets GitHub
+   ```bash
+   scripts/rotate-release-key.sh ~/synxio-keys/synxio-release-1.jks
+   ```
+
+3. Le dossier de sortie contient alors `synxio-release-2.jks` et `synxio.lineage`.
+   Sauvegarder la nouvelle clé et son mot de passe **à deux endroits distincts** hors
+   ligne : une clé perdue, c'est plus aucune mise à jour possible.
+4. Noter l'empreinte affichée à l'étape 3/3 du script : elle sert au §6.
+
+## 4. Configurer les 5 secrets GitHub
 
 Dépôt → *Settings* → *Secrets and variables* → *Actions* → *New repository secret* :
 
@@ -73,15 +79,21 @@ Dépôt → *Settings* → *Secrets and variables* → *Actions* → *New reposi
 | `KEYSTORE_PASSWORD` | mot de passe du keystore                                      |
 | `KEY_ALIAS`         | `synxio`                                                      |
 | `KEY_PASSWORD`      | mot de passe de la clé (identique au précédent en PKCS12)     |
+| `LINEAGE_BASE64`    | `base64 -w0 synxio.lineage`                                   |
 
-Ou avec la CLI GitHub :
+Ou avec la CLI GitHub, depuis le dossier de sortie du script :
 
 ```bash
 base64 -w0 synxio-release-2.jks | gh secret set KEYSTORE_BASE64
+base64 -w0 synxio.lineage | gh secret set LINEAGE_BASE64
 gh secret set KEYSTORE_PASSWORD
 gh secret set KEY_ALIAS --body synxio
 gh secret set KEY_PASSWORD
 ```
+
+Les valeurs sont écrites telles quelles, sans guillemets, dans `keystore.properties` par
+la CI : elles ne doivent contenir ni barre oblique inverse (`\`), ni espace en début ou
+en fin, sous peine d'être lues autrement que saisies.
 
 En local, créer `keystore.properties` à la racine (non versionné) :
 
@@ -92,21 +104,23 @@ keyAlias=synxio
 keyPassword=…
 ```
 
-## 6. Mettre à jour le contrôle de signature du programme de mise à jour
+## 6. Épingler l'empreinte dans l'application
 
-`data/repo/UpdateRepository.kt`, `hasMatchingSignature()` (≈ lignes 192-216) compare
-l'APK téléchargé à la signature **installée**. Après rotation :
+Le contrôle est implémenté dans `UpdateSignatures.PINNED_SIGNER_SHA256`
+(`app/src/main/java/fr/synxio/player/data/repo/UpdateSignatures.kt`) : tout APK de mise à
+jour doit être signé par ce certificat, et sa lignée doit contenir le signataire de
+l'application installée. Tant que la constante est vide, aucune mise à jour n'est
+acceptée, et la CI refuse de publier (étape « Check pinned signer » de `release.yml`).
 
-- remplacer (ou compléter) cette comparaison par une **empreinte épinglée** : l'empreinte
-  SHA-256 du nouveau certificat (§3), stockée en constante, que l'APK téléchargé doit porter ;
-- ne plus accepter l'ancienne empreinte dès que la transition est terminée.
+Format attendu : 64 caractères hexadécimaux, majuscules ou minuscules, sans « : ». La
+ligne `SHA256:` de `keytool -list -v` affiche les octets séparés par des « : » ; il
+suffit de retirer les « : ».
 
-Sans cela, l'ancienne application refusera la nouvelle version (signatures différentes) avec
-le message « signature différente », ce qui est le comportement attendu pendant la transition.
+**La branche ne doit pas être publiée tant que la constante est vide.**
 
-## 7. Conséquence pour les utilisateurs — À LIRE
+## 7. Conséquence pour les utilisateurs
 
-Obsolète depuis la lignée v3 : la mise à jour est transparente sur Android 9+. Conservé pour mémoire.
+Obsolète depuis la lignée v3 : la mise à jour est transparente sur Android 9+.
 
 ## 8. Purger l'historique Git
 

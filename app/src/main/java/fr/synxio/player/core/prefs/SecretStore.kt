@@ -73,7 +73,7 @@ class SecretStore @Inject constructor(
     fun put(key: Key, value: String?) {
         synchronized(lock) {
             if (value.isNullOrBlank()) {
-                prefs.edit().remove(key.prefName).apply()
+                commitOrThrow(prefs.edit().remove(key.prefName), key)
                 cache.remove(key)
             } else {
                 val codec = codecOrNull()
@@ -85,11 +85,23 @@ class SecretStore @Inject constructor(
                     diagnostics.log(TAG, Diagnostics.Level.E, message, e)
                     throw IllegalStateException(message, e)
                 }
-                prefs.edit().putString(key.prefName, encrypted).apply()
+                commitOrThrow(prefs.edit().putString(key.prefName, encrypted), key)
                 cache[key] = value
             }
         }
         _changes.tryEmit(Unit)
+    }
+
+    /**
+     * Écriture synchrone : `apply()` rendrait la main avant le disque et un échec passerait
+     * inaperçu. Les appelants sont déjà sur un fil d'entrée-sortie.
+     */
+    private fun commitOrThrow(editor: android.content.SharedPreferences.Editor, key: Key) {
+        if (!editor.commit()) {
+            val message = "Écriture refusée : ${key.name} non enregistré"
+            diagnostics.log(TAG, Diagnostics.Level.E, message)
+            throw IllegalStateException(message)
+        }
     }
 
     private fun loadOrCreateKey(): SecretKey {
