@@ -838,6 +838,13 @@ class AppViewModel @Inject constructor(
 
     val downloadProgress = kotlinx.coroutines.flow.MutableStateFlow(0f)
     val isDownloading = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val ytDlpVersion = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    val ytDlpOutdated = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val isUpdatingYtDlp = kotlinx.coroutines.flow.MutableStateFlow(false)
+
+    fun refreshYtDlpVersion() = viewModelScope.launch {
+        ytDlpVersion.value = downloadRepository.ytDlpVersion()
+    }
 
     fun downloadYoutube(url: String) = viewModelScope.launch {
         isDownloading.value = true
@@ -846,12 +853,31 @@ class AppViewModel @Inject constructor(
             downloadProgress.value = progress
         }
         isDownloading.value = false
-        if (result.isSuccess) {
-            emit(result.getOrDefault("Téléchargement terminé"))
+        result.onSuccess { message ->
+            ytDlpOutdated.value = false
+            emit(message)
             rescan()
-        } else {
-            emit("Erreur de téléchargement: ${result.exceptionOrNull()?.message}")
+        }.onFailure { error ->
+            if (error is fr.synxio.player.data.repo.DownloadError.YtDlpOutdated) ytDlpOutdated.value = true
+            emit("Erreur de téléchargement : ${error.message}")
         }
+    }
+
+    fun updateYtDlp() = viewModelScope.launch {
+        if (isUpdatingYtDlp.value) return@launch
+        isUpdatingYtDlp.value = true
+        val result = downloadRepository.updateYtDlp()
+        isUpdatingYtDlp.value = false
+        when (result) {
+            is fr.synxio.player.data.repo.ytdlp.YtDlpUpdater.Result.Updated -> {
+                ytDlpOutdated.value = false
+                emit("yt-dlp mis à jour et vérifié (${result.version})")
+            }
+            fr.synxio.player.data.repo.ytdlp.YtDlpUpdater.Result.AlreadyUpToDate -> emit("yt-dlp est déjà à jour")
+            is fr.synxio.player.data.repo.ytdlp.YtDlpUpdater.Result.Rejected ->
+                emit("Mise à jour refusée, version précédente conservée : ${result.reason}")
+        }
+        refreshYtDlpVersion()
     }
 
     private fun emit(message: String) {

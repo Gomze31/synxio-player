@@ -43,6 +43,7 @@ import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.SystemUpdateAlt
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -112,6 +113,10 @@ fun DownloadScreen(
 ) {
     val isDownloading by viewModel.isDownloading.collectAsStateWithLifecycle()
     val progress by viewModel.downloadProgress.collectAsStateWithLifecycle()
+    val ytDlpVersion by viewModel.ytDlpVersion.collectAsStateWithLifecycle()
+    val ytDlpOutdated by viewModel.ytDlpOutdated.collectAsStateWithLifecycle()
+    val isUpdatingYtDlp by viewModel.isUpdatingYtDlp.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { viewModel.refreshYtDlpVersion() }
     var currentUrl by remember { mutableStateOf("https://m.youtube.com/") }
     var inputUrl by remember { mutableStateOf("") }
     var webPageProgress by remember { mutableIntStateOf(100) }
@@ -327,6 +332,38 @@ fun DownloadScreen(
                                 .semantics { contentDescription = "Chargement de la page" },
                         )
                     }
+                }
+
+                // Moteur de téléchargement : version visible, mise à jour à la main seulement.
+                // Après un échec typique d'un yt-dlp périmé, la ligne devient une alerte.
+                Row(
+                    modifier = Modifier
+                        .padding(horizontal = Space.md)
+                        .padding(bottom = Space.xs)
+                        .fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            text = if (ytDlpOutdated) "yt-dlp est peut-être périmé" else "Moteur yt-dlp",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = if (ytDlpOutdated) scheme.error else scheme.onSurface,
+                        )
+                        Text(
+                            text = ytDlpVersion?.let { "Version $it · vérifiée à chaque mise à jour" }
+                                ?: "Version inconnue",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = scheme.onSurfaceVariant,
+                        )
+                    }
+                    // GlassButton n'a pas de paramètre enabled : le clic est neutralisé pendant
+                    // une mise à jour ou un téléchargement.
+                    GlassButton(
+                        text = if (isUpdatingYtDlp) "Mise à jour…" else "Mettre à jour",
+                        icon = Icons.Rounded.SystemUpdateAlt,
+                        onClick = { if (!isUpdatingYtDlp && !isDownloading) viewModel.updateYtDlp() },
+                    )
                 }
             }
         },

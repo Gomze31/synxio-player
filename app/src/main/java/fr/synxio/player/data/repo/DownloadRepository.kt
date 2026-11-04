@@ -10,17 +10,34 @@ import android.util.Log
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import dagger.hilt.android.qualifiers.ApplicationContext
+import fr.synxio.player.core.diag.Diagnostics
+import fr.synxio.player.data.repo.ytdlp.YtDlpOutdated
+import fr.synxio.player.data.repo.ytdlp.YtDlpUpdater
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** Échec d'un téléchargement, pour que l'écran distingue un yt-dlp périmé. */
+sealed class DownloadError(message: String) : Exception(message) {
+    class YtDlpOutdated(message: String) : DownloadError(message)
+    class Failed(message: String) : DownloadError(message)
+}
+
 @Singleton
 class DownloadRepository @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val musicRepository: MusicRepository
+    private val musicRepository: MusicRepository,
+    private val http: OkHttpClient,
+    private val diagnostics: Diagnostics,
 ) {
+    /** Jamais une commande yt-dlp pendant une mise à jour, ni l'inverse. */
+    private val ytDlpLock = Mutex()
 
     suspend fun downloadAudio(url: String, onProgress: (Float) -> Unit): Result<String> = withContext(Dispatchers.IO) {
         // Seul un lien de vidéo YouTube validé et reconstruit en https:// atteint yt-dlp :
@@ -39,10 +56,6 @@ class DownloadRepository @Inject constructor(
                 IllegalStateException("Le téléchargeur n'a pas pu démarrer (${it.javaClass.simpleName})")
             )
         }
-
-        // yt-dlp embarqué dans l'APK vieillit vite : YouTube change régulièrement et une
-        // version de quelques semaines échoue. On le met à jour au plus une fois par jour.
-        updateYtDlp(force = false)
 
         // Téléchargement dans le cache privé, puis publication du seul MP3 final.
         //
@@ -68,26 +81,19 @@ class DownloadRepository @Inject constructor(
             request.addOption("--embed-thumbnail")
             request.addOption("--add-metadata")
 
-            var response = YoutubeDL.getInstance().execute(request, "DownloadTask") { progress, _, _ ->
-                onProgress(progress)
-            }
-
-            // Échec : un yt-dlp périmé en est la cause la plus fréquente. On force la mise
-            // à jour et on réessaie une fois.
-            if (response.exitCode != 0 && updateYtDlp(force = true)) {
-                Log.w(TAG, "Nouvel essai après mise à jour de yt-dlp : ${response.err.takeLast(300)}")
-                workDir.listFiles()?.forEach { it.deleteRecursively() }
-                response = YoutubeDL.getInstance().execute(request, "DownloadTask") { progress, _, _ ->
+            val response = ytDlpLock.withLock {
+                YoutubeDL.getInstance().execute(request, "DownloadTask") { progress, _, _ ->
                     onProgress(progress)
                 }
             }
 
             if (response.exitCode != 0) {
-                Log.w(TAG, "yt-dlp a échoué (${response.exitCode}) : ${response.err.takeLast(600)}")
+                diagnostics.log(TAG, Diagnostics.Level.W, "yt-dlp a échoué (${response.exitCode}) : ${response.err.takeLast(600)}")
                 val reason = response.err.lineSequence().lastOrNull { it.isNotBlank() }?.take(200)
-                return@withContext Result.failure(
-                    Exception(reason ?: "yt-dlp s'est arrêté (code ${response.exitCode})")
-                )
+                    ?: "yt-dlp s'est arrêté (code ${response.exitCode})"
+                val error = if (YtDlpOutdated.looksOutdated(response.err)) DownloadError.YtDlpOutdated(reason)
+                else DownloadError.Failed(reason)
+                return@withContext Result.failure(error)
             }
 
             val mp3 = workDir.listFiles()
@@ -132,25 +138,53 @@ class DownloadRepository @Inject constructor(
         }.onFailure { Log.w(TAG, "Tags du téléchargement laissés tels quels", it) }
     }
 
-    /**
-     * Met yt-dlp à jour depuis ses publications officielles.
-     *
-     * Sans [force], au plus une fois par jour. Renvoie vrai si une nouvelle version a été
-     * installée. Une absence de réseau n'empêche pas d'essayer avec la version en place.
-     */
-    private fun updateYtDlp(force: Boolean): Boolean {
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val now = System.currentTimeMillis()
-        if (!force && now - prefs.getLong(KEY_LAST_UPDATE, 0L) < UPDATE_INTERVAL_MS) return false
-        return runCatching {
-            YoutubeDL.getInstance().updateYoutubeDL(context, YoutubeDL.UpdateChannel._STABLE)
-        }.onSuccess {
-            prefs.edit().putLong(KEY_LAST_UPDATE, now).apply()
-            Log.i(TAG, "yt-dlp : $it, version ${YoutubeDL.getInstance().versionName(context)}")
-        }.onFailure {
-            Log.w(TAG, "Mise à jour de yt-dlp impossible", it)
-        }.getOrNull() == YoutubeDL.UpdateStatus.DONE
+    /** Version de yt-dlp installée (tag de release), ou `null` si la bibliothèque n'est pas initialisée. */
+    suspend fun ytDlpVersion(): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            YoutubeDL.getInstance().init(context)
+            YoutubeDL.getInstance().version(context)
+        }.onFailure { diagnostics.log(TAG, Diagnostics.Level.W, "Version de yt-dlp illisible", it) }.getOrNull()
     }
+
+    /**
+     * Mise à jour manuelle et vérifiée de yt-dlp. Voir [YtDlpUpdater] pour la règle ; ici
+     * seulement le câblage : chemin du binaire de la bibliothèque, appel de sa mise à
+     * jour, téléchargement des sommes de la release.
+     */
+    suspend fun updateYtDlp(): YtDlpUpdater.Result = withContext(Dispatchers.IO) {
+        runCatching { YoutubeDL.getInstance().init(context) }
+            .onFailure {
+                diagnostics.log(TAG, Diagnostics.Level.W, "Initialisation de yt-dlp impossible avant mise à jour", it)
+                return@withContext YtDlpUpdater.Result.Rejected("yt-dlp n'a pas pu démarrer")
+            }
+        val binary = File(context.noBackupFilesDir, "youtubedl-android/yt-dlp/yt-dlp")
+        val updater = YtDlpUpdater(
+            binary = binary,
+            runLibraryUpdate = {
+                when (YoutubeDL.getInstance().updateYoutubeDL(context, YoutubeDL.UpdateChannel._STABLE)) {
+                    YoutubeDL.UpdateStatus.DONE -> YtDlpUpdater.LibraryOutcome.UPDATED
+                    else -> YtDlpUpdater.LibraryOutcome.ALREADY_UP_TO_DATE
+                }
+            },
+            installedVersion = { YoutubeDL.getInstance().version(context) },
+            fetchSums = ::fetchShaSums,
+        )
+        val result = ytDlpLock.withLock { updater.update() }
+        when (result) {
+            is YtDlpUpdater.Result.Updated -> diagnostics.log(TAG, Diagnostics.Level.I, "yt-dlp mis à jour et vérifié : ${result.version}")
+            is YtDlpUpdater.Result.Rejected -> diagnostics.log(TAG, Diagnostics.Level.W, "yt-dlp : mise à jour rejetée, ancien binaire restauré (${result.reason})")
+            YtDlpUpdater.Result.AlreadyUpToDate -> diagnostics.log(TAG, Diagnostics.Level.I, "yt-dlp déjà à jour")
+        }
+        result
+    }
+
+    private fun fetchShaSums(version: String): String? = runCatching {
+        val url = "https://github.com/yt-dlp/yt-dlp/releases/download/$version/SHA2-256SUMS"
+        http.newCall(Request.Builder().url(url).build()).execute().use { response ->
+            if (!response.isSuccessful) return@runCatching null
+            response.body.string()
+        }
+    }.onFailure { diagnostics.log(TAG, Diagnostics.Level.W, "SHA2-256SUMS inaccessible", it) }.getOrNull()
 
     /**
      * Copie le MP3 dans Musique/Synxio et l'indexe.
@@ -195,8 +229,5 @@ class DownloadRepository @Inject constructor(
     private companion object {
         const val TAG = "DownloadRepository"
         const val WORK_DIR = "yt-download"
-        const val PREFS = "yt_dlp"
-        const val KEY_LAST_UPDATE = "last_update"
-        const val UPDATE_INTERVAL_MS = 24 * 60 * 60 * 1000L
     }
 }
