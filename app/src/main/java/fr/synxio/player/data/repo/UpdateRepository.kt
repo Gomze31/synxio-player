@@ -193,7 +193,6 @@ class UpdateRepository @Inject constructor(
      */
     fun hasMatchingSignature(apk: File): Boolean = runCatching {
         if (BuildConfig.DEBUG) return true // Skip verification for debug builds
-        if (android.os.Build.VERSION.SDK_INT < 28) return true // Skip verification on Android 8
 
         val pm = context.packageManager
         val flags = PackageManager.GET_SIGNING_CERTIFICATES
