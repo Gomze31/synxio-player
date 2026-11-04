@@ -34,6 +34,24 @@ import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Position de lecture, échantillonnée à part de [PlayerUiState].
+ *
+ * Elle change quatre fois par seconde : la garder dans l'état principal faisait
+ * recomposer toute l'interface à ce rythme. Seuls la barre de progression, les paroles,
+ * les chapitres et la barre fine du mini-lecteur la lisent.
+ */
+data class PlayerPosition(
+    val positionMs: Long = 0L,
+    val bufferedMs: Long = 0L,
+    val durationMs: Long = 0L,
+) {
+    val progress: Float
+        get() = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+    val buffered: Float
+        get() = if (durationMs > 0) (bufferedMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+}
+
 data class PlayerUiState(
     val connected: Boolean = false,
     val currentSong: Song? = null,
@@ -46,9 +64,7 @@ data class PlayerUiState(
      */
     val isPlaying: Boolean = false,
     val isBuffering: Boolean = false,
-    val positionMs: Long = 0,
     val durationMs: Long = 0,
-    val bufferedMs: Long = 0,
     val queue: List<Song> = emptyList(),
     val queueIndex: Int = -1,
     val shuffleEnabled: Boolean = false,
@@ -61,9 +77,6 @@ data class PlayerUiState(
     /** Fin de la boucle A-B, null tant que le second point n'est pas posé. */
     val loopEndMs: Long? = null,
 ) {
-    val progress: Float
-        get() = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
-
     val loopState: AbLoopState
         get() = when {
             loopStartMs != null && loopEndMs != null -> AbLoopState.LOOPING
@@ -90,6 +103,10 @@ class PlayerConnection @Inject constructor(
 
     private val _state = MutableStateFlow(PlayerUiState())
     val state: StateFlow<PlayerUiState> = _state.asStateFlow()
+
+    private val _position = MutableStateFlow(PlayerPosition())
+    /** Position, tampon et durée du titre en cours ; voir [PlayerPosition]. */
+    val position: StateFlow<PlayerPosition> = _position.asStateFlow()
 
     /**
      * Erreurs de lecture, à montrer à l'utilisateur.
@@ -219,6 +236,7 @@ class PlayerConnection @Inject constructor(
                     if (this@PlayerConnection.controller !== controller) return
                     this@PlayerConnection.controller = null
                     _state.value = _state.value.copy(connected = false, isPlaying = false)
+                    _position.value = PlayerPosition()
                     if (!isAppInForeground()) return
                     scope.launch {
                         delay(RECONNECT_DELAY_MS)
@@ -270,6 +288,7 @@ class PlayerConnection @Inject constructor(
         if (pendingCommands.isNotEmpty() || pendingUntilQueue.isNotEmpty()) return
         controller = null
         _state.value = _state.value.copy(connected = false, isPlaying = false)
+        _position.value = PlayerPosition()
         c.release()
     }
 
@@ -305,13 +324,14 @@ class PlayerConnection @Inject constructor(
                 val end = _state.value.loopEndMs
                 if (start != null && end != null && position >= end) {
                     c.seekTo(start)
-                    _state.value = _state.value.copy(positionMs = start)
+                    _position.value = _position.value.copy(positionMs = start)
                     return@withContext
                 }
 
-                _state.value = _state.value.copy(
+                _position.value = PlayerPosition(
                     positionMs = position,
                     bufferedMs = c.bufferedPosition.coerceAtLeast(0),
+                    durationMs = c.duration.takeIf { it > 0 } ?: 0,
                 )
             }
         }
@@ -381,9 +401,7 @@ class PlayerConnection @Inject constructor(
             currentSong = current,
             isPlaying = !Util.shouldShowPlayButton(c),
             isBuffering = c.playbackState == Player.STATE_BUFFERING,
-            positionMs = c.currentPosition.coerceAtLeast(0),
             durationMs = c.duration.takeIf { it > 0 } ?: 0,
-            bufferedMs = c.bufferedPosition.coerceAtLeast(0),
             queue = queue,
             queueIndex = c.currentMediaItemIndex,
             shuffleEnabled = c.shuffleModeEnabled,
@@ -397,6 +415,11 @@ class PlayerConnection @Inject constructor(
             hasPrevious = c.hasPreviousMediaItem(),
             loopStartMs = previous.loopStartMs.takeIf { sameTrack },
             loopEndMs = previous.loopEndMs.takeIf { sameTrack },
+        )
+        _position.value = PlayerPosition(
+            positionMs = c.currentPosition.coerceAtLeast(0),
+            bufferedMs = c.bufferedPosition.coerceAtLeast(0),
+            durationMs = c.duration.takeIf { it > 0 } ?: 0,
         )
     }
 
@@ -565,7 +588,7 @@ class PlayerConnection @Inject constructor(
 
     fun seekTo(positionMs: Long) {
         controller?.seekTo(positionMs)
-        _state.value = _state.value.copy(positionMs = positionMs)
+        _position.value = _position.value.copy(positionMs = positionMs)
     }
 
     fun seekToProgress(progress: Float) {

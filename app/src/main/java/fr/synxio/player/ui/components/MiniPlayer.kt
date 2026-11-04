@@ -48,6 +48,8 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import fr.synxio.player.playback.PlayerPosition
 import fr.synxio.player.playback.PlayerUiState
 import fr.synxio.player.ui.theme.LocalArtworkColors
 import fr.synxio.player.ui.theme.LocalReduceMotion
@@ -57,6 +59,7 @@ import fr.synxio.player.ui.theme.SynxioShape
 import fr.synxio.player.ui.theme.SynxioTheme
 import fr.synxio.player.ui.theme.glass
 import fr.synxio.player.ui.theme.glowShadow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -79,6 +82,7 @@ private val SwipeThreshold = 72.dp
 @Composable
 fun MiniPlayer(
     state: PlayerUiState,
+    position: StateFlow<PlayerPosition>,
     onExpand: () -> Unit,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
@@ -91,13 +95,6 @@ fun MiniPlayer(
     val colors = SynxioTheme.colors
     val art = LocalArtworkColors.current
     val tint = art.vibrant ?: art.seed
-
-    // La position arrive par paliers (~4×/s) : on lisse entre deux, sauf animations réduites.
-    val progress by animateFloatAsState(
-        targetValue = state.progress.coerceIn(0f, 1f),
-        animationSpec = if (reduceMotion) snap() else Motion.standard(Motion.LONG),
-        label = "miniProgress",
-    )
 
     // Retour tactile : le mini-lecteur s'enfonce légèrement sous le doigt.
     val interaction = remember { MutableInteractionSource() }
@@ -243,12 +240,25 @@ fun MiniPlayer(
                 }
             }
 
-            BrandProgressBar(
-                progress = progress,
-                height = 3.dp,
-                modifier = Modifier.padding(horizontal = Space.lg),
-            )
+            MiniProgress(position = position, reduceMotion = reduceMotion)
             Spacer(Modifier.height(Space.sm))
         }
     }
+}
+
+/** Barre fine : seule à se recomposer au rythme de la position. */
+@Composable
+private fun MiniProgress(position: StateFlow<PlayerPosition>, reduceMotion: Boolean) {
+    val current by position.collectAsStateWithLifecycle()
+    // La position arrive par paliers (~4×/s) : on lisse entre deux, sauf animations réduites.
+    val progress by animateFloatAsState(
+        targetValue = current.progress,
+        animationSpec = if (reduceMotion) snap() else Motion.standard(Motion.LONG),
+        label = "miniProgress",
+    )
+    BrandProgressBar(
+        progress = progress,
+        height = 3.dp,
+        modifier = Modifier.padding(horizontal = Space.lg),
+    )
 }

@@ -31,6 +31,7 @@ import fr.synxio.player.data.repo.SmartPlaylistId
 import fr.synxio.player.data.repo.SmartPlaylistRepository
 import fr.synxio.player.playback.AbLoopState
 import fr.synxio.player.playback.PlayerConnection
+import fr.synxio.player.playback.PlayerPosition
 import fr.synxio.player.playback.PlayerUiState
 import fr.synxio.player.playback.SleepTimer
 import fr.synxio.player.playback.SleepTimerState
@@ -278,6 +279,9 @@ class AppViewModel @Inject constructor(
 
     val library: StateFlow<Library> = musicRepository.library
     val playerState: StateFlow<PlayerUiState> = player.state
+
+    /** Position de lecture, à collecter seulement là où elle s'affiche. */
+    val position: StateFlow<PlayerPosition> = player.position
 
     /**
      * Identifiant du titre en cours, seul.

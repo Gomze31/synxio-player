@@ -61,7 +61,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import fr.synxio.player.playback.PlayerUiState
+import fr.synxio.player.playback.PlayerPosition
 import fr.synxio.player.ui.components.Artwork
 import fr.synxio.player.ui.components.BrandPlayButton
 import fr.synxio.player.ui.components.EmptyState
@@ -91,7 +91,7 @@ private val DriveExitButton = 72.dp
  *
  * Le titre en cours est dérivé de [AppViewModel.playerState] : l'écran ne se recompose
  * que lorsque le morceau change, pas à chaque tic de position. La barre de progression
- * lit la position au dessin seulement.
+ * lit [AppViewModel.position] au dessin seulement.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -100,6 +100,7 @@ fun DriveModeScreen(
     onExit: () -> Unit,
 ) {
     val playerState = viewModel.playerState.collectAsStateWithLifecycle()
+    val position = viewModel.position.collectAsStateWithLifecycle()
     val song by remember { derivedStateOf { playerState.value.currentSong } }
     val isBuffering by remember { derivedStateOf { playerState.value.isBuffering } }
     val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
@@ -273,7 +274,7 @@ fun DriveModeScreen(
                 }
 
                 Spacer(Modifier.height(Space.xl))
-                DriveProgress(playerState)
+                DriveProgress(position)
                 Spacer(Modifier.height(Space.xxl))
 
                 Row(
@@ -318,7 +319,7 @@ fun DriveModeScreen(
  * qu'au dessin : la barre avance sans recomposer l'écran quatre fois par seconde.
  */
 @Composable
-private fun DriveProgress(playerState: State<PlayerUiState>) {
+private fun DriveProgress(position: State<PlayerPosition>) {
     val brand = SynxioTheme.colors.brandBrushHorizontal
     val track = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.16f)
     Box(
@@ -328,8 +329,7 @@ private fun DriveProgress(playerState: State<PlayerUiState>) {
             .clip(SynxioShape.pill)
             .semantics { contentDescription = "Progression du titre" }
             .drawBehind {
-                val s = playerState.value
-                val f = if (s.durationMs > 0) (s.positionMs.toFloat() / s.durationMs).coerceIn(0f, 1f) else 0f
+                val f = position.value.progress
                 val r = CornerRadius(size.height / 2f)
                 drawRoundRect(track, cornerRadius = r)
                 if (f > 0f) drawRoundRect(brand, size = Size(size.width * f, size.height), cornerRadius = r)

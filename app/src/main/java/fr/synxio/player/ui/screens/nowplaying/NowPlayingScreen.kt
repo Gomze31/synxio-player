@@ -123,6 +123,8 @@ import fr.synxio.player.data.model.inBookOrder
 import fr.synxio.player.data.model.remainingLabel
 import fr.synxio.player.playback.AudioOutput
 import fr.synxio.player.playback.AudioOutputKind
+import fr.synxio.player.playback.PlayerPosition
+import fr.synxio.player.playback.SleepTimerState
 import fr.synxio.player.playback.openSystemOutputSwitcher
 import fr.synxio.player.ui.components.AddToPlaylistHost
 import fr.synxio.player.ui.components.Artwork
@@ -149,7 +151,9 @@ import fr.synxio.player.ui.theme.glowShadow
 import fr.synxio.player.ui.theme.isDarkSurface
 import fr.synxio.player.ui.theme.placeholderBrush
 import fr.synxio.player.ui.viewmodel.AppViewModel
+import fr.synxio.player.ui.viewmodel.LyricsUiState
 import fr.synxio.player.ui.viewmodel.LyricsViewModel
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -202,16 +206,11 @@ fun NowPlayingScreen(
         if (bookPath == null) emptyList() else audiobooks.filter { it.folderPath == bookPath }.inBookOrder()
     }
     val embeddedChapters by viewModel.embeddedChapters.collectAsStateWithLifecycle()
-    var showChapters by remember { mutableStateOf(false) }
-    // Livre audio : où l'on en est, en direct, et ses chapitres pour naviguer de l'un à l'autre.
-    val liveBook = remember(bookFiles, embeddedChapters, song?.id, state.positionMs) {
-        song?.let { fr.synxio.player.data.model.BookProgress.live(bookFiles, it.id, state.positionMs, embeddedChapters) }
-    }
+    // Livre audio : ses chapitres pour naviguer de l'un à l'autre. L'endroit où l'on en
+    // est dépend de la position et se calcule dans [BookControls], au plus près de l'affichage.
     val chapterList = remember(bookFiles, embeddedChapters) {
         fr.synxio.player.data.model.bookChapters(bookFiles, embeddedChapters)
     }
-    // Position figée au toucher du bouton signet : la lecture continue pendant la saisie.
-    var bookmarkAt by remember { mutableStateOf<Long?>(null) }
 
     LaunchedEffect(song?.id, showLyrics) {
         if (showLyrics) lyricsViewModel.load(song)
@@ -345,22 +344,15 @@ fun NowPlayingScreen(
                 label = "npStage",
             ) { lyrics ->
                 if (lyrics) {
-                    LyricsPane(
-                        lyrics = lyricsState.lyrics,
-                        loading = lyricsState.loading,
-                        positionMs = state.positionMs,
+                    LyricsStage(
+                        position = viewModel.position,
+                        lyricsState = lyricsState,
                         onSeek = viewModel::seekTo,
-                        modifier = Modifier.fillMaxSize().padding(horizontal = Space.xl),
-                        offsetMs = lyricsState.offsetMs,
-                        offsetLabel = lyricsState.offsetLabel,
-                        emptyMessage = lyricsState.emptyMessage,
-                        isTranslating = lyricsState.isTranslating,
-                        targetLanguage = lyricsState.targetLanguage,
-                        translationNote = lyricsState.translationNote,
                         onTranslate = { lyricsViewModel.translateTo(it) },
                         onRevertTranslation = lyricsViewModel::revertTranslation,
                         onNudgeOffset = lyricsViewModel::nudgeOffset,
                         onResetOffset = lyricsViewModel::resetOffset,
+                        modifier = Modifier.fillMaxSize().padding(horizontal = Space.xl),
                     )
                 } else {
                     ArtworkStage(
@@ -430,69 +422,15 @@ fun NowPlayingScreen(
                     )
                 }
 
-                // Livre audio : le chapitre seul ne dit pas où l'on en est dans le livre.
-                // Toucher la ligne ouvre la liste des chapitres ; dessous, chapitre précédent,
-                // liste, chapitre suivant et signet.
-                val book = liveBook
-                if (book != null) {
-                    val muted = scheme.onSurface.copy(alpha = 0.72f)
-                    Text(
-                        text = "${book.chapterLabel()} · ${book.percent} % · ${book.remainingLabel()}",
-                        style = MaterialTheme.typography.bodyMedium.merge(fr.synxio.player.ui.theme.TabularNumbers),
-                        color = muted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(onClickLabel = "Voir les chapitres") { showChapters = true }
-                            .padding(vertical = Space.xxs),
+                // Livre audio seulement : ailleurs, rien ne collecte la position ici.
+                if (bookFiles.isNotEmpty()) {
+                    BookControls(
+                        viewModel = viewModel,
+                        song = song,
+                        bookFiles = bookFiles,
+                        embeddedChapters = embeddedChapters,
+                        chapterList = chapterList,
                     )
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        IconButton(onClick = {
-                            chapterList.previousFrom(book)?.let { viewModel.jumpInBook(bookFiles, it.songId, it.startInFileMs) }
-                        }) {
-                            Icon(Icons.Rounded.SkipPrevious, contentDescription = "Chapitre précédent", tint = muted)
-                        }
-                        IconButton(onClick = { showChapters = true }) {
-                            Icon(Icons.AutoMirrored.Rounded.List, contentDescription = "Liste des chapitres", tint = muted)
-                        }
-                        val next = chapterList.nextAfter(book)
-                        IconButton(
-                            onClick = { next?.let { viewModel.jumpInBook(bookFiles, it.songId, it.startInFileMs) } },
-                            enabled = next != null,
-                        ) {
-                            Icon(Icons.Rounded.SkipNext, contentDescription = "Chapitre suivant", tint = muted)
-                        }
-                        IconButton(onClick = { bookmarkAt = state.positionMs }) {
-                            Icon(Icons.Rounded.BookmarkAdd, contentDescription = "Ajouter un signet", tint = muted)
-                        }
-                    }
-                    bookmarkAt?.let { at ->
-                        fr.synxio.player.ui.components.AddBookmarkDialog(
-                            place = fr.synxio.player.data.model.bookPlace(bookFiles, embeddedChapters, song.id, at)
-                                ?: at.asDuration(),
-                            onConfirm = { note ->
-                                viewModel.addBookmark(song, at, note)
-                                bookmarkAt = null
-                            },
-                            onDismiss = { bookmarkAt = null },
-                        )
-                    }
-                    if (showChapters) {
-                        fr.synxio.player.ui.components.BookChaptersSheet(
-                            chapters = chapterList,
-                            currentIndex = book.chapterIndex,
-                            onSelect = { chapter ->
-                                showChapters = false
-                                viewModel.jumpInBook(bookFiles, chapter.songId, chapter.startInFileMs)
-                            },
-                            onDismiss = { showChapters = false },
-                        )
-                    }
                 }
 
                 // Hors flux et radios : la note est attachée à un titre de la bibliothèque.
@@ -507,8 +445,8 @@ fun NowPlayingScreen(
                 }
 
                 SeekBar(
-                    positionMs = state.positionMs,
-                    durationMs = state.durationMs.takeIf { it > 0 } ?: song.durationMs,
+                    position = viewModel.position,
+                    fallbackDurationMs = song.durationMs,
                     onSeek = viewModel::seekTo,
                 )
 
@@ -560,23 +498,14 @@ fun NowPlayingScreen(
     }
 
     if (showSleepTimer) {
-        SleepTimerSheet(
-            state = sleepTimer,
-            onStart = { minutes, finishTrack -> viewModel.startSleepTimer(minutes, finishTrack) },
-            onCancel = viewModel::cancelSleepTimer,
+        BookSleepTimerSheet(
+            viewModel = viewModel,
+            sleepTimer = sleepTimer,
+            songId = song?.id,
+            bookFiles = bookFiles,
+            embeddedChapters = embeddedChapters,
+            speed = state.speed,
             onDismiss = { showSleepTimer = false },
-            chapterEndLabel = liveBook?.let { b ->
-                // Chapitre = fichier entier : arrêt exact sur la fin de piste, pas de compte.
-                if (embeddedChapters[b.chapterSongId].isNullOrEmpty()) null
-                else "dans ${b.msToChapterEnd(state.speed).asDuration()}"
-            },
-            onChapterEnd = liveBook?.let { b ->
-                {
-                    val delay = if (embeddedChapters[b.chapterSongId].isNullOrEmpty()) null
-                    else b.msToChapterEnd(state.speed)
-                    viewModel.sleepAtChapterEnd(delay)
-                }
-            },
         )
     }
 
@@ -1079,7 +1008,14 @@ private fun VinylArtwork(model: Any?, songId: Long, spinning: Boolean, modifier:
  * montrer qu'on vise une position, pas qu'on la lit.
  */
 @Composable
-private fun SeekBar(positionMs: Long, durationMs: Long, onSeek: (Long) -> Unit) {
+private fun SeekBar(
+    position: StateFlow<PlayerPosition>,
+    fallbackDurationMs: Long,
+    onSeek: (Long) -> Unit,
+) {
+    val current by position.collectAsStateWithLifecycle()
+    val positionMs = current.positionMs
+    val durationMs = current.durationMs.takeIf { it > 0 } ?: fallbackDurationMs
     var dragging by remember { mutableStateOf(false) }
     var dragValue by remember { mutableFloatStateOf(0f) }
     // Toucher la durée bascule entre « durée totale » et « temps restant ».
@@ -1260,4 +1196,159 @@ private fun SkipButton(
                 .graphicsLayer { translationX = nudge.value * with(density) { 9.dp.toPx() } },
         )
     }
+}
+
+/** Isole la collecte de la position : seules les paroles se recomposent au tic. */
+@Composable
+private fun LyricsStage(
+    position: StateFlow<PlayerPosition>,
+    lyricsState: LyricsUiState,
+    onSeek: (Long) -> Unit,
+    onTranslate: (String) -> Unit,
+    onRevertTranslation: () -> Unit,
+    onNudgeOffset: (Long) -> Unit,
+    onResetOffset: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val current by position.collectAsStateWithLifecycle()
+    LyricsPane(
+        lyrics = lyricsState.lyrics,
+        loading = lyricsState.loading,
+        positionMs = current.positionMs,
+        onSeek = onSeek,
+        modifier = modifier,
+        offsetMs = lyricsState.offsetMs,
+        offsetLabel = lyricsState.offsetLabel,
+        emptyMessage = lyricsState.emptyMessage,
+        isTranslating = lyricsState.isTranslating,
+        targetLanguage = lyricsState.targetLanguage,
+        translationNote = lyricsState.translationNote,
+        onTranslate = onTranslate,
+        onRevertTranslation = onRevertTranslation,
+        onNudgeOffset = onNudgeOffset,
+        onResetOffset = onResetOffset,
+    )
+}
+
+/**
+ * Livre audio : le chapitre seul ne dit pas où l'on en est dans le livre.
+ *
+ * Toucher la ligne ouvre la liste des chapitres ; dessous, chapitre précédent, liste,
+ * chapitre suivant et signet. La position n'est collectée qu'ici : le reste de l'écran
+ * ne se recompose pas au tic. Rien ne s'affiche si le titre n'appartient pas au livre.
+ */
+@Composable
+private fun BookControls(
+    viewModel: AppViewModel,
+    song: Song,
+    bookFiles: List<Song>,
+    embeddedChapters: Map<Long, List<fr.synxio.player.data.media.Chapter>>,
+    chapterList: List<fr.synxio.player.data.model.BookChapter>,
+) {
+    val current by viewModel.position.collectAsStateWithLifecycle()
+    var showChapters by remember { mutableStateOf(false) }
+    // Position figée au toucher du bouton signet : la lecture continue pendant la saisie.
+    var bookmarkAt by remember { mutableStateOf<Long?>(null) }
+    val book = remember(bookFiles, embeddedChapters, song.id, current.positionMs) {
+        fr.synxio.player.data.model.BookProgress.live(bookFiles, song.id, current.positionMs, embeddedChapters)
+    } ?: return
+    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
+
+    Text(
+        text = "${book.chapterLabel()} · ${book.percent} % · ${book.remainingLabel()}",
+        style = MaterialTheme.typography.bodyMedium.merge(fr.synxio.player.ui.theme.TabularNumbers),
+        color = muted,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClickLabel = "Voir les chapitres") { showChapters = true }
+            .padding(vertical = Space.xxs),
+    )
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = {
+            chapterList.previousFrom(book)?.let { viewModel.jumpInBook(bookFiles, it.songId, it.startInFileMs) }
+        }) {
+            Icon(Icons.Rounded.SkipPrevious, contentDescription = "Chapitre précédent", tint = muted)
+        }
+        IconButton(onClick = { showChapters = true }) {
+            Icon(Icons.AutoMirrored.Rounded.List, contentDescription = "Liste des chapitres", tint = muted)
+        }
+        val next = chapterList.nextAfter(book)
+        IconButton(
+            onClick = { next?.let { viewModel.jumpInBook(bookFiles, it.songId, it.startInFileMs) } },
+            enabled = next != null,
+        ) {
+            Icon(Icons.Rounded.SkipNext, contentDescription = "Chapitre suivant", tint = muted)
+        }
+        IconButton(onClick = { bookmarkAt = viewModel.position.value.positionMs }) {
+            Icon(Icons.Rounded.BookmarkAdd, contentDescription = "Ajouter un signet", tint = muted)
+        }
+    }
+    bookmarkAt?.let { at ->
+        fr.synxio.player.ui.components.AddBookmarkDialog(
+            place = fr.synxio.player.data.model.bookPlace(bookFiles, embeddedChapters, song.id, at)
+                ?: at.asDuration(),
+            onConfirm = { note ->
+                viewModel.addBookmark(song, at, note)
+                bookmarkAt = null
+            },
+            onDismiss = { bookmarkAt = null },
+        )
+    }
+    if (showChapters) {
+        fr.synxio.player.ui.components.BookChaptersSheet(
+            chapters = chapterList,
+            currentIndex = book.chapterIndex,
+            onSelect = { chapter ->
+                showChapters = false
+                viewModel.jumpInBook(bookFiles, chapter.songId, chapter.startInFileMs)
+            },
+            onDismiss = { showChapters = false },
+        )
+    }
+}
+
+/**
+ * Minuterie de sommeil, avec « Fin du chapitre » pour un livre audio.
+ *
+ * Le temps restant jusqu'à la fin du chapitre suit la position : elle n'est collectée
+ * que tant que la feuille est ouverte.
+ */
+@Composable
+private fun BookSleepTimerSheet(
+    viewModel: AppViewModel,
+    sleepTimer: SleepTimerState,
+    songId: Long?,
+    bookFiles: List<Song>,
+    embeddedChapters: Map<Long, List<fr.synxio.player.data.media.Chapter>>,
+    speed: Float,
+    onDismiss: () -> Unit,
+) {
+    val current by viewModel.position.collectAsStateWithLifecycle()
+    val liveBook = remember(bookFiles, embeddedChapters, songId, current.positionMs) {
+        songId?.let { fr.synxio.player.data.model.BookProgress.live(bookFiles, it, current.positionMs, embeddedChapters) }
+    }
+    SleepTimerSheet(
+        state = sleepTimer,
+        onStart = { minutes, finishTrack -> viewModel.startSleepTimer(minutes, finishTrack) },
+        onCancel = viewModel::cancelSleepTimer,
+        onDismiss = onDismiss,
+        chapterEndLabel = liveBook?.let { b ->
+            // Chapitre = fichier entier : arrêt exact sur la fin de piste, pas de compte.
+            if (embeddedChapters[b.chapterSongId].isNullOrEmpty()) null
+            else "dans ${b.msToChapterEnd(speed).asDuration()}"
+        },
+        onChapterEnd = liveBook?.let { b ->
+            {
+                val delay = if (embeddedChapters[b.chapterSongId].isNullOrEmpty()) null
+                else b.msToChapterEnd(speed)
+                viewModel.sleepAtChapterEnd(delay)
+            }
+        },
+    )
 }

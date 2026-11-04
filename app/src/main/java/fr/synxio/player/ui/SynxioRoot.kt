@@ -397,6 +397,7 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
                         CompositionLocalProvider(LocalPlayerAnimatedScope provides this) {
                         MiniPlayer(
                             state = playerState,
+                            position = viewModel.position,
                             onExpand = { playerExpanded = true },
                             onPlayPause = viewModel::togglePlayPause,
                             onNext = viewModel::next,
