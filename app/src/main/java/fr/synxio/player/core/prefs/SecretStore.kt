@@ -39,38 +39,67 @@ class SecretStore @Inject constructor(
     /** Émet à chaque écriture ; replay = 1 pour que `combine` démarre sans attendre. */
     val changes: SharedFlow<Unit> = _changes
 
-    private val codec: SecretCodec? by lazy {
-        runCatching { SecretCodec(loadOrCreateKey()) }
-            .onFailure { diagnostics.log(TAG, Diagnostics.Level.E, "Keystore indisponible : secrets inaccessibles", it) }
-            .getOrNull()
+    private val lock = Any()
+
+    /** Mis en cache uniquement après un succès : un échec transitoire du Keystore est retenté. */
+    @Volatile
+    private var codec: SecretCodec? = null
+
+    private fun codecOrNull(): SecretCodec? {
+        codec?.let { return it }
+        return synchronized(lock) {
+            codec ?: runCatching { SecretCodec(loadOrCreateKey()) }
+                .onFailure { diagnostics.log(TAG, Diagnostics.Level.E, "Keystore indisponible : secrets inaccessibles", it) }
+                .getOrNull()
+                ?.also { codec = it }
+        }
     }
 
     fun get(key: Key): String? {
         cache[key]?.let { return it }
-        val stored = prefs.getString(key.prefName, null) ?: return null
-        val codec = codec ?: return null
-        return runCatching { codec.decrypt(stored) }
-            .onFailure { diagnostics.log(TAG, Diagnostics.Level.W, "Secret ${key.name} illisible, ignoré", it) }
-            .getOrNull()
-            ?.also { cache[key] = it }
+        return synchronized(lock) {
+            cache[key] ?: run {
+                val stored = prefs.getString(key.prefName, null) ?: return@run null
+                val codec = codecOrNull() ?: return@run null
+                runCatching { codec.decrypt(stored) }
+                    .onFailure { diagnostics.log(TAG, Diagnostics.Level.W, "Secret ${key.name} illisible, ignoré", it) }
+                    .getOrNull()
+                    ?.also { cache[key] = it }
+            }
+        }
     }
 
-    /** `null` ou vide supprime le secret. Lève `IllegalStateException` si le Keystore est indisponible. */
+    /** `null` ou vide supprime le secret. Lève `IllegalStateException` si le Keystore est indisponible ou échoue. */
     fun put(key: Key, value: String?) {
-        if (value.isNullOrBlank()) {
-            prefs.edit().remove(key.prefName).apply()
-            cache.remove(key)
-        } else {
-            val codec = codec ?: throw IllegalStateException("Keystore indisponible : impossible d'enregistrer ${key.name}")
-            prefs.edit().putString(key.prefName, codec.encrypt(value)).apply()
-            cache[key] = value
+        synchronized(lock) {
+            if (value.isNullOrBlank()) {
+                prefs.edit().remove(key.prefName).apply()
+                cache.remove(key)
+            } else {
+                val codec = codecOrNull()
+                    ?: throw IllegalStateException("Keystore indisponible : impossible d'enregistrer ${key.name}")
+                val encrypted = try {
+                    codec.encrypt(value)
+                } catch (e: Exception) {
+                    val message = "Chiffrement impossible : ${key.name} non enregistré"
+                    diagnostics.log(TAG, Diagnostics.Level.E, message, e)
+                    throw IllegalStateException(message, e)
+                }
+                prefs.edit().putString(key.prefName, encrypted).apply()
+                cache[key] = value
+            }
         }
         _changes.tryEmit(Unit)
     }
 
     private fun loadOrCreateKey(): SecretKey {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-        (keyStore.getEntry(ALIAS, null) as? KeyStore.SecretKeyEntry)?.let { return it.secretKey }
+        if (keyStore.containsAlias(ALIAS)) {
+            val entry = keyStore.getEntry(ALIAS, null)
+            // Jamais de régénération : cela orphelinerait les secrets déjà chiffrés.
+            return (entry as? KeyStore.SecretKeyEntry)?.secretKey
+                ?: error("L'alias $ALIAS existe mais n'est pas une clé secrète")
+        }
         val spec = KeyGenParameterSpec.Builder(ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
             .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
             .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
