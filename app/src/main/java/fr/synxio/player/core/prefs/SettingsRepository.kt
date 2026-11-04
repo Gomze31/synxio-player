@@ -34,6 +34,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import javax.inject.Inject
@@ -200,6 +202,9 @@ class SettingsRepository @Inject constructor(
     private val diagnostics: Diagnostics,
     @ApplicationScope scope: CoroutineScope,
 ) {
+
+    /** Sérialise la migration et les écritures de secrets : pas de vérifier-puis-écrire entrelacé. */
+    private val secretsMutex = Mutex()
 
     init {
         scope.launch { migrateSecrets() }
@@ -583,16 +588,23 @@ class SettingsRepository @Inject constructor(
 
     /**
      * Déplace les deux secrets du DataStore (en clair, sauvegardé dans le cloud) vers le
-     * Keystore. Idempotent : sans valeur en clair, ne fait rien. Si le Keystore refuse,
-     * le clair reste en place et la migration sera retentée au prochain démarrage.
+     * Keystore. Idempotent : sans valeur en clair, ne fait rien. Une valeur déjà présente
+     * dans le Keystore est conservée, le clair est alors simplement supprimé. Si le Keystore
+     * refuse, le clair reste en place et la migration sera retentée au prochain démarrage.
      */
     private suspend fun migrateSecrets() = withContext(Dispatchers.IO) {
+        secretsMutex.withLock { migrateSecretsLocked() }
+    }
+
+    private suspend fun migrateSecretsLocked() {
         val p = preferences.first()
         val webhook = p[Keys.DISCORD_WEBHOOK_URL]
         val session = p[Keys.LASTFM_SESSION]
-        if (webhook.isNullOrBlank() && session.isNullOrBlank()) return@withContext
+        if (webhook.isNullOrBlank() && session.isNullOrBlank()) return
         runCatching {
-            // Une valeur déjà présente dans le Keystore est plus récente que le clair : on la garde.
+            // Les setters effacent le clair à chaque écriture réussie : un clair encore présent
+            // n'a donc jamais été remplacé par l'utilisateur. Une valeur déjà dans le Keystore
+            // est gardée.
             migrateOne(SecretStore.Key.DISCORD_WEBHOOK_URL, webhook)
             migrateOne(SecretStore.Key.LASTFM_SESSION, session)
             context.dataStore.edit {
@@ -613,17 +625,26 @@ class SettingsRepository @Inject constructor(
     }
 
     /**
-     * Écrit un secret hors du thread principal. Renvoie `false` si le Keystore refuse ;
-     * le journal nomme la clé, jamais la valeur.
+     * Écrit (ou efface) un secret hors du thread principal, puis efface l'ancienne copie en
+     * clair du DataStore pour que la migration ne la réécrive jamais. Renvoie `false` si le
+     * Keystore refuse ; le journal nomme la clé, jamais la valeur.
      */
     private suspend fun putSecret(key: SecretStore.Key, value: String): Boolean =
         withContext(Dispatchers.IO) {
-            try {
-                secretStore.put(key, value)
+            secretsMutex.withLock {
+                try {
+                    secretStore.put(key, value)
+                } catch (e: IllegalStateException) {
+                    if (e is CancellationException) throw e
+                    diagnostics.log("Settings", Diagnostics.Level.E, "Écriture du secret ${key.name} impossible", e)
+                    return@withLock false
+                }
+                val legacy = when (key) {
+                    SecretStore.Key.DISCORD_WEBHOOK_URL -> Keys.DISCORD_WEBHOOK_URL
+                    SecretStore.Key.LASTFM_SESSION -> Keys.LASTFM_SESSION
+                }
+                context.dataStore.edit { it.remove(legacy) }
                 true
-            } catch (e: IllegalStateException) {
-                diagnostics.log("Settings", Diagnostics.Level.E, "Écriture du secret ${key.name} impossible", e)
-                false
             }
         }
 
