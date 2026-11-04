@@ -53,4 +53,19 @@ class DiagnosticLogTest {
         assertEquals(emptyList<String>(), log.recent(10))
         assertEquals(0L, log.sizeBytes())
     }
+
+    @Test
+    fun `la taille reste bornee meme si le renommage echoue`() {
+        val dir = tmp.newFolder()
+        // Un dossier non vide en guise de synxio.log.1 fait échouer renameTo de façon déterministe.
+        File(dir, "synxio.log.1").apply { mkdir(); File(this, "bloque").writeText("x") }
+        val log = DiagnosticLog(dir, maxFileBytes = 20)
+        repeat(10) { log.append("0123456789") }
+        assertTrue(File(dir, "synxio.log").length() <= 20 + 11)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `refuse maxLines nul`() {
+        DiagnosticLog(tmp.newFolder(), maxLines = 0)
+    }
 }

@@ -14,6 +14,10 @@ class DiagnosticLog(
     private val maxLines: Int = 500,
     private val maxFileBytes: Long = 256L * 1024,
 ) {
+    init {
+        require(maxLines > 0) { "maxLines doit être strictement positif (reçu : $maxLines)" }
+    }
+
     private val lock = Any()
     private val lines = ArrayDeque<String>(maxLines)
 
@@ -27,12 +31,22 @@ class DiagnosticLog(
             runCatching {
                 dir.mkdirs()
                 if (current.exists() && current.length() > maxFileBytes) {
-                    previous.delete()
-                    current.renameTo(previous)
+                    rotate()
                 }
                 current.appendText(line + "\n")
             }
         }
+    }
+
+    /**
+     * Archive le fichier courant dans `synxio.log.1`. Si le renommage échoue (verrou Windows,
+     * poignée ouverte), on copie puis on vide le courant : la borne de taille reste respectée.
+     */
+    private fun rotate() {
+        previous.delete()
+        if (current.renameTo(previous)) return
+        runCatching { current.copyTo(previous, overwrite = true) }
+        if (!current.delete()) runCatching { current.writeText("") }
     }
 
     fun recent(limit: Int): List<String> = synchronized(lock) { lines.takeLast(limit) }
