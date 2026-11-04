@@ -46,6 +46,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
@@ -84,6 +85,7 @@ class AppViewModel @Inject constructor(
     private val podcastProgressDao: fr.synxio.player.data.db.PodcastProgressDao,
     private val chapterRepository: fr.synxio.player.data.repo.ChapterRepository,
     private val bookmarkDao: fr.synxio.player.data.db.BookmarkDao,
+    private val diagnostics: fr.synxio.player.core.diag.Diagnostics,
 ) : ViewModel() {
 
     /** Positions de reprise des podcasts et chapitres, par identifiant de morceau. */
@@ -326,6 +328,29 @@ class AppViewModel @Inject constructor(
      */
     private val _shareIntents = MutableSharedFlow<Intent>(extraBufferCapacity = 1)
     val shareIntents: SharedFlow<Intent> = _shareIntents
+
+    init {
+        viewModelScope.launch {
+            val crashed = withContext(Dispatchers.IO) { diagnostics.hasUnseenCrash() }
+            if (crashed) {
+                // Sans abonné, un SharedFlow sans replay perd l'émission : on attend la snackbar.
+                _actionMessages.subscriptionCount.first { it > 0 }
+                _actionMessages.emit(
+                    ActionMessage(
+                        text = "Synxio s'est arrêté brutalement la dernière fois.",
+                        actionLabel = "Exporter",
+                        onAction = { exportDiagnostic() },
+                    )
+                )
+                diagnostics.markCrashesSeen()
+            }
+        }
+    }
+
+    fun exportDiagnostic() = viewModelScope.launch {
+        val intent = withContext(Dispatchers.IO) { diagnostics.exportIntent() }
+        if (intent != null) _shareIntents.emit(intent)
+    }
 
     private val _deleteIntentSenders = MutableSharedFlow<android.content.IntentSender>(extraBufferCapacity = 1)
     val deleteIntentSenders: SharedFlow<android.content.IntentSender> = _deleteIntentSenders

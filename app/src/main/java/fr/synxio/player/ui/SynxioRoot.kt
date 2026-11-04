@@ -303,7 +303,7 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
     LaunchedEffect(Unit) {
         viewModel.shareIntents.collect { intent ->
             runCatching {
-                context.startActivity(Intent.createChooser(intent, "Partager le titre"))
+                context.startActivity(Intent.createChooser(intent, "Partager"))
             }.onFailure { android.util.Log.w("ShareCard", "startActivity a échoué", it) }
         }
     }

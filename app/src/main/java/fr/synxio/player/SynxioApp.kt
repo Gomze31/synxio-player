@@ -9,6 +9,8 @@ import coil3.memory.MemoryCache
 import coil3.request.crossfade
 import okio.Path.Companion.toOkioPath
 import dagger.hilt.android.HiltAndroidApp
+import fr.synxio.player.core.diag.Diagnostics
+import javax.inject.Inject
 
 /**
  * YoutubeDL et FFmpeg ne sont pas initialisés ici : au premier lancement, leur `init`
@@ -18,10 +20,17 @@ import dagger.hilt.android.HiltAndroidApp
 @HiltAndroidApp
 class SynxioApp : Application(), SingletonImageLoader.Factory {
 
+    @Inject lateinit var diagnostics: Diagnostics
+
     override fun onCreate() {
         super.onCreate()
+        // Avant tout le reste : un crash d'initialisation doit déjà laisser un rapport.
+        diagnostics.installCrashHandler()
         // La commande vocale (5.2 à 5.4) téléchargeait un modèle de 42 Mo : on libère la place.
-        Thread { runCatching { filesDir.resolve("voice").deleteRecursively() } }.start()
+        Thread {
+            runCatching { filesDir.resolve("voice").deleteRecursively() }
+                .onFailure { diagnostics.log("SynxioApp", Diagnostics.Level.W, "Suppression du modèle vocal impossible", it) }
+        }.start()
     }
 
     /**

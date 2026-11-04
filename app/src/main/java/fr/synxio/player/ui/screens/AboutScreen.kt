@@ -1,5 +1,6 @@
 package fr.synxio.player.ui.screens
 
+import android.content.Intent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -21,10 +22,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Code
+import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.NewReleases
 import androidx.compose.material.icons.rounded.Lyrics
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -32,9 +37,15 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -43,6 +54,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -51,8 +63,11 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.clickable
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.synxio.player.BuildConfig
 import fr.synxio.player.R
+import fr.synxio.player.ui.components.BrandButton
 import fr.synxio.player.ui.components.GlassCard
 import fr.synxio.player.ui.components.enterCascade
 import fr.synxio.player.ui.components.pressBounce
@@ -66,6 +81,7 @@ import fr.synxio.player.ui.theme.TabularNumbers
 import fr.synxio.player.ui.theme.glass
 import fr.synxio.player.ui.theme.glowShadow
 import fr.synxio.player.ui.theme.synxioTopBarColors
+import fr.synxio.player.ui.viewmodel.DiagnosticsViewModel
 
 /**
  * À propos : la vitrine de l'app. Logo posé sur la signature, nom en grand, version, puis
@@ -82,6 +98,44 @@ fun AboutScreen(
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     val uriHandler = LocalUriHandler.current
     val repo = BuildConfig.UPDATE_REPO.trim()
+    val diagnosticsViewModel: DiagnosticsViewModel = hiltViewModel()
+    val diagnostic by diagnosticsViewModel.summary.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    var confirmExport by remember { mutableStateOf(false) }
+    var confirmClear by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        diagnosticsViewModel.shareIntents.collect { intent ->
+            runCatching { context.startActivity(Intent.createChooser(intent, "Exporter le diagnostic")) }
+                .onFailure { diagnosticsViewModel.reportShareFailure(it) }
+        }
+    }
+
+    if (confirmExport) {
+        AlertDialog(
+            onDismissRequest = { confirmExport = false },
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            title = { Text("Exporter le diagnostic") },
+            text = { Text("Le journal peut contenir des noms de fichiers musicaux et de dossiers. Partage-le seulement avec quelqu'un de confiance.") },
+            confirmButton = {
+                BrandButton(text = "Exporter", onClick = { confirmExport = false; diagnosticsViewModel.export() })
+            },
+            dismissButton = { TextButton(onClick = { confirmExport = false }) { Text("Annuler") } },
+        )
+    }
+
+    if (confirmClear) {
+        AlertDialog(
+            onDismissRequest = { confirmClear = false },
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            title = { Text("Effacer le diagnostic") },
+            text = { Text("Journal et rapports de crash seront supprimés.") },
+            confirmButton = {
+                BrandButton(text = "Effacer", onClick = { confirmClear = false; diagnosticsViewModel.clear() })
+            },
+            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Annuler") } },
+        )
+    }
     Scaffold(
         containerColor = Color.Transparent,
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -165,6 +219,43 @@ fun AboutScreen(
                         title = "Paroles synchronisées",
                         text = "Fournies par LRCLIB, base libre et communautaire",
                         onClick = { runCatching { uriHandler.openUri("https://lrclib.net") } },
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(Space.xl))
+
+            AboutGroupTitle("Diagnostic", Modifier.enterCascade(5, key = "about-t3"))
+            GlassCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .enterCascade(6, key = "about-c3"),
+                contentPadding = Space.xs,
+            ) {
+                Column {
+                    val crashes = when (diagnostic.crashCount) {
+                        0 -> "aucun rapport de crash"
+                        1 -> "1 rapport de crash"
+                        else -> "${diagnostic.crashCount} rapports de crash"
+                    }
+                    AboutLine(
+                        icon = Icons.Rounded.BugReport,
+                        title = "Journal local",
+                        text = "${diagnostic.logBytes / 1024} Ko, $crashes. Rien n'est envoyé automatiquement.",
+                    )
+                    AboutDivider()
+                    AboutLine(
+                        icon = Icons.Rounded.Share,
+                        title = "Exporter",
+                        text = "Partager le journal et les rapports en texte",
+                        onClick = { confirmExport = true },
+                    )
+                    AboutDivider()
+                    AboutLine(
+                        icon = Icons.Rounded.DeleteSweep,
+                        title = "Effacer",
+                        text = "Supprimer journal et rapports",
+                        onClick = { confirmClear = true },
                     )
                 }
             }
