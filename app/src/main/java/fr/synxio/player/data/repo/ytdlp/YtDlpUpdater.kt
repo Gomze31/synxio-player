@@ -29,46 +29,69 @@ class YtDlpUpdater(
     }
 
     fun update(): Result {
-        if (!binary.isFile) return Result.Rejected("binaire yt-dlp introuvable")
         val backup = File(binary.parentFile, "${binary.name}.bak")
-        binary.copyTo(backup, overwrite = true)
+        // Reprise après interruption : un .bak restant contient l'ancien binaire sain.
+        if (backup.exists() && !restore(backup)) return Result.Rejected(LOST)
+        if (!binary.isFile) return Result.Rejected("binaire yt-dlp introuvable")
+        try {
+            binary.copyTo(backup, overwrite = true)
+        } catch (e: Exception) {
+            backup.delete()
+            return Result.Rejected("sauvegarde impossible")
+        }
 
         val outcome = try {
             runLibraryUpdate()
-        } catch (e: Throwable) {
-            restore(backup)
-            return Result.Rejected("mise à jour échouée : ${e.message ?: e.javaClass.simpleName}")
+        } catch (e: Exception) {
+            return reject(backup, "mise à jour échouée : ${e.message ?: e.javaClass.simpleName}")
         }
         if (outcome == LibraryOutcome.ALREADY_UP_TO_DATE) {
             backup.delete()
             return Result.AlreadyUpToDate
         }
 
-        val version = installedVersion()?.takeIf { it.isNotBlank() }
-            ?: return reject(backup, "version installée inconnue")
-        val sums = fetchSums(version)
-            ?: return reject(backup, "sommes de contrôle inaccessibles pour $version")
-        val expected = ShaSums.digestFor(sums, binary.name)
-            ?: return reject(backup, "aucune somme publiée pour ${binary.name} ($version)")
-        val actual = sha256(binary)
-        return if (actual == expected) {
-            backup.delete()
-            Result.Updated(version)
-        } else {
-            reject(backup, "somme de contrôle différente ($version)")
+        return try {
+            val version = installedVersion()?.takeIf { it.isNotBlank() }
+                ?: return reject(backup, "version installée inconnue")
+            val sums = fetchSums(version)
+                ?: return reject(backup, "sommes de contrôle inaccessibles pour $version")
+            val expected = ShaSums.digestFor(sums, binary.name)
+                ?: return reject(backup, "aucune somme publiée pour ${binary.name} ($version)")
+            if (sha256(binary) == expected) {
+                backup.delete()
+                Result.Updated(version)
+            } else {
+                reject(backup, "somme de contrôle différente ($version)")
+            }
+        } catch (e: Exception) {
+            reject(backup, "vérification impossible : ${e.message ?: e.javaClass.simpleName}")
         }
     }
 
-    private fun reject(backup: File, reason: String): Result {
-        restore(backup)
-        return Result.Rejected(reason)
+    private fun reject(backup: File, reason: String): Result =
+        if (restore(backup)) Result.Rejected(reason) else Result.Rejected(LOST)
+
+    /**
+     * Remet l'ancien binaire en place (renommage, sinon copie). Si c'est impossible, le
+     * binaire non vérifié est supprimé plutôt que laissé exécutable.
+     */
+    private fun restore(backup: File): Boolean {
+        try {
+            if (backup.isFile) {
+                if (backup.renameTo(binary)) return true
+                backup.copyTo(binary, overwrite = true)
+                backup.delete()
+                return true
+            }
+        } catch (e: Exception) {
+            // repli ci-dessous
+        }
+        binary.delete()
+        return false
     }
 
-    private fun restore(backup: File) {
-        if (backup.isFile) {
-            backup.copyTo(binary, overwrite = true)
-            backup.delete()
-        }
+    private companion object {
+        const val LOST = "restauration impossible : l'ancien binaire est perdu, relance une mise à jour"
     }
 
     private fun sha256(file: File): String {

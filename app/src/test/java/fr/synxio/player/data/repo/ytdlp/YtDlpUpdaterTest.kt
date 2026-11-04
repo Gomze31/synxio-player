@@ -76,6 +76,7 @@ class YtDlpUpdaterTest {
         )
         assertTrue(updater.update() is YtDlpUpdater.Result.Rejected)
         assertEquals("ancien", binary.readText())
+        assertFalse(File(binary.parentFile, "yt-dlp.bak").exists())
     }
 
     @Test
@@ -89,5 +90,55 @@ class YtDlpUpdaterTest {
         )
         assertTrue(updater.update() is YtDlpUpdater.Result.Rejected)
         assertEquals("ancien", binary.readText())
+        assertFalse(File(binary.parentFile, "yt-dlp.bak").exists())
+    }
+
+    private fun updated(binary: File, installed: () -> String?, sums: (String) -> String?) = YtDlpUpdater(
+        binary,
+        runLibraryUpdate = { binary.writeText("nouveau"); YtDlpUpdater.LibraryOutcome.UPDATED },
+        installedVersion = installed,
+        fetchSums = sums,
+    )
+
+    @Test
+    fun `fetchSums leve - ancien binaire restaure, pas de bak`() {
+        val binary = binary("ancien")
+        val result = updated(binary, { "2026.11.01" }, { throw java.io.IOException("timeout") }).update()
+        assertTrue(result is YtDlpUpdater.Result.Rejected)
+        assertEquals("ancien", binary.readText())
+        assertFalse(File(binary.parentFile, "yt-dlp.bak").exists())
+    }
+
+    @Test
+    fun `version inconnue - ancien binaire restaure, pas de bak`() {
+        val binary = binary("ancien")
+        val result = updated(binary, { null }, { null }).update()
+        assertTrue(result is YtDlpUpdater.Result.Rejected)
+        assertEquals("ancien", binary.readText())
+        assertFalse(File(binary.parentFile, "yt-dlp.bak").exists())
+    }
+
+    @Test
+    fun `binaire supprime par la bibliotheque - ancien binaire restaure`() {
+        val binary = binary("ancien")
+        val updater = YtDlpUpdater(
+            binary,
+            runLibraryUpdate = { binary.delete(); YtDlpUpdater.LibraryOutcome.UPDATED },
+            installedVersion = { "2026.11.01" },
+            fetchSums = { "${sha256("nouveau".toByteArray())}  yt-dlp" },
+        )
+        assertTrue(updater.update() is YtDlpUpdater.Result.Rejected)
+        assertEquals("ancien", binary.readText())
+        assertFalse(File(binary.parentFile, "yt-dlp.bak").exists())
+    }
+
+    @Test
+    fun `bak preexistant et binaire corrompu - ancien binaire repris`() {
+        val binary = binary("corrompu")
+        File(binary.parentFile, "yt-dlp.bak").writeText("sain")
+        val result = YtDlpUpdater(binary, { YtDlpUpdater.LibraryOutcome.ALREADY_UP_TO_DATE }, { "v" }, { null }).update()
+        assertEquals(YtDlpUpdater.Result.AlreadyUpToDate, result)
+        assertEquals("sain", binary.readText())
+        assertFalse(File(binary.parentFile, "yt-dlp.bak").exists())
     }
 }
