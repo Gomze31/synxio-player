@@ -25,6 +25,7 @@ import fr.synxio.player.data.model.SongSort
 import fr.synxio.player.data.model.TextSize
 import fr.synxio.player.data.model.ThemeMode
 import fr.synxio.player.di.ApplicationScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -495,8 +496,13 @@ class SettingsRepository @Inject constructor(
     suspend fun setOnlineMetadata(value: Boolean) = put(Keys.ONLINE_METADATA, value)
     suspend fun setAutoTranslateLyrics(value: Boolean) = put(Keys.AUTO_TRANSLATE_LYRICS, value)
     suspend fun setScrobbleEnabled(value: Boolean) = put(Keys.SCROBBLE, value)
+    /**
+     * Enregistre la session Last.fm dans le Keystore et le nom d'utilisateur dans le DataStore.
+     * Si le Keystore refuse l'écriture, l'échec est journalisé et rien n'est enregistré :
+     * [settings] ne reflète alors pas la nouvelle session, c'est le signal visible de l'échec.
+     */
     suspend fun setLastFmSession(sessionKey: String, username: String) {
-        withContext(Dispatchers.IO) { secretStore.put(SecretStore.Key.LASTFM_SESSION, sessionKey) }
+        if (!putSecret(SecretStore.Key.LASTFM_SESSION, sessionKey)) return
         put(Keys.LASTFM_USER, username)
     }
 
@@ -537,8 +543,13 @@ class SettingsRepository @Inject constructor(
     suspend fun setDiscordEnabled(value: Boolean) = put(Keys.DISCORD_ENABLED, value)
     suspend fun setDiscordPresenceEnabled(value: Boolean) =
         put(Keys.DISCORD_PRESENCE_ENABLED, value)
-    suspend fun setDiscordWebhookUrl(value: String) = withContext(Dispatchers.IO) {
-        secretStore.put(SecretStore.Key.DISCORD_WEBHOOK_URL, value.trim())
+    /**
+     * Enregistre le webhook Discord dans le Keystore. Si le Keystore refuse l'écriture,
+     * l'échec est journalisé sans être propagé : [settings] ne reflète alors pas la nouvelle
+     * URL, c'est le signal visible de l'échec.
+     */
+    suspend fun setDiscordWebhookUrl(value: String) {
+        putSecret(SecretStore.Key.DISCORD_WEBHOOK_URL, value.trim())
     }
     suspend fun setLastUpdateCheck(value: Long) = put(Keys.LAST_UPDATE_CHECK, value)
     
@@ -581,17 +592,40 @@ class SettingsRepository @Inject constructor(
         val session = p[Keys.LASTFM_SESSION]
         if (webhook.isNullOrBlank() && session.isNullOrBlank()) return@withContext
         runCatching {
-            if (!webhook.isNullOrBlank()) secretStore.put(SecretStore.Key.DISCORD_WEBHOOK_URL, webhook)
-            if (!session.isNullOrBlank()) secretStore.put(SecretStore.Key.LASTFM_SESSION, session)
+            // Une valeur déjà présente dans le Keystore est plus récente que le clair : on la garde.
+            migrateOne(SecretStore.Key.DISCORD_WEBHOOK_URL, webhook)
+            migrateOne(SecretStore.Key.LASTFM_SESSION, session)
             context.dataStore.edit {
                 it.remove(Keys.DISCORD_WEBHOOK_URL)
                 it.remove(Keys.LASTFM_SESSION)
             }
             diagnostics.log("Settings", Diagnostics.Level.I, "Secrets migrés vers le Keystore")
         }.onFailure {
+            if (it is CancellationException) throw it
             diagnostics.log("Settings", Diagnostics.Level.W, "Migration des secrets reportée", it)
         }
     }
+
+    /** Copie [plaintext] dans le Keystore sauf si [key] y a déjà une valeur. */
+    private fun migrateOne(key: SecretStore.Key, plaintext: String?) {
+        if (plaintext.isNullOrBlank()) return
+        if (secretStore.get(key) == null) secretStore.put(key, plaintext)
+    }
+
+    /**
+     * Écrit un secret hors du thread principal. Renvoie `false` si le Keystore refuse ;
+     * le journal nomme la clé, jamais la valeur.
+     */
+    private suspend fun putSecret(key: SecretStore.Key, value: String): Boolean =
+        withContext(Dispatchers.IO) {
+            try {
+                secretStore.put(key, value)
+                true
+            } catch (e: IllegalStateException) {
+                diagnostics.log("Settings", Diagnostics.Level.E, "Écriture du secret ${key.name} impossible", e)
+                false
+            }
+        }
 
     private suspend fun <T> put(key: Preferences.Key<T>, value: T) {
         context.dataStore.edit { it[key] = value }
