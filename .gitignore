@@ -11,7 +11,6 @@ captures/
 *.aab
 *.keystore
 !debug.keystore
-!app/synxio-release.keystore
 *.jks
 keystore.properties
 
@@ -19,6 +18,7 @@ keystore.properties
 .jdk/
 
 release/
+signed-apk/
 
 # Sorties generees et espaces de travail (non versionnes)
 graphify-out/

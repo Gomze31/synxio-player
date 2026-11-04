@@ -1,27 +1,31 @@
 # Rotation de la clé de signature release
 
-> Statut : **rotation par lignée v3 décidée (5.5).** Code et CI prêts ; la nouvelle clé
-> reste à générer par le mainteneur, après la publication de la 5.5.0 (§0).
+> Statut : **rotation par lignée v3, minSdk 28.** Depuis la 5.6.1, la clé de secours
+> publique n'existe plus dans le dépôt ni dans la CI. La nouvelle clé signe seule.
 
-## 0. Plan retenu : lignée v3, en deux releases
+## 0. Ce qui est fait, ce qui reste
 
-Les §3 à §8 décrivent la rotation « franche » (désinstallation obligatoire). On lui préfère
-la **lignée APK Signature Scheme v3** : mise à jour transparente sur Android 9+.
+Fait dans le code (5.6.1) :
 
-1. **5.5.0, signée avec l'ancienne clé.** Elle embarque le nouveau contrôle du programme de
-   mise à jour (`UpdateSignatures`) : accepté si la lignée de l'APK contient la clé
-   installée. La 5.4 exige une signature identique : un APK signé par la lignée lui serait
-   refusé, d'où cette release de transition.
-2. **Après la 5.5.0** : `scripts/rotate-release-key.sh` génère la nouvelle clé et la lignée
-   (mots de passe saisis à la main), puis créer les secrets `KEYSTORE_BASE64`,
-   `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`, `LINEAGE_BASE64`.
-3. **5.5.1 et suivantes** : `release.yml` re-signe l'APK avec `apksigner sign --lineage`
-   (v1/v2 ancienne clé pour Android 8, v3 lignée dès Android 9). Un seul des deux secrets
-   présent fait échouer la release.
+- `app/build.gradle.kts` : plus de clé de secours ; un build release sans
+  `keystore.properties` échoue.
+- `release.yml` : secrets obligatoires, signature avec la nouvelle clé et sa lignée,
+  `--min-sdk-version 28`.
+- `UpdateSignatures.PINNED_SIGNER_SHA256` : empreinte de la nouvelle clé exigée sur tout
+  APK de mise à jour.
 
-L'ancienne clé garde ses droits sauf le retour arrière : une fois une appli passée sur la
-lignée, un APK signé par l'ancienne clé seule ne peut plus la mettre à jour (Android 9+).
-Android 8 (minSdk 26) ignore la v3 et reste exposé à l'ancienne clé.
+Reste au mainteneur, une seule fois, avant le tag `v5.6.1` :
+
+1. `scripts/rotate-release-key.sh` (clé + lignée, mots de passe saisis à la main).
+2. Les cinq secrets GitHub (§4) : `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`,
+   `KEY_PASSWORD`, `LINEAGE_BASE64`.
+3. Renseigner `PINNED_SIGNER_SHA256` avec l'empreinte affichée par le script (hexadécimal
+   sans « : »), puis commit.
+4. `keystore.properties` à la racine pour les builds release locaux.
+
+Transition : la 5.6.0 (ancienne clé) accepte la 5.6.1 parce que la lignée contient
+l'ancienne clé. À partir de la 5.6.1, un APK signé par l'ancienne clé seule est refusé par
+l'application et par Android. Android 8.x ne reçoit plus de mise à jour.
 
 ## 1. Le risque
 
@@ -35,17 +39,6 @@ Android 8 (minSdk 26) ignore la v3 et reste exposé à l'ancienne clé.
   Le contrôle de signature du programme de mise à jour (`UpdateRepository.hasMatchingSignature`)
   ne protège pas non plus : il compare l'APK téléchargé à la signature installée, que
   l'attaquant possède.
-
-## 2. Garde-fous déjà en place
-
-- `app/build.gradle.kts` affiche un avertissement Gradle (`logger.warn`) à chaque build release
-  signé avec la clé de secours.
-- Interrupteur **`synxio.requireReleaseKey`** : quand il vaut `true`, un build release
-  **échoue** au lieu d'utiliser la clé de secours.
-  - en ligne de commande : `./gradlew assembleRelease -Psynxio.requireReleaseKey=true`
-  - ou variable d'environnement : `SYNXIO_REQUIRE_RELEASE_KEY=true`
-- `release.yml` émet un `::warning::` GitHub quand le secret `KEYSTORE_BASE64` est absent
-  (le build continue).
 
 ## 3. Générer une nouvelle clé
 
@@ -99,21 +92,6 @@ keyAlias=synxio
 keyPassword=…
 ```
 
-## 5. Activer l'interrupteur
-
-Une fois les secrets en place, dans `release.yml`, étape *Build Release APK* :
-
-```yaml
-      - name: Build Release APK
-        env:
-          SYNXIO_REQUIRE_RELEASE_KEY: "true"
-        run: ./gradlew assembleRelease --no-daemon --configuration-cache -x lintVitalRelease
-```
-
-Dès lors, une release sans secret échoue au lieu de partir signée avec la clé publique.
-Ensuite seulement : supprimer le bloc `else { … }` de secours dans `signingConfigs` et le
-fichier `app/synxio-release.keystore`.
-
 ## 6. Mettre à jour le contrôle de signature du programme de mise à jour
 
 `data/repo/UpdateRepository.kt`, `hasMatchingSignature()` (≈ lignes 192-216) compare
@@ -127,6 +105,8 @@ Sans cela, l'ancienne application refusera la nouvelle version (signatures diff�
 le message « signature différente », ce qui est le comportement attendu pendant la transition.
 
 ## 7. Conséquence pour les utilisateurs — À LIRE
+
+Obsolète depuis la lignée v3 : la mise à jour est transparente sur Android 9+. Conservé pour mémoire.
 
 **Changer de clé oblige chaque utilisateur à désinstaller puis réinstaller l'application
 une fois.** Android refuse d'installer une mise à jour signée par une autre clé
@@ -142,27 +122,3 @@ Alternative à étudier : la rotation de clé APK Signature Scheme v3
 mais l'ancienne clé, compromise, reste dans la lignée : à n'utiliser qu'en connaissance de
 cause, et pas sur Android 8 (minSdk 26).
 
-## 8. Purger l'historique Git
-
-Retirer le fichier de l'arbre ne suffit pas : il reste dans tous les commits passés.
-Avec [`git filter-repo`](https://github.com/newren/git-filter-repo) :
-
-```bash
-# Sur un clone miroir frais
-git clone --mirror https://github.com/Gomze31/synxio-player.git
-cd synxio-player.git
-git filter-repo --invert-paths --path app/synxio-release.keystore
-# Le mot de passe en clair dans build.gradle.kts : remplacer le texte
-echo 'synxioplayer==>REMOVED' > ../replacements.txt
-git filter-repo --replace-text ../replacements.txt
-git push --force --mirror
-```
-
-Avertissements :
-
-- la réécriture change **tous** les identifiants de commit : tous les clones et forks doivent
-  être re-clonés, les PR ouvertes deviennent inutilisables ;
-- les forks publics et les caches (GitHub, archives des releases, miroirs) conservent l'ancienne
-  clé : la purge **ne la rend pas secrète à nouveau**. Seule la rotation (§3 à §7) neutralise
-  le risque ; la purge évite seulement de continuer à la diffuser ;
-- contacter le support GitHub pour purger les vues en cache si nécessaire.

@@ -23,8 +23,9 @@ android {
 
     defaultConfig {
         applicationId = "fr.synxio.player"
-        // 26 = Android 8.0 : icônes adaptatives + canaux de notification natifs
-        minSdk = 26
+        // 28 = Android 9 : première version qui comprend la lignée de signature v3.
+        // En dessous, un APK signé par la nouvelle clé ne serait qu'une appli inconnue.
+        minSdk = 28
         // 37 = Android 17, désormais stable. Vérifié sur appareil (MagicOS, API 37).
         targetSdk = 37
         versionCode = 20261107
@@ -50,40 +51,21 @@ android {
     signingConfigs {
         create("release") {
             val storePath = keystoreProperties.getProperty("storeFile")
+            val releaseRequested = gradle.startParameter.taskNames.any {
+                it.contains("Release", ignoreCase = true) || it.contains("bundle", ignoreCase = true)
+            }
             if (storePath != null && rootProject.file(storePath).exists()) {
                 storeFile = rootProject.file(storePath)
                 storePassword = keystoreProperties.getProperty("storePassword")
                 keyAlias = keystoreProperties.getProperty("keyAlias")
                 keyPassword = keystoreProperties.getProperty("keyPassword")
-            } else {
-                // Interrupteur de sécurité : -Psynxio.requireReleaseKey=true ou
-                // SYNXIO_REQUIRE_RELEASE_KEY=true. Activé, un build release ÉCHOUE plutôt que de
-                // retomber sur la clé publique du dépôt (voir docs/KEY_ROTATION.md).
-                val requireReleaseKey = (
-                    providers.gradleProperty("synxio.requireReleaseKey").orNull
-                        ?: providers.environmentVariable("SYNXIO_REQUIRE_RELEASE_KEY").orNull
-                    )?.trim()?.equals("true", ignoreCase = true) == true
-                val releaseRequested = gradle.startParameter.taskNames.any {
-                    it.contains("Release", ignoreCase = true) || it.contains("bundle", ignoreCase = true)
-                }
-                if (requireReleaseKey && releaseRequested) {
-                    throw GradleException(
-                        "Clé de release absente (keystore.properties) alors que synxio.requireReleaseKey=true : " +
-                            "refus de signer avec la clé publique app/synxio-release.keystore."
-                    )
-                }
-                if (releaseRequested) {
-                    logger.warn(
-                        "ATTENTION : signature release avec la clé de SECOURS app/synxio-release.keystore, " +
-                            "dont le mot de passe est public dans le dépôt. Voir docs/KEY_ROTATION.md."
-                    )
-                }
-                // Keystore de release officiel embarqué pour garantir une signature
-                // 100% identique entre GitHub Actions, les APKs et les mises à jour in-app.
-                storeFile = file("synxio-release.keystore")
-                storePassword = "synxioplayer"
-                keyAlias = "synxio"
-                keyPassword = "synxioplayer"
+            } else if (releaseRequested) {
+                // Aucune clé de secours : la clé de release est privée, elle vit dans
+                // keystore.properties (local) ou dans les secrets GitHub (CI).
+                throw GradleException(
+                    "Clé de release absente : créer keystore.properties à la racine " +
+                        "(voir docs/KEY_ROTATION.md)."
+                )
             }
         }
     }
