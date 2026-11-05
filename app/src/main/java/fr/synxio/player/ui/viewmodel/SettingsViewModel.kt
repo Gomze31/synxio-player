@@ -221,6 +221,9 @@ class SettingsViewModel @Inject constructor(
     fun setReduceAnimations(value: Boolean) = update { settings.setReduceAnimations(value) }
     fun setGlowEffects(value: Boolean) = update { settings.setGlowEffects(value) }
     fun setSceneReactive(value: Boolean) = update { settings.setSceneReactive(value) }
+    fun setCanvasAnimated(value: Boolean) = update { settings.setCanvasAnimated(value) }
+    /** Remet le drapeau à faux : les shaders seront réessayés au prochain dessin. */
+    fun retryShaders() = update { settings.setShadersUnavailable(false) }
     fun setHapticsEnabled(value: Boolean) = update { settings.setHapticsEnabled(value) }
 
     // ========================================================================

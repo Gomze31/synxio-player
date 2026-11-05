@@ -179,6 +179,10 @@ data class Settings(
     val glowEffects: Boolean = true,
     /** L'aurore et la signature respirent sur la musique (lecteur et mini-lecteur). */
     val sceneReactive: Boolean = true,
+    /** Canvas animé derrière la pochette (skins Immersif et Carte). */
+    val canvasAnimated: Boolean = true,
+    /** Levé quand un shader AGSL a refusé de compiler sur cet appareil : repli Canvas, sauf réessai. */
+    val shadersUnavailable: Boolean = false,
 
     // Expérimental
     val developerMode: Boolean = false,
@@ -308,6 +312,8 @@ class SettingsRepository @Inject constructor(
         val REDUCE_ANIMATIONS = booleanPreferencesKey("reduce_animations")
         val GLOW_EFFECTS = booleanPreferencesKey("glow_effects")
         val SCENE_REACTIVE = booleanPreferencesKey("scene_reactive")
+        val CANVAS_ANIMATED = booleanPreferencesKey("canvas_animated")
+        val SHADERS_UNAVAILABLE = booleanPreferencesKey("shaders_unavailable")
         
         // Expérimental
         val DEVELOPER_MODE = booleanPreferencesKey("developer_mode")
@@ -427,6 +433,8 @@ class SettingsRepository @Inject constructor(
                 reduceAnimations = p[Keys.REDUCE_ANIMATIONS] ?: false,
                 glowEffects = p[Keys.GLOW_EFFECTS] ?: true,
                 sceneReactive = p[Keys.SCENE_REACTIVE] ?: true,
+                canvasAnimated = p[Keys.CANVAS_ANIMATED] ?: true,
+                shadersUnavailable = p[Keys.SHADERS_UNAVAILABLE] ?: false,
                 
                 // Expérimental
                 developerMode = p[Keys.DEVELOPER_MODE] ?: false,
@@ -577,6 +585,8 @@ class SettingsRepository @Inject constructor(
     suspend fun setReduceAnimations(value: Boolean) = put(Keys.REDUCE_ANIMATIONS, value)
     suspend fun setGlowEffects(value: Boolean) = put(Keys.GLOW_EFFECTS, value)
     suspend fun setSceneReactive(value: Boolean) = put(Keys.SCENE_REACTIVE, value)
+    suspend fun setCanvasAnimated(value: Boolean) = put(Keys.CANVAS_ANIMATED, value)
+    suspend fun setShadersUnavailable(value: Boolean) = put(Keys.SHADERS_UNAVAILABLE, value)
     
     // Expérimental
     suspend fun setDeveloperMode(value: Boolean) = put(Keys.DEVELOPER_MODE, value)

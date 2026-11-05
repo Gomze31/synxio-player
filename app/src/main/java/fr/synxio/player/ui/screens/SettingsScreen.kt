@@ -83,6 +83,7 @@ import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.FormatSize
 import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Image
@@ -504,6 +505,25 @@ fun SettingsScreen(
                                 checked = settings.sceneReactive,
                                 onCheckedChange = settingsViewModel::setSceneReactive
                             )
+                            GroupDivider()
+                            SwitchSetting(
+                                title = "Canvas animé",
+                                subtitle = "Une boucle de lumière derrière la pochette, au rythme du titre",
+                                icon = Icons.Rounded.BlurOn,
+                                checked = settings.canvasAnimated,
+                                onCheckedChange = settingsViewModel::setCanvasAnimated
+                            )
+                            Reveal(visible = settings.shadersUnavailable) {
+                                Column {
+                                    GroupDivider()
+                                    ClickableSetting(
+                                        title = "Réessayer les shaders",
+                                        subtitle = "Cet appareil a refusé les effets avancés ; retente après une mise à jour système",
+                                        icon = Icons.Rounded.Refresh,
+                                        onClick = settingsViewModel::retryShaders
+                                    )
+                                }
+                            }
                             GroupDivider()
                             SwitchSetting(
                                 title = "Retour haptique",
