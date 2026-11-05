@@ -660,9 +660,9 @@ class AppViewModel @Inject constructor(
         emit("Arrêt à la fin du chapitre")
     }
 
-    fun startSleepTimer(minutes: Int, finishTrack: Boolean) {
-        player.startSleepTimer(minutes * 60_000L, finishTrack)
-        emit("Veille dans $minutes min")
+    fun startSleepTimer(minutes: Int, finishTrack: Boolean, adaptive: Boolean = false) {
+        player.startSleepTimer(minutes * 60_000L, finishTrack, adaptive)
+        emit(if (adaptive) "Veille adaptative, $minutes min au plus" else "Veille dans $minutes min")
     }
 
     fun cancelSleepTimer() {

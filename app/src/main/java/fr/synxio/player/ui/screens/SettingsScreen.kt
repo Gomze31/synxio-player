@@ -72,6 +72,7 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Vibration
 import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.Backup
+import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.Brightness6
 import androidx.compose.material.icons.rounded.Check
@@ -679,6 +680,14 @@ fun SettingsScreen(
                                     )
                                 }
                             }
+                            GroupDivider()
+                            ChipSetting(
+                                title = "Immobilité avant pause",
+                                options = listOf("5 min", "10 min", "20 min"),
+                                selectedIndex = listOf(5, 10, 20).indexOf(settings.stillnessPauseMin).coerceAtLeast(0),
+                                onSelect = { settingsViewModel.setStillnessPauseMin(listOf(5, 10, 20)[it]) },
+                                icon = Icons.Rounded.Bedtime,
+                            )
                         }
 
                         group(4, "radio", "Radio") {

@@ -1347,7 +1347,7 @@ private fun BookSleepTimerSheet(
     }
     SleepTimerSheet(
         state = sleepTimer,
-        onStart = { minutes, finishTrack -> viewModel.startSleepTimer(minutes, finishTrack) },
+        onStart = { minutes, finishTrack, adaptive -> viewModel.startSleepTimer(minutes, finishTrack, adaptive) },
         onCancel = viewModel::cancelSleepTimer,
         onDismiss = onDismiss,
         chapterEndLabel = liveBook?.let { b ->

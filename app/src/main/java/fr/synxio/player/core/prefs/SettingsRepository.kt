@@ -84,6 +84,8 @@ data class Settings(
     
     // Nouvelle option : arrêter après inactivité (en minutes, 0 = désactivé)
     val stopAfterInactivityMin: Int = 0,
+    /** Veille adaptative : minutes d'immobilité, écran éteint, avant la pause (5, 10 ou 20). */
+    val stillnessPauseMin: Int = 10,
     
     // Volume
     val defaultVolume: Float = 0.8f,
@@ -248,6 +250,7 @@ class SettingsRepository @Inject constructor(
         
         // Nouvelle option : arrêter après inactivité
         val STOP_AFTER_INACTIVITY = intPreferencesKey("stop_after_inactivity_min")
+        val STILLNESS_PAUSE_MIN = intPreferencesKey("stillness_pause_min")
         
         // Volume
         val DEFAULT_VOLUME = floatPreferencesKey("default_volume")
@@ -375,6 +378,7 @@ class SettingsRepository @Inject constructor(
                 
                 // Nouvelle option : arrêter après inactivité
                 stopAfterInactivityMin = p[Keys.STOP_AFTER_INACTIVITY] ?: 0,
+                stillnessPauseMin = p[Keys.STILLNESS_PAUSE_MIN] ?: 10,
                 
                 // Volume
                 defaultVolume = p[Keys.DEFAULT_VOLUME] ?: 0.8f,
@@ -546,6 +550,7 @@ class SettingsRepository @Inject constructor(
     // Nouvelles options pour la lecture
     suspend fun setResumeAfterCall(value: Boolean) = put(Keys.RESUME_AFTER_CALL, value)
     suspend fun setStopAfterInactivity(value: Int) = put(Keys.STOP_AFTER_INACTIVITY, value)
+    suspend fun setStillnessPauseMin(value: Int) = put(Keys.STILLNESS_PAUSE_MIN, value)
     
     // Volume
     suspend fun setDefaultVolume(value: Float) = put(Keys.DEFAULT_VOLUME, value)

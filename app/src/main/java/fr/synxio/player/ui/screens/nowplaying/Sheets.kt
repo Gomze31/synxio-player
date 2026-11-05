@@ -590,7 +590,8 @@ fun QueueSheet(
 @Composable
 fun SleepTimerSheet(
     state: SleepTimerState,
-    onStart: (Int, Boolean) -> Unit,
+    /** (minutes, finir le morceau, veille adaptative). */
+    onStart: (Int, Boolean, Boolean) -> Unit,
     onCancel: () -> Unit,
     onDismiss: () -> Unit,
     /** Livre audio : « Fin du chapitre », avec le temps qu'il reste (`dans 12 min`). */
@@ -599,6 +600,7 @@ fun SleepTimerSheet(
 ) {
     var minutes by remember { mutableIntStateOf(30) }
     var finishTrack by remember { mutableStateOf(false) }
+    var adaptive by remember { mutableStateOf(false) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -615,7 +617,8 @@ fun SleepTimerSheet(
             SheetTitle("Minuterie de veille")
             Spacer(Modifier.height(Space.xs))
             Text(
-                "Le volume diminue progressivement 60 secondes avant l'arrêt.",
+                if (adaptive) "La durée choisie est le maximum : la lecture peut s'arrêter avant, dès que tu t'endors."
+                else "Le volume diminue progressivement 60 secondes avant l'arrêt.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -624,7 +627,8 @@ fun SleepTimerSheet(
             if (state.active) {
                 Text(
                     text = "Arrêt dans ${state.remainingMs.asDuration()}" +
-                        if (state.finishCurrentTrack) " (à la fin du morceau)" else "",
+                        (if (state.finishCurrentTrack) " (à la fin du morceau)" else "") +
+                        (if (state.adaptive) " (adaptative)" else ""),
                     style = MaterialTheme.typography.bodyLarge.copy(fontFeatureSettings = TabularNums),
                     color = MaterialTheme.colorScheme.primary,
                 )
@@ -676,6 +680,23 @@ fun SleepTimerSheet(
                 )
                 Switch(checked = finishTrack, onCheckedChange = null)
             }
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = Space.touchTarget)
+                    .clickable(role = Role.Switch) { adaptive = !adaptive },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Veille adaptative", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Fondu sur 20 min, pause si le téléphone ne bouge plus écran éteint, secoue pour prolonger",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = adaptive, onCheckedChange = null)
+            }
 
             if (onChapterEnd != null) {
                 Spacer(Modifier.height(Space.md))
@@ -690,7 +711,7 @@ fun SleepTimerSheet(
             Spacer(Modifier.height(Space.lg))
             BrandButton(
                 text = "Démarrer",
-                onClick = { onStart(minutes, finishTrack); onDismiss() },
+                onClick = { onStart(minutes, finishTrack, adaptive); onDismiss() },
                 icon = Icons.Rounded.Bedtime,
                 modifier = Modifier.fillMaxWidth(),
             )

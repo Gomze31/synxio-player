@@ -168,6 +168,7 @@ class SettingsViewModel @Inject constructor(
 
     /** Arrêter après inactivité (en minutes, 0 = désactivé) */
     fun setStopAfterInactivity(value: Int) = update { settings.setStopAfterInactivity(value) }
+    fun setStillnessPauseMin(value: Int) = update { settings.setStillnessPauseMin(value) }
 
     /** Limiter le volume maximum */
     fun setMaxVolumeLimit(value: Boolean) = update { settings.setMaxVolumeLimit(value) }

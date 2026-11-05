@@ -228,6 +228,15 @@ class PlaybackService : MediaLibraryService() {
 
     private var sensorManager: android.hardware.SensorManager? = null
     private var shakeDetector: fr.synxio.player.core.util.ShakeDetector? = null
+    // Veille adaptative : immobilité mesurée sur l'accéléromètre, vérifiée toutes les 15 s.
+    private val stillness = fr.synxio.player.core.util.StillnessDetector()
+    private val stillnessListener = object : android.hardware.SensorEventListener {
+        override fun onSensorChanged(event: android.hardware.SensorEvent) {
+            stillness.sample(event.values[0], event.values[1], event.values[2], android.os.SystemClock.elapsedRealtime())
+        }
+        override fun onAccuracyChanged(sensor: android.hardware.Sensor?, accuracy: Int) = Unit
+    }
+    private var stillnessJob: kotlinx.coroutines.Job? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -294,15 +303,28 @@ class PlaybackService : MediaLibraryService() {
         observeBuds()
         observeShowSpeed()
 
+        sleepTimer.setStillnessCallbacks(
+            onPause = { serviceScope.launch { activePlayer.pause() } },
+            onResume = { serviceScope.launch { activePlayer.play() } },
+        )
         serviceScope.launch {
+            var adaptiveOn = false
             sleepTimer.state.collect { state ->
                 fade.sleepGain = state.fadeMultiplier
+                val wantSensor = state.active && state.adaptive
+                if (wantSensor && !adaptiveOn) startStillnessWatch()
+                if (!wantSensor && adaptiveOn) stopStillnessWatch()
+                adaptiveOn = wantSensor
             }
         }
 
         sensorManager = getSystemService(android.content.Context.SENSOR_SERVICE) as android.hardware.SensorManager
         shakeDetector = fr.synxio.player.core.util.ShakeDetector {
-            if (activePlayer.hasNextMediaItem()) {
+            // En veille adaptative, la secousse prolonge la veille au lieu de passer au titre suivant.
+            val sleep = sleepTimer.state.value
+            if (sleep.active && sleep.adaptive) {
+                sleepTimer.onShake()
+            } else if (activePlayer.hasNextMediaItem()) {
                 activePlayer.seekToNextMediaItem()
             }
         }
@@ -433,6 +455,7 @@ class PlaybackService : MediaLibraryService() {
         headsetCallback = null
         buttonHandler.removeCallbacksAndMessages(null)
         fade.release()
+        stopStillnessWatch()
         sleepTimer.cancel()
         sensorManager?.unregisterListener(shakeDetector)
 
@@ -881,6 +904,31 @@ class PlaybackService : MediaLibraryService() {
      */
     private fun pauseForSleepTimer() {
         serviceScope.launch { activePlayer.pause() }
+    }
+
+    /** Veille adaptative : accéléromètre à cadence normale et vérification toutes les 15 s. */
+    private fun startStillnessWatch() {
+        val sensor = sensorManager?.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER) ?: return
+        sensorManager?.registerListener(stillnessListener, sensor, android.hardware.SensorManager.SENSOR_DELAY_NORMAL)
+        // La secousse prolonge la veille même si « Secouer pour passer » est désactivé.
+        sensorManager?.registerListener(shakeDetector, sensor, android.hardware.SensorManager.SENSOR_DELAY_NORMAL)
+        val power = getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+        stillnessJob = serviceScope.launch {
+            while (isActive) {
+                kotlinx.coroutines.delay(STILLNESS_CHECK_MS)
+                val limit = (latestSettings?.stillnessPauseMin ?: 10) * 60_000L
+                if (!power.isInteractive && stillness.stillFor(android.os.SystemClock.elapsedRealtime()) >= limit) {
+                    sleepTimer.onStillness()
+                }
+            }
+        }
+    }
+
+    private fun stopStillnessWatch() {
+        stillnessJob?.cancel()
+        stillnessJob = null
+        sensorManager?.unregisterListener(stillnessListener)
+        if (latestSettings?.shakeToSkip != true) sensorManager?.unregisterListener(shakeDetector)
     }
 
     /**
@@ -1529,6 +1577,7 @@ class PlaybackService : MediaLibraryService() {
                 CMD_SLEEP_TIMER -> sleepTimer.start(
                     durationMs = args.getLong(ARG_DURATION_MS, 30 * 60_000L),
                     finishCurrentTrack = args.getBoolean(ARG_FINISH_TRACK, false),
+                    adaptive = args.getBoolean(ARG_ADAPTIVE, false),
                 )
 
                 CMD_CANCEL_SLEEP_TIMER -> sleepTimer.cancel()
@@ -1916,6 +1965,8 @@ class PlaybackService : MediaLibraryService() {
         private const val ALARM_RAMP_TICK_MS = 250L
         const val ARG_DURATION_MS = "duration_ms"
         const val ARG_FINISH_TRACK = "finish_track"
+        const val ARG_ADAPTIVE = "adaptive"
+        private const val STILLNESS_CHECK_MS = 15_000L
 
         /** Laisse la persistance écrire, et absorbe les appels groupés. */
         private const val WIDGET_REFRESH_DELAY_MS = 250L

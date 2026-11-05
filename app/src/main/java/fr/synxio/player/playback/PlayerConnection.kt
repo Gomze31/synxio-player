@@ -654,11 +654,12 @@ class PlayerConnection @Inject constructor(
 
     fun toggleFavorite() = whenQueueReady { sendCommand(PlaybackService.CMD_TOGGLE_FAVORITE) }
 
-    fun startSleepTimer(durationMs: Long, finishCurrentTrack: Boolean) = sendCommand(
+    fun startSleepTimer(durationMs: Long, finishCurrentTrack: Boolean, adaptive: Boolean = false) = sendCommand(
         PlaybackService.CMD_SLEEP_TIMER,
         Bundle().apply {
             putLong(PlaybackService.ARG_DURATION_MS, durationMs)
             putBoolean(PlaybackService.ARG_FINISH_TRACK, finishCurrentTrack)
+            putBoolean(PlaybackService.ARG_ADAPTIVE, adaptive)
         },
     )
 
