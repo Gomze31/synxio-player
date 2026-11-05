@@ -283,7 +283,7 @@ fun SynxioRoot(viewModel: AppViewModel, openPlayerRequest: Long) {
     val sceneUniforms = remember { SceneUniforms() }
 
     Box(Modifier.fillMaxSize()) {
-        AmbientBackdrop(drifting = isPlaying, pulse = scenePulse)
+        AmbientBackdrop(drifting = isPlaying, pulse = scenePulse, uniforms = sceneUniforms, shaders = viewModel.shaderSupport)
         CompositionLocalProvider(
             LocalContentColor provides MaterialTheme.colorScheme.onBackground,
             LocalScenePulse provides scenePulse,

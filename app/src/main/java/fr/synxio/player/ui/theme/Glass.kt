@@ -34,6 +34,16 @@ import androidx.compose.ui.unit.dp
 import fr.synxio.player.core.util.PlaceholderPalette
 import fr.synxio.player.playback.pulse.AudioPulse
 import kotlinx.coroutines.isActive
+import android.os.Build
+import androidx.annotation.RequiresApi
+import androidx.compose.ui.graphics.ShaderBrush
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import fr.synxio.player.ui.theme.shaders.AGSL_MIN_SDK
+import fr.synxio.player.ui.theme.shaders.SceneUniforms
+import fr.synxio.player.ui.theme.shaders.ShaderMode
+import fr.synxio.player.ui.theme.shaders.ShaderSupport
+import fr.synxio.player.ui.theme.shaders.fillSceneUniforms
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
@@ -145,6 +155,8 @@ fun AmbientBackdrop(
     intensity: Float = 1f,
     drifting: Boolean = false,
     pulse: State<AudioPulse>? = null,
+    uniforms: SceneUniforms? = null,
+    shaders: ShaderSupport? = null,
 ) {
     val scheme = MaterialTheme.colorScheme
     val art = LocalArtworkColors.current
@@ -161,6 +173,20 @@ fun AmbientBackdrop(
     val alphaA = (if (dark) 0.36f else 0.22f) * k
     val alphaB = (if (dark) 0.28f else 0.15f) * k
     val alphaC = (if (dark) 0.16f else 0.10f) * k
+
+    // Chemin de rendu : AGSL si le support le dit (API 33+, pas de drapeau), sinon Canvas.
+    // Le shader est gardé à part : `ShaderBrush` n'expose pas le sien.
+    val mode by (shaders?.mode ?: remember { MutableStateFlow(ShaderMode.CANVAS) }).collectAsStateWithLifecycle()
+    val auroraShader = remember(mode, shaders) { if (mode == ShaderMode.AGSL) shaders?.aurora() else null }
+    val auroraBrush = remember(auroraShader) { (auroraShader as? android.graphics.Shader)?.let { ShaderBrush(it) } }
+    val local = uniforms ?: remember { SceneUniforms() }
+    // Couleurs en tableaux pour `fillSceneUniforms`, recalculées quand la palette change.
+    val colorsRgba = remember(glowA, glowB, glowC) {
+        floatArrayOf(glowA.red, glowA.green, glowA.blue, 1f, glowB.red, glowB.green, glowB.blue, 1f, glowC.red, glowC.green, glowC.blue, 1f)
+    }
+    val alphas = remember(alphaA, alphaB, alphaC) { floatArrayOf(alphaA, alphaB, alphaC) }
+    val baseRgba = remember(base) { floatArrayOf(base.red, base.green, base.blue, 1f) }
+    val startNanos = remember { System.nanoTime() }
 
     val phase = remember { Animatable(0f) }
     val animate = drifting && glow && !reduce
@@ -217,35 +243,30 @@ fun AmbientBackdrop(
                 if (p.frozen) scene.offsetTurns += liveTurns - scene.lastLiveTurns
                 scene.lastLiveTurns = liveTurns
                 val t = ((((liveTurns - scene.offsetTurns) % 1f) + 1f) % 1f) * 2f * PI.toFloat()
-                val w = size.width
-                val h = size.height
-                val k2 = p.brightness / 0.85f
-                drawRect(base)
-                drawRect(
-                    Brush.radialGradient(
-                        colors = listOf(glowA.copy(alpha = (alphaA * k2).coerceAtMost(1f)), Color.Transparent),
-                        center = Offset(w * (0.18f + 0.10f * cos(t)), h * (0.04f + 0.04f * sin(t))),
-                        radius = size.maxDimension * 0.78f * p.haloScale[0],
-                    )
-                )
-                drawRect(
-                    Brush.radialGradient(
-                        colors = listOf(glowB.copy(alpha = (alphaB * k2).coerceAtMost(1f)), Color.Transparent),
-                        center = Offset(w * (0.98f - 0.10f * sin(t)), h * (0.58f + 0.06f * cos(t))),
-                        radius = size.maxDimension * 0.70f * p.haloScale[1],
-                    )
-                )
                 // Scintillement à 4 Hz ; la phase est prise sur les millisecondes modulo 250
                 // pour rester dans la précision d'un Float.
                 val shimmerPhase = ((now / 1_000_000L) % 250L) / 250f * 2f * PI.toFloat()
                 val shimmer = 1f - 0.3f * p.shimmer * (0.5f + 0.5f * sin(shimmerPhase))
-                drawRect(
-                    Brush.radialGradient(
-                        colors = listOf(glowC.copy(alpha = (alphaC * k2 * shimmer).coerceAtMost(1f)), Color.Transparent),
-                        center = Offset(w * (0.30f + 0.12f * sin(t + 2f)), h * (1.02f - 0.04f * cos(t))),
-                        radius = size.maxDimension * 0.55f * p.haloScale[2],
-                    )
-                )
+                // Une seule géométrie pour les deux chemins : les uniformes servent au shader
+                // comme aux dégradés radiaux, et le verre réfracté les relit dans sa phase.
+                val timeSeconds = ((now - startNanos) / 1_000_000L % 1_000_000L) / 1_000f
+                fillSceneUniforms(local, size.width, size.height, t, p, colorsRgba, alphas, baseRgba, timeSeconds, shimmer)
+                if (auroraBrush != null && auroraShader != null && Build.VERSION.SDK_INT >= AGSL_MIN_SDK) {
+                    AgslUniforms.applyAurora(auroraShader as android.graphics.RuntimeShader, local)
+                    drawRect(auroraBrush)
+                } else {
+                    drawRect(base)
+                    for (i in 0 until 3) {
+                        val c = Color(local.colors[4 * i], local.colors[4 * i + 1], local.colors[4 * i + 2], local.colors[4 * i + 3])
+                        drawRect(
+                            Brush.radialGradient(
+                                colors = listOf(c, Color.Transparent),
+                                center = Offset(local.centers[2 * i], local.centers[2 * i + 1]),
+                                radius = local.radii[i],
+                            )
+                        )
+                    }
+                }
                 if (p.flash > 0.01f) drawRect(Color.White.copy(alpha = 0.06f * p.flash))
             }
     )
@@ -258,6 +279,36 @@ private class SceneHolder {
     var lastLoudNanos: Long = 0L
     var offsetTurns: Float = 0f
     var lastLiveTurns: Float = 0f
+}
+
+/**
+ * Pose les uniformes sur les shaders. Isolé pour ne référencer `RuntimeShader` qu'en
+ * API 33+. `applyField` : le champ commun (aurore et verre) ; `applyAurora` ajoute ce que
+ * seule l'aurore déclare. Un `setFloatUniform` sur un nom absent du shader lève une
+ * exception : chaque fonction ne pose que les uniformes déclarés par sa source.
+ */
+@RequiresApi(AGSL_MIN_SDK)
+internal object AgslUniforms {
+    fun applyAurora(shader: android.graphics.RuntimeShader, u: SceneUniforms) {
+        applyField(shader, u)
+        shader.setFloatUniform("resolution", u.width, u.height)
+        shader.setFloatUniform("grain", 0.015f)
+    }
+
+    fun applyField(shader: android.graphics.RuntimeShader, u: SceneUniforms) {
+        shader.setFloatUniform("c0", u.centers[0], u.centers[1])
+        shader.setFloatUniform("c1", u.centers[2], u.centers[3])
+        shader.setFloatUniform("c2", u.centers[4], u.centers[5])
+        shader.setFloatUniform("r0", u.radii[0])
+        shader.setFloatUniform("r1", u.radii[1])
+        shader.setFloatUniform("r2", u.radii[2])
+        shader.setFloatUniform("col0", u.colors[0], u.colors[1], u.colors[2], u.colors[3])
+        shader.setFloatUniform("col1", u.colors[4], u.colors[5], u.colors[6], u.colors[7])
+        shader.setFloatUniform("col2", u.colors[8], u.colors[9], u.colors[10], u.colors[11])
+        shader.setFloatUniform("base", u.base[0], u.base[1], u.base[2], u.base[3])
+        shader.setFloatUniform("dispersion", 1f)
+        shader.setFloatUniform("time", u.time)
+    }
 }
 
 /** Vrai quand les paramètres sont assez proches du repos pour s'y poser exactement. */
