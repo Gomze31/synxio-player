@@ -7,6 +7,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.rounded.BatteryAlert
 import androidx.compose.material.icons.rounded.Earbuds
+import androidx.compose.material.icons.rounded.BluetoothAudio
+import androidx.compose.material.icons.rounded.DirectionsCar
+import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.EarbudsBattery
 import androidx.compose.material.icons.rounded.SpatialAudio
 import androidx.compose.material.icons.rounded.TouchApp
@@ -223,6 +226,11 @@ enum class SettingsSubMenu(
         "Fondu, gapless, minuterie, Galaxy Buds et réveils",
         Icons.Rounded.PlayCircle,
     ),
+    CAR(
+        "Voiture",
+        "Détection Bluetooth, mode voiture et lecture automatique",
+        Icons.Rounded.DirectionsCar,
+    ),
     VOLUME(
         "Volume & Normalisation",
         "Normalisation du volume et limiteur",
@@ -267,7 +275,7 @@ enum class SettingsSubMenu(
  */
 private val HubGroups: List<Pair<String, List<SettingsSubMenu>>> = listOf(
     "Apparence" to listOf(SettingsSubMenu.APPEARANCE),
-    "Écoute" to listOf(SettingsSubMenu.PLAYBACK, SettingsSubMenu.VOLUME, SettingsSubMenu.EQUALIZER),
+    "Écoute" to listOf(SettingsSubMenu.PLAYBACK, SettingsSubMenu.CAR, SettingsSubMenu.VOLUME, SettingsSubMenu.EQUALIZER),
     "Bibliothèque" to listOf(SettingsSubMenu.LIBRARY, SettingsSubMenu.STATS_AND_HISTORY),
     "Connexions" to listOf(SettingsSubMenu.LYRICS_AND_SOCIAL),
     "Données et système" to listOf(SettingsSubMenu.BACKUP_AND_RESTORE, SettingsSubMenu.SYSTEM_AND_ABOUT),
@@ -281,6 +289,8 @@ private fun SettingsSubMenu.getSummary(
         "${settings.themeMode.label} • ${ThemePreset.fromName(settings.themePreset).label} • ${settings.nowPlayingSkin.label}"
     SettingsSubMenu.PLAYBACK ->
         "Gapless ${if (settings.gaplessEnabled) "Actif" else "Désactivé"} • Fondu ${settings.crossfadeMs / 1000}s • ${if (settings.autoRewindSec > 0) "Rembobinage ${settings.autoRewindSec}s" else "Direct"}"
+    SettingsSubMenu.CAR ->
+        "${if (settings.carAddresses.isEmpty()) "Aucune voiture cochée" else "${settings.carAddresses.size} voiture(s)"} • ${if (settings.carOpenDriveMode) "Mode voiture auto" else "Mode voiture manuel"}"
     SettingsSubMenu.VOLUME ->
         "Normalisation ${if (settings.normalizeVolume) "active (${settings.normalizeTargetDbfs.toInt()} dBFS)" else "désactivée"} • Limite ${if (settings.maxVolumeLimit) "${(settings.maxVolumeValue * 100).toInt()} %" else "aucune"}"
     SettingsSubMenu.LIBRARY ->
@@ -712,6 +722,88 @@ fun SettingsScreen(
                                 subtitle = "Réveille-toi avec tes favoris, ton mix du jour ou une playlist",
                                 icon = Icons.Rounded.Alarm,
                                 onClick = onOpenAlarms,
+                            )
+                        }
+                    }
+
+                    // ================================================================
+                    // SOUS-MENU : VOITURE
+                    // ================================================================
+                    SettingsSubMenu.CAR -> {
+                        group(0, "cars", "Mes voitures") {
+                            CarsSettings(settings = settings, settingsViewModel = settingsViewModel)
+                        }
+
+                        group(1, "car-connect", "À la connexion") {
+                            SwitchSetting(
+                                title = "Proposer le mode voiture",
+                                subtitle = "Une notification « Voiture détectée » avec Mode voiture et Lancer la lecture",
+                                icon = Icons.Rounded.DirectionsCar,
+                                checked = settings.carNotify,
+                                onCheckedChange = settingsViewModel::setCarNotify,
+                            )
+                            GroupDivider()
+                            SwitchSetting(
+                                title = "Lancer la lecture",
+                                subtitle = "La musique démarre toute seule, sans ouvrir l'écran",
+                                icon = Icons.Rounded.PlayCircle,
+                                checked = settings.carAutoPlay,
+                                onCheckedChange = settingsViewModel::setCarAutoPlay,
+                            )
+                            Reveal(visible = settings.carAutoPlay) {
+                                Column {
+                                    GroupDivider()
+                                    ChipSetting(
+                                        title = "Quoi lancer",
+                                        options = fr.synxio.player.core.car.CarPlaySource.entries.map { it.label },
+                                        selectedIndex = settings.carPlaySource.ordinal,
+                                        onSelect = { settingsViewModel.setCarPlaySource(fr.synxio.player.core.car.CarPlaySource.entries[it]) },
+                                        icon = Icons.Rounded.Shuffle,
+                                    )
+                                    Reveal(visible = settings.carPlaySource == fr.synxio.player.core.car.CarPlaySource.PLAYLIST) {
+                                        val playlists by settingsViewModel.playlists.collectAsStateWithLifecycle()
+                                        val choices = playlists.filter { it.songs.isNotEmpty() }.take(12)
+                                        Column {
+                                            GroupDivider()
+                                            if (choices.isEmpty()) {
+                                                ClickableSetting(title = "Aucune playlist", subtitle = "Crée une playlist pour la choisir ici", onClick = {})
+                                            } else {
+                                                ChipSetting(
+                                                    title = "Playlist",
+                                                    options = choices.map { it.name },
+                                                    selectedIndex = choices.indexOfFirst { it.id == settings.carPlaylistId }.coerceAtLeast(0),
+                                                    onSelect = { settingsViewModel.setCarPlaylistId(choices[it].id) },
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            GroupDivider()
+                            SwitchSetting(
+                                title = "Ouvrir le mode voiture automatiquement",
+                                subtitle = "Seulement si Synxio est à l'écran ; sinon la notification suffit",
+                                icon = Icons.Rounded.DirectionsCar,
+                                checked = settings.carOpenDriveMode,
+                                onCheckedChange = settingsViewModel::setCarOpenDriveMode,
+                            )
+                        }
+
+                        group(2, "car-disconnect", "À la déconnexion") {
+                            SwitchSetting(
+                                title = "Quitter avec la voiture",
+                                subtitle = "Le mode voiture se referme quand la voiture se débranche",
+                                icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                                checked = settings.carExitWithCar,
+                                onCheckedChange = settingsViewModel::setCarExitWithCar,
+                            )
+                            GroupDivider()
+                            SwitchSetting(
+                                title = "Mettre en pause à la déconnexion",
+                                subtitle = "Même si la voiture n'était pas la sortie audio",
+                                icon = Icons.Rounded.Pause,
+                                checked = settings.carPauseOnDisconnect,
+                                onCheckedChange = settingsViewModel::setCarPauseOnDisconnect,
                             )
                         }
                     }
@@ -1333,6 +1425,56 @@ private fun BudsSettings(settings: fr.synxio.player.core.prefs.Settings, setting
         icon = Icons.Rounded.Tune,
         onClick = { settingsViewModel.openWearable() },
     )
+}
+
+/**
+ * Voiture connectée et appareils appairés à cocher. Sans BLUETOOTH_CONNECT, la première
+ * ligne demande la permission, comme la carte des Galaxy Buds.
+ */
+@Composable
+private fun CarsSettings(settings: fr.synxio.player.core.prefs.Settings, settingsViewModel: SettingsViewModel) {
+    val car by settingsViewModel.car.collectAsStateWithLifecycle()
+    var permitted by remember { mutableStateOf(settingsViewModel.hasBluetoothPermission()) }
+    var bonded by remember { mutableStateOf(settingsViewModel.bondedDevices()) }
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        permitted = granted
+        settingsViewModel.onBluetoothPermissionResult()
+        bonded = settingsViewModel.bondedDevices()
+    }
+    val askPermission = {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) permission.launch(Manifest.permission.BLUETOOTH_CONNECT)
+    }
+
+    val status = car?.let { "Connectée : ${it.name}" } ?: "Aucune voiture connectée"
+    if (!permitted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        ClickableSetting(
+            title = status,
+            subtitle = "Touche pour autoriser l'accès Bluetooth : il sert à reconnaître ta voiture",
+            icon = Icons.Rounded.DirectionsCar,
+            onClick = askPermission,
+        )
+        return
+    }
+    ClickableSetting(
+        title = status,
+        subtitle = "Les autoradios se reconnaissent seuls ; coche les autres appareils de ta voiture ci-dessous",
+        icon = Icons.Rounded.DirectionsCar,
+        onClick = { bonded = settingsViewModel.bondedDevices() },
+    )
+    for (device in bonded) {
+        GroupDivider()
+        SwitchSetting(
+            title = device.name,
+            subtitle = device.address,
+            icon = Icons.Rounded.BluetoothAudio,
+            checked = device.address in settings.carAddresses,
+            onCheckedChange = { settingsViewModel.setCarChosen(device.address, it) },
+        )
+    }
+    if (bonded.isEmpty()) {
+        GroupDivider()
+        ClickableSetting(title = "Aucun appareil appairé", subtitle = "Appaire ta voiture dans les réglages Bluetooth du téléphone", onClick = {})
+    }
 }
 
 /** Écouteurs connectés, batterie et codec ; sans permission, la ligne la demande. */
