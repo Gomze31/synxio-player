@@ -1855,11 +1855,18 @@ class PlaybackService : MediaLibraryService() {
         return results
     }
 
-    private fun BrowseQueue.toStartPosition() = MediaSession.MediaItemsWithStartPosition(
-        forActivePlayer(songs.toMediaItems()),
-        startIndex.coerceIn(0, (songs.size - 1).coerceAtLeast(0)),
-        startPositionMs.coerceAtLeast(0L),
-    )
+    private fun BrowseQueue.toStartPosition(): MediaSession.MediaItemsWithStartPosition {
+        // Webradio demandée à la voix : un seul élément, sans position.
+        radio?.let { station ->
+            val item = libraryTree.radioItem(BrowseIds.RADIO_PREFIX + station.stationUuid)
+            if (item != null) return MediaSession.MediaItemsWithStartPosition(forActivePlayer(listOf(item)), 0, C.TIME_UNSET)
+        }
+        return MediaSession.MediaItemsWithStartPosition(
+            forActivePlayer(songs.toMediaItems()),
+            startIndex.coerceIn(0, (songs.size - 1).coerceAtLeast(0)),
+            startPositionMs.coerceAtLeast(0L),
+        )
+    }
 
     /** Précisions de l'Assistant (`MediaStore.EXTRA_MEDIA_*`) jointes à la requête vocale. */
     private fun MediaItem.RequestMetadata.toVoiceRequest(): VoiceRequest {

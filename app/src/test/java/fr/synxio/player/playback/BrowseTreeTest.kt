@@ -460,9 +460,105 @@ class BrowseTreeTest {
     }
 
     @Test
-    fun `voix - rien ne correspond, ou pas de permission`() {
-        assertNull(tree().resolveVoice(VoiceRequest("zzzz")))
+    fun `voix - rien ne correspond, favoris au hasard, sans permission, rien`() {
+        val queue = tree().resolveVoice(VoiceRequest("zzzz"))!!
+        assertEquals(listOf(4L), queue.songs.map { it.id })
         assertNull(tree(fullSource().apply { hasPermission = false }).resolveVoice(VoiceRequest("stromae")))
+        // Sans favori : toute la bibliothèque.
+        assertEquals(5, tree(fullSource().apply { favorites = emptyList() }).resolveVoice(VoiceRequest("zzzz"))!!.songs.size)
+    }
+
+    /** Titres datés : s1 2010, s2 1995, s3 1998, s4 2013, s5 2001, dans les albums aussi. */
+    private fun datedSource(): FakeSource {
+        val d1 = s1.copy(year = 2010); val d2 = s2.copy(year = 1995); val d3 = s3.copy(year = 1998)
+        val d4 = s4.copy(year = 2013); val d5 = s5.copy(year = 2001)
+        val cheeseD = cheese.copy(songs = listOf(d3, d1, d2))
+        val racineD = racine.copy(songs = listOf(d4))
+        val discoveryD = discovery.copy(songs = listOf(d5))
+        return fullSource().apply {
+            songs = listOf(d1, d2, d3, d4, d5)
+            albums = listOf(cheeseD, racineD, discoveryD)
+            artists = listOf(Artist(1, "Stromae", listOf(cheeseD, racineD)), Artist(2, "Daft Punk", listOf(discoveryD)))
+            favorites = listOf(d4)
+            genres = listOf(Genre("Électro", listOf(d5, d1)))
+        }
+    }
+
+    @Test
+    fun `voix - periode sans genre, et genre inconnu avec periode`() {
+        val t = tree(datedSource())
+        assertEquals(listOf(3L, 2L), t.resolveVoice(VoiceRequest("des années 90"))!!.songs.map { it.id })
+        assertEquals(listOf(3L, 2L), t.resolveVoice(VoiceRequest("du metal des années 90"))!!.songs.map { it.id })
+        assertEquals(listOf(2L), t.resolveVoice(VoiceRequest("de 1995"))!!.songs.map { it.id })
+    }
+
+    @Test
+    fun `voix - artiste et genre filtres par la periode, filtre vide ignore`() {
+        val t = tree(datedSource())
+        assertEquals(listOf(1L, 4L), t.resolveVoice(VoiceRequest("stromae des années 2010"))!!.songs.map { it.id })
+        assertEquals(listOf(1L), t.resolveVoice(VoiceRequest("de l'électro de 2010"))!!.songs.map { it.id })
+        // Aucun titre de Daft Punk dans les années 90 : on garde l'artiste entier.
+        assertEquals(listOf(5L), t.resolveVoice(VoiceRequest("daft punk des années 90"))!!.songs.map { it.id })
+    }
+
+    @Test
+    fun `voix - genre ou periode sans correspondance, favoris au hasard`() {
+        val t = tree(datedSource())
+        assertEquals(listOf(4L), t.resolveVoice(VoiceRequest("du metal"))!!.songs.map { it.id })
+        assertEquals(listOf(4L), t.resolveVoice(VoiceRequest("des années 70"))!!.songs.map { it.id })
+    }
+
+    @Test
+    fun `voix - la playlist Années 80 gagne sur la periode`() {
+        val source = datedSource().apply { playlists = listOf(Playlist(9, "Années 80", 0, 0, listOf(s1))) }
+        assertEquals(listOf(1L), tree(source).resolveVoice(VoiceRequest("joue années 80"))!!.songs.map { it.id })
+        assertEquals(listOf(1L), tree(source).resolveVoice(VoiceRequest("lance les années 80"))!!.songs.map { it.id })
+    }
+
+    @Test
+    fun `voix - reprendre un livre, reprendre la derniere file`() {
+        val t = tree(listeningSource().apply { lastQueue = BrowseQueue(listOf(s5, s1), 1, 42_000L) })
+        val book = t.resolveVoice(VoiceRequest("continue"))!!
+        assertEquals(listOf(100L, 101L, 102L), book.songs.map { it.id })
+        assertEquals(1, book.startIndex)
+        assertEquals(120_000L, book.startPositionMs)
+        val last = t.resolveVoice(VoiceRequest("ce que j'écoutais"))!!
+        assertEquals(listOf(5L, 1L), last.songs.map { it.id })
+        assertEquals(42_000L, last.startPositionMs)
+        // Rien à reprendre : repli sur les favoris.
+        assertEquals(listOf(4L), tree().resolveVoice(VoiceRequest("continue"))!!.songs.map { it.id })
+    }
+
+    @Test
+    fun `voix - mix du jour, mix par nom d'artiste, premier mix sinon`() {
+        val daily = DailyMix("daily", DailyMixKind.DAILY, "Ton mix du jour", "", listOf(s1, s5))
+        val stromae = DailyMix("artist-Stromae", DailyMixKind.ARTIST, "Mix Stromae", "", listOf(s2, s3))
+        val t = tree(fullSource().apply { dailyMixes = listOf(daily, stromae) })
+        assertEquals(listOf(1L, 5L), t.resolveVoice(VoiceRequest("mon mix du jour"))!!.songs.map { it.id })
+        assertEquals(listOf(2L, 3L), t.resolveVoice(VoiceRequest("le mix stromae"))!!.songs.map { it.id })
+        assertEquals(listOf(1L, 5L), t.resolveVoice(VoiceRequest("le mix de daft punk"))!!.songs.map { it.id })
+        assertEquals(listOf(1L, 5L), t.resolveVoice(VoiceRequest("ma découverte du jour"))!!.songs.map { it.id })
+    }
+
+    @Test
+    fun `voix - souvenirs et favoris melanges`() {
+        val t = tree(fullSource().apply { memories = listOf(Memory.FirstTimes(listOf(s2, s4, s5))) })
+        assertEquals(listOf(2L, 4L, 5L), t.resolveVoice(VoiceRequest("mes souvenirs"))!!.songs.map { it.id })
+        assertEquals(listOf(4L), t.resolveVoice(VoiceRequest("mes favoris en aléatoire"))!!.songs.map { it.id })
+    }
+
+    @Test
+    fun `voix - radio par son nom, album nomme radio sinon`() {
+        val t = tree()
+        val radio = t.resolveVoice(VoiceRequest("la radio fip"))!!
+        assertEquals("fip", radio.radio?.stationUuid)
+        assertTrue(radio.songs.isEmpty())
+        val source = fullSource().apply {
+            albums = albums + Album(13, "Radio Ga Ga", "Queen", 3, 1984, listOf(s5))
+            radios = emptyList()
+        }
+        assertEquals(listOf(5L), tree(source).resolveVoice(VoiceRequest("joue radio ga ga"))!!.songs.map { it.id })
+        assertNull(tree(source).resolveVoice(VoiceRequest("joue radio ga ga"))!!.radio)
     }
 
     @Test

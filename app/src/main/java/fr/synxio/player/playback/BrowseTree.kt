@@ -8,6 +8,7 @@ import fr.synxio.player.data.model.Album
 import fr.synxio.player.data.model.Artist
 import fr.synxio.player.data.model.BookProgress
 import fr.synxio.player.data.model.DailyMix
+import fr.synxio.player.data.model.DailyMixKind
 import fr.synxio.player.data.model.EpisodeState
 import fr.synxio.player.data.model.Memory
 import fr.synxio.player.data.model.Genre
@@ -195,8 +196,16 @@ data class VoiceRequest(
     }
 }
 
-/** File à lancer, titre de départ et position dans ce titre (reprise d'un livre ou d'un podcast). */
-data class BrowseQueue(val songs: List<Song>, val startIndex: Int = 0, val startPositionMs: Long = 0L)
+/**
+ * File à lancer, titre de départ et position dans ce titre (reprise d'un livre ou d'un
+ * podcast). [radio] : une webradio demandée à la voix, [songs] est alors vide.
+ */
+data class BrowseQueue(
+    val songs: List<Song>,
+    val startIndex: Int = 0,
+    val startPositionMs: Long = 0L,
+    val radio: RadioStation? = null,
+)
 
 /** Ce qu'une action du menu contextuel demande au service, avec le message à afficher. */
 sealed interface AutoAction {
@@ -355,38 +364,80 @@ class BrowseTree(
     }
 
     /**
-     * Résout « Joue … » dicté à l'Assistant.
+     * Résout « Joue … » dicté à l'Assistant ou tapé sur l'écran.
      *
-     * Le type reconnu par l'Assistant passe en premier ; à défaut on essaie les mots-clés
-     * (favoris, aléatoire), puis artiste, album, playlist, genre, et enfin les titres.
-     * Une demande vide (« Joue de la musique ») mélange toute la bibliothèque.
+     * [VoiceInterpreter] lit la phrase ; chaque sujet se résout avec les règles de nom,
+     * puis la période filtre. Sans sujet, les règles s'enchaînent : artiste, album,
+     * playlist, genre, titres. Repli : titres de la période, puis favoris au hasard.
+     * Null seulement sans permission ou sans bibliothèque.
      */
     fun resolveVoice(request: VoiceRequest): BrowseQueue? {
         if (!source.hasPermission || source.songs.isEmpty()) return null
-        val query = request.query.trim()
+        val intent = VoiceInterpreter.interpret(request.query.normalizeForSearch(), request, currentYear())
+        val years = intent.years
+        fun queue(songs: List<Song>) = BrowseQueue(if (intent.shuffle) shuffle(songs) else songs)
 
-        when (request.focus) {
-            VoiceRequest.FOCUS_ARTIST -> bestArtist(request.artist ?: query)?.let { return BrowseQueue(it.songs) }
-            VoiceRequest.FOCUS_ALBUM -> bestAlbum(request.album ?: query, request.artist)?.let { return BrowseQueue(it.songs) }
-            VoiceRequest.FOCUS_GENRE -> bestGenre(request.genre ?: query)?.let { return BrowseQueue(shuffle(it.songs)) }
-            VoiceRequest.FOCUS_PLAYLIST -> bestPlaylist(request.playlist ?: query)?.let { return BrowseQueue(it.songs) }
-            VoiceRequest.FOCUS_TITLE -> bestSong(request.title ?: query, request.artist)?.let { return songWithAlbum(it) }
+        // Une playlist qui porte le nom entier de la demande gagne (« Années 80 »).
+        intent.text?.let { best(source.playlists.filter { p -> p.songs.isNotEmpty() }, it, EXACT_SCORE) { p -> p.name } }
+            ?.let { return queue(it.songs) }
+
+        when (intent.action) {
+            VoiceIntent.Action.RESUME_BOOK -> continueListening().firstOrNull()?.let { return it.queue }
+            VoiceIntent.Action.RESUME_LAST -> source.lastQueue?.takeIf { it.songs.isNotEmpty() }?.let { return it }
+            VoiceIntent.Action.SHUFFLE -> return BrowseQueue(shuffle(source.songs))
+            VoiceIntent.Action.PLAY -> Unit
         }
 
-        if (query.isEmpty()) return BrowseQueue(shuffle(source.songs))
-        val normalized = query.normalizeForSearch()
-        if (normalized in FAVORITE_WORDS && source.favorites.isNotEmpty()) return BrowseQueue(source.favorites)
-        if (normalized in SHUFFLE_WORDS) return BrowseQueue(shuffle(source.songs))
+        val name = intent.name
+        when (intent.subject) {
+            VoiceIntent.Subject.ARTIST -> name?.let(::bestArtist)?.let { return queue(it.songs.inYears(years)) }
+            VoiceIntent.Subject.ALBUM -> name?.let { bestAlbum(it, request.artist) }?.let { return queue(it.songs.inYears(years)) }
+            VoiceIntent.Subject.PLAYLIST -> name?.let(::bestPlaylist)?.let { return queue(it.songs.inYears(years)) }
+            VoiceIntent.Subject.GENRE -> name?.let(::bestGenre)?.let { return BrowseQueue(shuffle(it.songs.inYears(years))) }
+            VoiceIntent.Subject.TITLE -> name?.let { bestSong(it, request.artist) }?.let { return songWithAlbum(it) }
+            VoiceIntent.Subject.MIX -> bestMix(name)?.let { return queue(it.songs) }
+            VoiceIntent.Subject.MEMORY -> source.memories.firstOrNull { it.songs.isNotEmpty() }?.let { return queue(it.songs) }
+            VoiceIntent.Subject.RADIO -> name?.let { best(source.radios, it) { r -> r.name } }?.let { return BrowseQueue(emptyList(), radio = it) }
+            VoiceIntent.Subject.FAVORITES -> if (source.favorites.isNotEmpty()) return queue(source.favorites.inYears(years))
+            null -> Unit
+        }
 
-        bestArtist(query)?.let { return BrowseQueue(it.songs) }
-        bestAlbum(query, null)?.let { return BrowseQueue(it.songs) }
-        bestPlaylist(query)?.let { return BrowseQueue(it.songs) }
-        bestGenre(query)?.let { return BrowseQueue(shuffle(it.songs)) }
+        // Règles générales sur le nom, la période appliquée ensuite.
+        if (name != null) {
+            bestArtist(name)?.let { return queue(it.songs.inYears(years)) }
+            bestAlbum(name, request.artist)?.let { return queue(it.songs.inYears(years)) }
+            bestPlaylist(name)?.let { return queue(it.songs.inYears(years)) }
+            bestGenre(name)?.let { return BrowseQueue(shuffle(it.songs.inYears(years))) }
+            val results = source.search(name, 50)
+            if (results.songs.isNotEmpty()) return queue(results.songs.inYears(years))
+            results.albums.flatMap { it.songs }.takeIf { it.isNotEmpty() }?.let { return queue(it.inYears(years)) }
+        }
 
-        val results = source.search(query, 50)
-        if (results.songs.isNotEmpty()) return BrowseQueue(results.songs)
-        return results.albums.flatMap { it.songs }.takeIf { it.isNotEmpty() }?.let { BrowseQueue(it) }
+        // Période seule, ou genre inconnu avec une période : tous les titres de la période.
+        if (years != null) {
+            source.songs.filter { it.year in years }.takeIf { it.isNotEmpty() }?.let { return BrowseQueue(shuffle(it)) }
+        }
+        // Rien demandé de précis (« mets de la musique ») : toute la bibliothèque. Sinon, y
+        // compris une reprise sans rien à reprendre, les favoris au hasard.
+        if (intent.action == VoiceIntent.Action.PLAY && name == null && years == null && intent.subject == null) {
+            return BrowseQueue(shuffle(source.songs))
+        }
+        return BrowseQueue(shuffle(source.favorites.ifEmpty { source.songs }))
     }
+
+    /** Filtre par année de sortie ; une période sans aucun titre rend la liste entière. */
+    private fun List<Song>.inYears(years: IntRange?): List<Song> =
+        if (years == null) this else filter { it.year in years }.ifEmpty { this }
+
+    /** Mix du jour (`daily`, `discovery`), mix d'un artiste par son nom, sinon le premier. */
+    private fun bestMix(name: String?): DailyMix? {
+        val mixes = source.dailyMixes.filter { it.songs.isNotEmpty() }
+        if (name == null) return mixes.firstOrNull()
+        mixes.firstOrNull { it.key == name }?.let { return it }
+        return best(mixes.filter { it.kind == DailyMixKind.ARTIST }, name) { it.title.removePrefix("Mix ") } ?: mixes.firstOrNull()
+    }
+
+    private fun currentYear(): Int = java.time.LocalDate.ofEpochDay(today()).year
 
     // --- Onglets --------------------------------------------------------------------
 
@@ -729,7 +780,7 @@ class BrowseTree(
     private fun matchingPlaylists(query: String): List<Playlist> =
         source.playlists.filter { it.songs.isNotEmpty() && fuzzyScore(it.name, query) >= MATCH_SCORE }
 
-    private inline fun <T> best(items: List<T>, query: String, name: (T) -> String): T? {
+    private inline fun <T> best(items: List<T>, query: String, minScore: Int = MATCH_SCORE, name: (T) -> String): T? {
         if (query.isBlank()) return null
         var bestItem: T? = null
         var bestScore = 0
@@ -740,12 +791,14 @@ class BrowseTree(
                 bestItem = item
             }
         }
-        return bestItem.takeIf { bestScore >= MATCH_SCORE }
+        return bestItem.takeIf { bestScore >= minScore }
     }
 
     companion object {
         /** Seuil de [fuzzyScore] au-delà duquel un nom correspond à la demande. */
         const val MATCH_SCORE = 400
+        /** Seuil d'une correspondance exacte ou par préfixe : le nom entier de la demande. */
+        const val EXACT_SCORE = 800
         private const val SEARCH_LIMIT = 30
         private const val HISTORY_LIMIT = 50
 
@@ -761,9 +814,6 @@ class BrowseTree(
 
         /** Actions d'un contenu entier : album, playlist, genre, mix, souvenir. */
         private val CONTAINER_ACTIONS = listOf(AutoKeys.ACTION_PLAY_NEXT, AutoKeys.ACTION_ADD_TO_QUEUE, AutoKeys.ACTION_SHUFFLE)
-
-        private val FAVORITE_WORDS = setOf("favoris", "mes favoris", "mes titres favoris", "mes coups de coeur", "coups de coeur")
-        private val SHUFFLE_WORDS = setOf("aleatoire", "lecture aleatoire", "au hasard", "shuffle", "de la musique", "musique")
 
         /**
          * Libellé du bouton de résolution montré par la voiture quand la bibliothèque est
