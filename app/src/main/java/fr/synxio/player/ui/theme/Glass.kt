@@ -15,8 +15,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.State
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.drawBehind
@@ -33,6 +35,7 @@ import fr.synxio.player.core.util.PlaceholderPalette
 import fr.synxio.player.playback.pulse.AudioPulse
 import kotlinx.coroutines.isActive
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -171,23 +174,49 @@ fun AmbientBackdrop(
     // Lu et écrit dans la phase de dessin seulement : un tick du pouls invalide le
     // dessin, jamais la composition.
     val scene = remember { SceneHolder() }
+    // Image de retour au repos : sans pouls, rien d'autre n'invaliderait le dessin.
+    val settleFrame = remember { mutableIntStateOf(0) }
+    LaunchedEffect(pulse == null) {
+        if (pulse != null) return@LaunchedEffect
+        scene.lastLoudNanos = 0L
+        while (isActive && !scene.params.nearRest()) {
+            withFrameNanos { settleFrame.intValue++ }
+        }
+    }
 
     Box(
         modifier
             .fillMaxSize()
             .drawBehind {
+                // Lecture de l'image de repos : chaque image de retour invalide le dessin.
+                settleFrame.intValue
                 val current = pulse?.value
                 val now = System.nanoTime()
                 if (current != null) {
                     if (current.rms >= 0.02f) scene.lastLoudNanos = now
-                    val silentFor = if (scene.lastLoudNanos == 0L) 0L else (now - scene.lastLoudNanos) / 1_000_000
-                    scene.params = mapScene(current, silentFor, scene.params)
-                } else if (scene.params !== SceneParams.REST) {
-                    scene.params = mapScene(AudioPulse.SILENT, 0L, scene.params)
+                    // Lissage calé sur le rythme du pouls (30 Hz), pas sur celui de l'écran.
+                    if (current !== scene.lastPulse) {
+                        val silentFor = if (scene.lastLoudNanos == 0L) 0L else (now - scene.lastLoudNanos) / 1_000_000
+                        scene.params = mapScene(current, silentFor, scene.params)
+                        scene.lastPulse = current
+                    }
+                } else {
+                    scene.lastPulse = null
+                    if (scene.params !== SceneParams.REST) {
+                        scene.params = if (scene.params.nearRest()) {
+                            SceneParams.REST
+                        } else {
+                            mapScene(AudioPulse.SILENT, 0L, scene.params)
+                        }
+                    }
                 }
                 val p = scene.params
-                val live = (phase.value % 1f) * 2f * PI.toFloat()
-                val t = if (p.frozen) scene.frozenT else live.also { scene.frozenT = it }
+                // Phase en tours : figée, elle accumule le retard pour que la dérive
+                // reprenne là où elle s'était arrêtée, sans saut.
+                val liveTurns = phase.value
+                if (p.frozen) scene.offsetTurns += liveTurns - scene.lastLiveTurns
+                scene.lastLiveTurns = liveTurns
+                val t = ((((liveTurns - scene.offsetTurns) % 1f) + 1f) % 1f) * 2f * PI.toFloat()
                 val w = size.width
                 val h = size.height
                 val k2 = p.brightness / 0.85f
@@ -222,12 +251,21 @@ fun AmbientBackdrop(
     )
 }
 
-/** Mémoire de la scène entre deux images : lissage, chrono de silence, phase figée. */
+/** Mémoire de la scène entre deux images : lissage, dernier pouls, chrono de silence, retard de phase. */
 private class SceneHolder {
     var params: SceneParams = SceneParams.REST
+    var lastPulse: AudioPulse? = null
     var lastLoudNanos: Long = 0L
-    var frozenT: Float = 0f
+    var offsetTurns: Float = 0f
+    var lastLiveTurns: Float = 0f
 }
+
+/** Vrai quand les paramètres sont assez proches du repos pour s'y poser exactement. */
+private fun SceneParams.nearRest(): Boolean =
+    haloScale.all { abs(it - 1f) < 0.005f } &&
+        abs(brightness - 0.85f) < 0.005f &&
+        shimmer < 0.005f &&
+        flash < 0.005f
 
 /** Un tour complet de l'aurore : assez lent pour ne jamais attirer l'œil. */
 private const val DRIFT_PERIOD_MS = 40_000

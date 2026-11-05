@@ -13,7 +13,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -21,7 +21,7 @@ import fr.synxio.player.playback.pulse.AudioPulse
 import kotlinx.coroutines.flow.StateFlow
 
 /** Pouls disponible pour la scène, ou `null` quand la scène réactive est coupée. */
-val LocalScenePulse = staticCompositionLocalOf<State<AudioPulse>?> { null }
+val LocalScenePulse = compositionLocalOf<State<AudioPulse>?> { null }
 
 /**
  * Applique les règles de coupure (`sceneAllowed`) et ne s'abonne au pouls que si tout
@@ -52,7 +52,7 @@ fun rememberScenePulse(
 }
 
 /** État d'énergie de l'appareil, observable par la composition. */
-class PowerState { var powerSave by mutableStateOf(false); var batteryLow by mutableStateOf(false) }
+private class PowerState { var powerSave by mutableStateOf(false); var batteryLow by mutableStateOf(false) }
 
 /** Économie d'énergie et batterie ≤ 15 %, suivis par diffusion système. */
 @Composable
@@ -67,7 +67,7 @@ private fun rememberPowerState(): PowerState {
             override fun onReceive(c: Context, intent: Intent) {
                 when (intent.action) {
                     PowerManager.ACTION_POWER_SAVE_MODE_CHANGED -> state.powerSave = pm.isPowerSaveMode
-                    Intent.ACTION_BATTERY_LOW -> state.batteryLow = true
+                    Intent.ACTION_BATTERY_LOW -> state.batteryLow = batteryPercent(context) <= LOW_BATTERY_PERCENT
                     Intent.ACTION_BATTERY_OKAY -> state.batteryLow = batteryPercent(context) <= LOW_BATTERY_PERCENT
                 }
             }

@@ -75,7 +75,6 @@ import androidx.compose.ui.text.font.FontWeight
 import fr.synxio.player.ui.theme.AmbientBackdrop
 import fr.synxio.player.ui.theme.LocalScenePulse
 import fr.synxio.player.ui.theme.rememberScenePulse
-import androidx.compose.runtime.snapshotFlow
 import fr.synxio.player.ui.theme.Space
 import fr.synxio.player.ui.theme.SynxioShape
 import fr.synxio.player.ui.theme.glass
@@ -125,6 +124,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
