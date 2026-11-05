@@ -22,6 +22,7 @@ import fr.synxio.player.data.repo.SimilarityRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -164,6 +165,24 @@ class SettingsViewModel @Inject constructor(
     fun setBudsTripleTap(value: fr.synxio.player.buds.BudsTapAction) = update { settings.setBudsTripleTap(value) }
     fun setBudsConnectSource(value: fr.synxio.player.buds.BudsConnectSource) = update { settings.setBudsConnectSource(value) }
     fun setBudsBatteryAlert(value: Boolean) = update { settings.setBudsBatteryAlert(value) }
+
+    // ========================================================================
+    // VOITURE
+    // ========================================================================
+
+    fun setCarNotify(value: Boolean) = update { settings.setCarNotify(value) }
+    fun setCarAutoPlay(value: Boolean) = update { settings.setCarAutoPlay(value) }
+    fun setCarPlaySource(value: fr.synxio.player.core.car.CarPlaySource) = update { settings.setCarPlaySource(value) }
+    fun setCarPlaylistId(value: Long) = update { settings.setCarPlaylistId(value) }
+    fun setCarOpenDriveMode(value: Boolean) = update { settings.setCarOpenDriveMode(value) }
+    fun setCarExitWithCar(value: Boolean) = update { settings.setCarExitWithCar(value) }
+    fun setCarPauseOnDisconnect(value: Boolean) = update { settings.setCarPauseOnDisconnect(value) }
+
+    /** Coche ou décoche une voiture dans « Mes voitures ». */
+    fun setCarChosen(address: String, chosen: Boolean) = update {
+        val current = settings.settings.first().carAddresses
+        settings.setCarAddresses(if (chosen) current + address else current - address)
+    }
     fun setSpatialAudio(value: Boolean) = update { settings.setSpatialAudio(value) }
 
     /** Arrêter après inactivité (en minutes, 0 = désactivé) */

@@ -208,6 +208,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        fr.synxio.player.core.util.AppVisibility.onStart()
+    }
+
+    override fun onStop() {
+        fr.synxio.player.core.util.AppVisibility.onStop()
+        super.onStop()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)

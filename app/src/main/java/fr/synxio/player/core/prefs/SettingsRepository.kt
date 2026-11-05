@@ -10,6 +10,9 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
+import fr.synxio.player.core.car.CarPlaySource
+import fr.synxio.player.core.car.CarSettings
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import fr.synxio.player.buds.BudsConnectSource
@@ -186,6 +189,18 @@ data class Settings(
     /** Levé quand un shader AGSL a refusé de compiler sur cet appareil : repli Canvas, sauf réessai. */
     val shadersUnavailable: Boolean = false,
 
+    // Voiture (5.9.0)
+    /** Adresses Bluetooth cochées dans « Mes voitures ». */
+    val carAddresses: Set<String> = emptySet(),
+    val carNotify: Boolean = false,
+    val carAutoPlay: Boolean = false,
+    val carPlaySource: CarPlaySource = CarPlaySource.RESUME,
+    /** Playlist de « Lancer la lecture », −1 si aucune. */
+    val carPlaylistId: Long = -1L,
+    val carOpenDriveMode: Boolean = false,
+    val carExitWithCar: Boolean = false,
+    val carPauseOnDisconnect: Boolean = false,
+
     // Expérimental
     val developerMode: Boolean = false,
 
@@ -204,6 +219,13 @@ data class Settings(
     val autoDjEnabled: Boolean = false,
 )
 
+
+
+/** Les réglages Voiture sous la forme que lit `carActions`. */
+fun Settings.carSettings() = CarSettings(
+    notify = carNotify, autoPlay = carAutoPlay, playSource = carPlaySource, playlistId = carPlaylistId,
+    openDriveMode = carOpenDriveMode, exitWithCar = carExitWithCar, pauseOnDisconnect = carPauseOnDisconnect,
+)
 @Singleton
 class SettingsRepository @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -313,6 +335,16 @@ class SettingsRepository @Inject constructor(
         val SCENE_REACTIVE = booleanPreferencesKey("scene_reactive")
         val CANVAS_ANIMATED = booleanPreferencesKey("canvas_animated")
         val SHADERS_UNAVAILABLE = booleanPreferencesKey("shaders_unavailable")
+
+        // Voiture
+        val CAR_ADDRESSES = stringSetPreferencesKey("car_addresses")
+        val CAR_NOTIFY = booleanPreferencesKey("car_notify")
+        val CAR_AUTO_PLAY = booleanPreferencesKey("car_auto_play")
+        val CAR_PLAY_SOURCE = stringPreferencesKey("car_play_source")
+        val CAR_PLAYLIST_ID = longPreferencesKey("car_playlist_id")
+        val CAR_OPEN_DRIVE_MODE = booleanPreferencesKey("car_open_drive_mode")
+        val CAR_EXIT_WITH_CAR = booleanPreferencesKey("car_exit_with_car")
+        val CAR_PAUSE_ON_DISCONNECT = booleanPreferencesKey("car_pause_on_disconnect")
         
         // Expérimental
         val DEVELOPER_MODE = booleanPreferencesKey("developer_mode")
@@ -441,7 +473,16 @@ class SettingsRepository @Inject constructor(
                 sceneReactive = p[Keys.SCENE_REACTIVE] ?: true,
                 canvasAnimated = p[Keys.CANVAS_ANIMATED] ?: true,
                 shadersUnavailable = p[Keys.SHADERS_UNAVAILABLE] ?: false,
-                
+
+                carAddresses = p[Keys.CAR_ADDRESSES] ?: emptySet(),
+                carNotify = p[Keys.CAR_NOTIFY] ?: false,
+                carAutoPlay = p[Keys.CAR_AUTO_PLAY] ?: false,
+                carPlaySource = p.enum(Keys.CAR_PLAY_SOURCE, CarPlaySource.RESUME),
+                carPlaylistId = p[Keys.CAR_PLAYLIST_ID] ?: -1L,
+                carOpenDriveMode = p[Keys.CAR_OPEN_DRIVE_MODE] ?: false,
+                carExitWithCar = p[Keys.CAR_EXIT_WITH_CAR] ?: false,
+                carPauseOnDisconnect = p[Keys.CAR_PAUSE_ON_DISCONNECT] ?: false,
+
                 // Expérimental
                 developerMode = p[Keys.DEVELOPER_MODE] ?: false,
 
@@ -594,6 +635,15 @@ class SettingsRepository @Inject constructor(
     suspend fun setSceneReactive(value: Boolean) = put(Keys.SCENE_REACTIVE, value)
     suspend fun setCanvasAnimated(value: Boolean) = put(Keys.CANVAS_ANIMATED, value)
     suspend fun setShadersUnavailable(value: Boolean) = put(Keys.SHADERS_UNAVAILABLE, value)
+
+    suspend fun setCarAddresses(value: Set<String>) = put(Keys.CAR_ADDRESSES, value)
+    suspend fun setCarNotify(value: Boolean) = put(Keys.CAR_NOTIFY, value)
+    suspend fun setCarAutoPlay(value: Boolean) = put(Keys.CAR_AUTO_PLAY, value)
+    suspend fun setCarPlaySource(value: CarPlaySource) = put(Keys.CAR_PLAY_SOURCE, value.name)
+    suspend fun setCarPlaylistId(value: Long) = put(Keys.CAR_PLAYLIST_ID, value)
+    suspend fun setCarOpenDriveMode(value: Boolean) = put(Keys.CAR_OPEN_DRIVE_MODE, value)
+    suspend fun setCarExitWithCar(value: Boolean) = put(Keys.CAR_EXIT_WITH_CAR, value)
+    suspend fun setCarPauseOnDisconnect(value: Boolean) = put(Keys.CAR_PAUSE_ON_DISCONNECT, value)
     
     // Expérimental
     suspend fun setDeveloperMode(value: Boolean) = put(Keys.DEVELOPER_MODE, value)
