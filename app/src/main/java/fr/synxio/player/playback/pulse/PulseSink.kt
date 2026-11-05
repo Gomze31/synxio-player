@@ -3,6 +3,7 @@ package fr.synxio.player.playback.pulse
 import androidx.media3.common.C
 import androidx.media3.exoplayer.audio.TeeAudioProcessor
 import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 /**
  * Reçoit une copie du PCM qui sort d'ExoPlayer (via [TeeAudioProcessor], qui laisse le
@@ -35,6 +36,8 @@ class PulseSink(private val buffer: PulseRingBuffer) : TeeAudioProcessor.AudioBu
 
     override fun handleBuffer(input: ByteBuffer) {
         if (!supported) return
+        // asReadOnlyBuffer() ne garantit pas l'ordre des octets de la source ; le PCM d'ExoPlayer est en ordre natif.
+        input.order(ByteOrder.nativeOrder())
         val bytesPerSample = if (encoding == C.ENCODING_PCM_FLOAT) 4 else 2
         val frameBytes = bytesPerSample * channels
         var position = input.position()

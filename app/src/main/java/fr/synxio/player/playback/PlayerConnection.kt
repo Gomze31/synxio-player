@@ -99,6 +99,7 @@ class PlayerConnection @Inject constructor(
     @ApplicationContext private val context: Context,
     private val musicRepository: MusicRepository,
     @ApplicationScope private val scope: CoroutineScope,
+    pulseSource: fr.synxio.player.playback.pulse.PulseSource,
 ) {
 
     private val _state = MutableStateFlow(PlayerUiState())
@@ -107,6 +108,9 @@ class PlayerConnection @Inject constructor(
     private val _position = MutableStateFlow(PlayerPosition())
     /** Position, tampon et durée du titre en cours ; voir [PlayerPosition]. */
     val position: StateFlow<PlayerPosition> = _position.asStateFlow()
+
+    /** Pouls de la musique à 30 Hz, muet sans abonné ou en pause. Voir `PulseSource`. */
+    val pulse: StateFlow<fr.synxio.player.playback.pulse.AudioPulse> = pulseSource.pulse
 
     /**
      * Erreurs de lecture, à montrer à l'utilisateur.

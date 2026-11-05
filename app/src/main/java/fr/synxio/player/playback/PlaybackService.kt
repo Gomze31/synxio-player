@@ -90,6 +90,7 @@ class PlaybackService : MediaLibraryService() {
     @Inject lateinit var settingsRepository: SettingsRepository
     @Inject lateinit var libraryTree: MediaLibraryTree
     @Inject lateinit var equalizer: EqualizerController
+    @Inject lateinit var pulseSource: fr.synxio.player.playback.pulse.PulseSource
     @Inject lateinit var sleepTimer: SleepTimer
     @Inject lateinit var scrobbler: LastFmScrobbler
     @Inject lateinit var queueDao: QueueDao
@@ -248,7 +249,9 @@ class PlaybackService : MediaLibraryService() {
                 enableAudioTrackPlaybackParams: Boolean
             ): androidx.media3.exoplayer.audio.AudioSink? {
                 return androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
-                    .setAudioProcessors(arrayOf(vocalRemover))
+                    // Le tee copie le PCM pour le pouls de la scène et le laisse passer tel quel.
+                    // Ni offload ni tunneling ici : les activer couperait ce tee.
+                    .setAudioProcessors(arrayOf(vocalRemover, androidx.media3.exoplayer.audio.TeeAudioProcessor(pulseSource.sink)))
                     .build()
             }
         }
@@ -1045,6 +1048,7 @@ class PlaybackService : MediaLibraryService() {
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            pulseSource.setPlaying(isPlaying)
             // Le réveil s'arrête à la première pause : on rend le flux musique et le gain.
             if (alarmActive) {
                 if (isPlaying) alarmHasPlayed = true else if (alarmHasPlayed) exitAlarmMode()
