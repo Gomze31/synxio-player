@@ -550,6 +550,7 @@ private fun BottomBar(navController: NavHostController) {
     val currentRoute = backStackEntry?.destination?.route
     val selectedIndex = TopLevel.entries.indexOfFirst { it.route == currentRoute }
     val reduceMotion = LocalReduceMotion.current
+    val haptics = LocalSynxioHaptics.current
     val colors = SynxioTheme.colors
 
     Box(
@@ -599,7 +600,10 @@ private fun BottomBar(navController: NavHostController) {
                     NavItem(
                         destination = destination,
                         selected = currentRoute == destination.route,
-                        onClick = { navController.navigateToTopLevel(destination.route) },
+                        onClick = {
+                            if (currentRoute != destination.route) haptics.tap()
+                            navController.navigateToTopLevel(destination.route)
+                        },
                         modifier = Modifier.weight(1f),
                     )
                 }

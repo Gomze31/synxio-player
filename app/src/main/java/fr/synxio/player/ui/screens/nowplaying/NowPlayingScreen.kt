@@ -128,6 +128,7 @@ import fr.synxio.player.playback.SleepTimerState
 import fr.synxio.player.playback.openSystemOutputSwitcher
 import fr.synxio.player.ui.components.AddToPlaylistHost
 import fr.synxio.player.ui.components.Artwork
+import fr.synxio.player.ui.haptics.LocalSynxioHaptics
 import fr.synxio.player.ui.components.AudioVisualizer
 import fr.synxio.player.ui.components.BrandPlayButton
 import fr.synxio.player.ui.components.HeartButton
@@ -179,6 +180,7 @@ fun NowPlayingScreen(
     onTrim: (Song) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val haptics = LocalSynxioHaptics.current
     val state by viewModel.playerState.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val favorites by viewModel.favoriteIds.collectAsStateWithLifecycle()
@@ -418,7 +420,7 @@ fun NowPlayingScreen(
 
                     HeartButton(
                         isFavorite = song.id in favorites,
-                        onToggle = { viewModel.toggleFavorite(song) },
+                        onToggle = { haptics.confirm(); viewModel.toggleFavorite(song) },
                     )
                 }
 
@@ -461,7 +463,7 @@ fun NowPlayingScreen(
                     onShuffle = viewModel::toggleShuffle,
                     onRepeat = viewModel::cycleRepeat,
                     onPrevious = viewModel::previous,
-                    onPlayPause = viewModel::togglePlayPause,
+                    onPlayPause = { haptics.tap(); viewModel.togglePlayPause() },
                     onNext = viewModel::next,
                 )
 
@@ -1013,6 +1015,7 @@ private fun SeekBar(
     fallbackDurationMs: Long,
     onSeek: (Long) -> Unit,
 ) {
+    val haptics = LocalSynxioHaptics.current
     val current by position.collectAsStateWithLifecycle()
     val positionMs = current.positionMs
     val durationMs = current.durationMs.takeIf { it > 0 } ?: fallbackDurationMs
@@ -1041,6 +1044,7 @@ private fun SeekBar(
             value = value,
             onValueChange = { dragging = true; dragValue = it },
             onValueChangeFinished = {
+                haptics.release()
                 onSeek((durationMs * dragValue).toLong())
                 dragging = false
             },
@@ -1245,6 +1249,7 @@ private fun BookControls(
     embeddedChapters: Map<Long, List<fr.synxio.player.data.media.Chapter>>,
     chapterList: List<fr.synxio.player.data.model.BookChapter>,
 ) {
+    val haptics = LocalSynxioHaptics.current
     val current by viewModel.position.collectAsStateWithLifecycle()
     var showChapters by remember { mutableStateOf(false) }
     // Position figée au toucher du bouton signet : la lecture continue pendant la saisie.
@@ -1285,7 +1290,7 @@ private fun BookControls(
         ) {
             Icon(Icons.Rounded.SkipNext, contentDescription = "Chapitre suivant", tint = muted)
         }
-        IconButton(onClick = { bookmarkAt = viewModel.position.value.positionMs }) {
+        IconButton(onClick = { haptics.confirm(); bookmarkAt = viewModel.position.value.positionMs }) {
             Icon(Icons.Rounded.BookmarkAdd, contentDescription = "Ajouter un signet", tint = muted)
         }
     }

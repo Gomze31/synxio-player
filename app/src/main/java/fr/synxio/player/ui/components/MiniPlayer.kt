@@ -53,6 +53,7 @@ import fr.synxio.player.playback.PlayerPosition
 import fr.synxio.player.playback.PlayerUiState
 import fr.synxio.player.ui.theme.LocalArtworkColors
 import fr.synxio.player.ui.theme.LocalReduceMotion
+import fr.synxio.player.ui.haptics.LocalSynxioHaptics
 import fr.synxio.player.ui.theme.Motion
 import fr.synxio.player.ui.theme.Space
 import fr.synxio.player.ui.theme.SynxioShape
@@ -90,6 +91,7 @@ fun MiniPlayer(
     onPrevious: (() -> Unit)? = null,
 ) {
     val song = state.currentSong ?: return
+    val haptics = LocalSynxioHaptics.current
     val reduceMotion = LocalReduceMotion.current
     val scheme = MaterialTheme.colorScheme
     val colors = SynxioTheme.colors
@@ -136,8 +138,8 @@ fun MiniPlayer(
                         val x = dragX.value
                         when {
                             totalY < -threshold * 0.7f -> latestExpand()
-                            x < -threshold && hasNext -> latestNext()
-                            x > threshold && latestPrevious != null -> latestPrevious?.invoke()
+                            x < -threshold && hasNext -> { haptics.tick(); latestNext() }
+                            x > threshold && latestPrevious != null -> { haptics.tick(); latestPrevious?.invoke() }
                         }
                         scope.launch { dragX.animateTo(0f, Motion.spatial()) }
                     },
@@ -221,7 +223,7 @@ fun MiniPlayer(
                         .clickable(
                             role = Role.Button,
                             onClickLabel = if (state.isPlaying) "Mettre en pause" else "Lire",
-                            onClick = onPlayPause,
+                            onClick = { haptics.tap(); onPlayPause() },
                         ),
                     contentAlignment = Alignment.Center,
                 ) {

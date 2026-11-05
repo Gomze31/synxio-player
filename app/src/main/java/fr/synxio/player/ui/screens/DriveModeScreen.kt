@@ -66,6 +66,7 @@ import fr.synxio.player.ui.components.Artwork
 import fr.synxio.player.ui.components.BrandPlayButton
 import fr.synxio.player.ui.components.EmptyState
 import fr.synxio.player.ui.components.pressBounce
+import fr.synxio.player.ui.haptics.LocalSynxioHaptics
 import fr.synxio.player.ui.theme.EyebrowTextStyle
 import fr.synxio.player.ui.theme.LocalArtworkColors
 import fr.synxio.player.ui.theme.LocalGlowEffects
@@ -99,6 +100,7 @@ fun DriveModeScreen(
     viewModel: AppViewModel,
     onExit: () -> Unit,
 ) {
+    val haptics = LocalSynxioHaptics.current
     val playerState = viewModel.playerState.collectAsStateWithLifecycle()
     val position = viewModel.position.collectAsStateWithLifecycle()
     val song by remember { derivedStateOf { playerState.value.currentSong } }
@@ -290,7 +292,7 @@ fun DriveModeScreen(
 
                     BrandPlayButton(
                         isPlaying = isPlaying,
-                        onClick = viewModel::togglePlayPause,
+                        onClick = { haptics.tap(); viewModel.togglePlayPause() },
                         size = DrivePlayButton,
                         isBuffering = isBuffering,
                     )
