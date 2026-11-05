@@ -106,6 +106,8 @@ class MediaLibraryTree @Inject constructor(
 
     val tree = BrowseTree(source)
 
+    val hasPermission: Boolean get() = hasAudioPermission()
+
     /**
      * Signale que ce que voit la voiture a changé : scan terminé, playlist ou favori
      * modifié, radio ajoutée. Le service relaie aux navigateurs abonnés.

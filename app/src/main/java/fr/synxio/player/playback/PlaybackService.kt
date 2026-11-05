@@ -301,6 +301,7 @@ class PlaybackService : MediaLibraryService() {
         observeLibraryForQueueRestore()
         observeFavoriteForCustomLayout()
         observeBrowseChanges()
+        refreshSessionExtras()
         observeBuds()
         observeShowSpeed()
 
@@ -562,6 +563,7 @@ class PlaybackService : MediaLibraryService() {
             .debounce(BROWSE_NOTIFY_DEBOUNCE_MS)
             .onEach {
                 lastSearch = null
+                refreshSessionExtras()
                 if (subscribedParents.isEmpty()) return@onEach
                 for (parentId in subscribedParents.toList()) {
                     val count = runCatching { libraryTree.tree.children(parentId).size }.getOrDefault(0)
@@ -1614,6 +1616,8 @@ class PlaybackService : MediaLibraryService() {
                 .setSuggested(params?.isSuggested ?: false)
                 .setExtras(libraryTree.rootExtras())
                 .build()
+            // La permission a pu être accordée entre deux connexions.
+            refreshSessionExtras()
             return Futures.immediateFuture(LibraryResult.ofItem(libraryTree.rootItem, rootParams))
         }
 
@@ -1973,6 +1977,31 @@ class PlaybackService : MediaLibraryService() {
         if (next) activePlayer.addMediaItems(activePlayer.currentMediaItemIndex + 1, items)
         else activePlayer.addMediaItems(items)
     }
+
+    /**
+     * Extras de session lus par Android Auto : les boutons précédent / suivant gardent
+     * leur place même en radio (inactifs plutôt qu'absents), et sans permission de lecture
+     * l'hôte propose d'ouvrir l'app sur le téléphone.
+     */
+    private fun refreshSessionExtras() {
+        val extras = Bundle().apply {
+            putBoolean(MediaConstants.EXTRAS_KEY_SLOT_RESERVATION_SEEK_TO_PREV, true)
+            putBoolean(MediaConstants.EXTRAS_KEY_SLOT_RESERVATION_SEEK_TO_NEXT, true)
+            BrowseTree.phoneActionLabel(libraryTree.hasPermission)?.let { label ->
+                putString(MediaConstants.EXTRAS_KEY_ERROR_RESOLUTION_ACTION_LABEL_COMPAT, label)
+                putParcelable(MediaConstants.EXTRAS_KEY_ERROR_RESOLUTION_ACTION_INTENT_COMPAT, openOnPhoneIntent())
+            }
+        }
+        session.setSessionExtras(extras)
+    }
+
+    /** Ouvre l'app : elle affiche elle-même l'onboarding ou l'accueil selon la permission. */
+    private fun openOnPhoneIntent(): PendingIntent = PendingIntent.getActivity(
+        this,
+        1,
+        Intent(this, MainActivity::class.java).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP },
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
 
     private fun sessionActivityIntent(): PendingIntent = PendingIntent.getActivity(
         this,

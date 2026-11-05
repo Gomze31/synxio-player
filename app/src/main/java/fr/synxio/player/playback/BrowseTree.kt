@@ -765,6 +765,13 @@ class BrowseTree(
         private val FAVORITE_WORDS = setOf("favoris", "mes favoris", "mes titres favoris", "mes coups de coeur", "coups de coeur")
         private val SHUFFLE_WORDS = setOf("aleatoire", "lecture aleatoire", "au hasard", "shuffle", "de la musique", "musique")
 
+        /**
+         * Libellé du bouton de résolution montré par la voiture quand la bibliothèque est
+         * inaccessible. Un scan en cours n'est pas une erreur : seule la permission compte.
+         */
+        fun phoneActionLabel(hasPermission: Boolean): String? =
+            if (hasPermission) null else "Ouvrir Synxio sur le téléphone"
+
         fun titles(count: Int): String = plural(count, "titre")
 
         fun plural(count: Int, word: String): String = if (count <= 1) "$count $word" else "$count ${word}s"

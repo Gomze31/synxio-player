@@ -466,6 +466,12 @@ class BrowseTreeTest {
     }
 
     @Test
+    fun `erreur resoluble - seulement sans permission`() {
+        assertEquals("Ouvrir Synxio sur le téléphone", BrowseTree.phoneActionLabel(hasPermission = false))
+        assertNull(BrowseTree.phoneActionLabel(hasPermission = true))
+    }
+
+    @Test
     fun `pluriels`() {
         assertEquals("0 titre", BrowseTree.titles(0))
         assertEquals("1 titre", BrowseTree.titles(1))
