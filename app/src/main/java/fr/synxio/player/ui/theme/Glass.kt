@@ -14,6 +14,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -29,6 +30,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import fr.synxio.player.core.util.PlaceholderPalette
+import fr.synxio.player.playback.pulse.AudioPulse
 import kotlinx.coroutines.isActive
 import kotlin.math.PI
 import kotlin.math.cos
@@ -130,12 +132,16 @@ fun Modifier.glowShadow(
  * [drifting] fait orbiter lentement les halos (un tour toutes les 40 s) : vrai pendant
  * la lecture. La phase est lue uniquement au dessin, donc aucune recomposition ; et
  * l'horloge d'images s'arrête d'elle-même quand l'app n'est plus visible.
+ *
+ * [pulse], quand il est fourni, module les halos (échelle, luminosité, scintillement,
+ * éclair) ; il n'est lu que dans le dessin. Sans pouls, le rendu est celui de repos.
  */
 @Composable
 fun AmbientBackdrop(
     modifier: Modifier = Modifier,
     intensity: Float = 1f,
     drifting: Boolean = false,
+    pulse: State<AudioPulse>? = null,
 ) {
     val scheme = MaterialTheme.colorScheme
     val art = LocalArtworkColors.current
@@ -162,37 +168,65 @@ fun AmbientBackdrop(
         }
     }
 
+    // Lu et écrit dans la phase de dessin seulement : un tick du pouls invalide le
+    // dessin, jamais la composition.
+    val scene = remember { SceneHolder() }
+
     Box(
         modifier
             .fillMaxSize()
             .drawBehind {
-                val t = (phase.value % 1f) * 2f * PI.toFloat()
+                val current = pulse?.value
+                val now = System.nanoTime()
+                if (current != null) {
+                    if (current.rms >= 0.02f) scene.lastLoudNanos = now
+                    val silentFor = if (scene.lastLoudNanos == 0L) 0L else (now - scene.lastLoudNanos) / 1_000_000
+                    scene.params = mapScene(current, silentFor, scene.params)
+                } else if (scene.params !== SceneParams.REST) {
+                    scene.params = mapScene(AudioPulse.SILENT, 0L, scene.params)
+                }
+                val p = scene.params
+                val live = (phase.value % 1f) * 2f * PI.toFloat()
+                val t = if (p.frozen) scene.frozenT else live.also { scene.frozenT = it }
                 val w = size.width
                 val h = size.height
+                val k2 = p.brightness / 0.85f
                 drawRect(base)
                 drawRect(
                     Brush.radialGradient(
-                        colors = listOf(glowA.copy(alpha = alphaA), Color.Transparent),
+                        colors = listOf(glowA.copy(alpha = (alphaA * k2).coerceAtMost(1f)), Color.Transparent),
                         center = Offset(w * (0.18f + 0.10f * cos(t)), h * (0.04f + 0.04f * sin(t))),
-                        radius = size.maxDimension * 0.78f,
+                        radius = size.maxDimension * 0.78f * p.haloScale[0],
                     )
                 )
                 drawRect(
                     Brush.radialGradient(
-                        colors = listOf(glowB.copy(alpha = alphaB), Color.Transparent),
+                        colors = listOf(glowB.copy(alpha = (alphaB * k2).coerceAtMost(1f)), Color.Transparent),
                         center = Offset(w * (0.98f - 0.10f * sin(t)), h * (0.58f + 0.06f * cos(t))),
-                        radius = size.maxDimension * 0.70f,
+                        radius = size.maxDimension * 0.70f * p.haloScale[1],
                     )
                 )
+                // Scintillement à 4 Hz ; la phase est prise sur les millisecondes modulo 250
+                // pour rester dans la précision d'un Float.
+                val shimmerPhase = ((now / 1_000_000L) % 250L) / 250f * 2f * PI.toFloat()
+                val shimmer = 1f - 0.3f * p.shimmer * (0.5f + 0.5f * sin(shimmerPhase))
                 drawRect(
                     Brush.radialGradient(
-                        colors = listOf(glowC.copy(alpha = alphaC), Color.Transparent),
+                        colors = listOf(glowC.copy(alpha = (alphaC * k2 * shimmer).coerceAtMost(1f)), Color.Transparent),
                         center = Offset(w * (0.30f + 0.12f * sin(t + 2f)), h * (1.02f - 0.04f * cos(t))),
-                        radius = size.maxDimension * 0.55f,
+                        radius = size.maxDimension * 0.55f * p.haloScale[2],
                     )
                 )
+                if (p.flash > 0.01f) drawRect(Color.White.copy(alpha = 0.06f * p.flash))
             }
     )
+}
+
+/** Mémoire de la scène entre deux images : lissage, chrono de silence, phase figée. */
+private class SceneHolder {
+    var params: SceneParams = SceneParams.REST
+    var lastLoudNanos: Long = 0L
+    var frozenT: Float = 0f
 }
 
 /** Un tour complet de l'aurore : assez lent pour ne jamais attirer l'œil. */

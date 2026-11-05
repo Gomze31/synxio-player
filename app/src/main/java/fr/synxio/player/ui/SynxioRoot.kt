@@ -73,6 +73,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import fr.synxio.player.ui.theme.AmbientBackdrop
+import fr.synxio.player.ui.theme.LocalScenePulse
+import fr.synxio.player.ui.theme.rememberScenePulse
+import androidx.compose.runtime.snapshotFlow
 import fr.synxio.player.ui.theme.Space
 import fr.synxio.player.ui.theme.SynxioShape
 import fr.synxio.player.ui.theme.glass
@@ -261,11 +264,26 @@ fun SynxioRoot(viewModel: AppViewModel, openPlayerRequest: Long) {
         viewModel.playerState.map { it.isPlaying }.distinctUntilChanged()
     }.collectAsStateWithLifecycle(initialValue = false)
 
+    val sceneReactive by remember(viewModel) {
+        viewModel.settings.map { it.sceneReactive }.distinctUntilChanged()
+    }.collectAsStateWithLifecycle(initialValue = true)
+    // Lecteur ouvert ou mini-lecteur visible : alimenté par MainScaffold.
+    var surfaceVisible by remember { mutableStateOf(false) }
+    val scenePulse = rememberScenePulse(
+        pulse = viewModel.pulse,
+        sceneReactive = sceneReactive,
+        playing = isPlaying,
+        surfaceVisible = surfaceVisible,
+    )
+
     Box(Modifier.fillMaxSize()) {
-        AmbientBackdrop(drifting = isPlaying)
-        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
+        AmbientBackdrop(drifting = isPlaying, pulse = scenePulse)
+        CompositionLocalProvider(
+            LocalContentColor provides MaterialTheme.colorScheme.onBackground,
+            LocalScenePulse provides scenePulse,
+        ) {
         if (permission.status.isGranted) {
-            MainScaffold(viewModel, openPlayerRequest)
+            MainScaffold(viewModel, openPlayerRequest, onSurfaceVisible = { surfaceVisible = it })
         } else {
             PermissionScreen(
                 // Après « Ne plus demander », la demande système ne s'affiche plus : le
@@ -282,7 +300,7 @@ fun SynxioRoot(viewModel: AppViewModel, openPlayerRequest: Long) {
 }
 
 @Composable
-private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
+private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long, onSurfaceVisible: (Boolean) -> Unit) {
     val navController = rememberNavController()
     val showBottomBar = shouldShowBottomBar(navController)
     val snackbarHost = remember { SnackbarHostState() }
@@ -304,6 +322,14 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
     val expansion = remember { Animatable(0f).apply { updateBounds(0f, 1f) } }
     val expanded by remember { derivedStateOf { expansion.value > 0f } }
     val fullyExpanded by remember { derivedStateOf { expansion.value >= 1f } }
+    // snapshotFlow : lire `expansion.value` ici en composition recomposerait MainScaffold
+    // à chaque image pendant le geste.
+    val hasSong = playerState.currentSong != null
+    LaunchedEffect(miniHidden, hasSong) {
+        snapshotFlow { expansion.value > 0f }
+            .distinctUntilChanged()
+            .collect { open -> onSurfaceVisible(open || (!miniHidden && hasSong)) }
+    }
     val scope = rememberCoroutineScope()
     // La fenêtre peut ne pas être mesurée à la première composition : sans hauteur
     // positive, pas de suivi au doigt (les gestes se replient sur l'ouverture simple).
