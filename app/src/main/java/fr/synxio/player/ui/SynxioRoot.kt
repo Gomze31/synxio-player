@@ -73,6 +73,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import fr.synxio.player.ui.theme.AmbientBackdrop
+import fr.synxio.player.ui.theme.shaders.LocalSceneUniforms
+import fr.synxio.player.ui.theme.shaders.LocalShaderSupport
+import fr.synxio.player.ui.theme.shaders.SceneUniforms
 import fr.synxio.player.ui.theme.LocalScenePulse
 import fr.synxio.player.ui.theme.rememberScenePulse
 import fr.synxio.player.ui.theme.Space
@@ -276,11 +279,16 @@ fun SynxioRoot(viewModel: AppViewModel, openPlayerRequest: Long) {
         surfaceVisible = surfaceVisible,
     )
 
+    // Uniformes de l'aurore : remplis par le fond, lus par le verre réfracté et le canvas.
+    val sceneUniforms = remember { SceneUniforms() }
+
     Box(Modifier.fillMaxSize()) {
         AmbientBackdrop(drifting = isPlaying, pulse = scenePulse)
         CompositionLocalProvider(
             LocalContentColor provides MaterialTheme.colorScheme.onBackground,
             LocalScenePulse provides scenePulse,
+            LocalShaderSupport provides viewModel.shaderSupport,
+            LocalSceneUniforms provides sceneUniforms,
         ) {
         if (permission.status.isGranted) {
             MainScaffold(viewModel, openPlayerRequest, onSurfaceVisible = { surfaceVisible = it })

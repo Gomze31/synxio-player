@@ -78,6 +78,8 @@ class AppViewModel @Inject constructor(
     private val radioRepository: fr.synxio.player.data.repo.RadioRepository,
     private val moodRadioRepository: fr.synxio.player.data.repo.MoodRadioRepository,
     private val equalizerController: fr.synxio.player.playback.EqualizerController,
+    /** Compilation et repli des shaders AGSL, fourni à la scène par `SynxioRoot`. */
+    val shaderSupport: fr.synxio.player.ui.theme.shaders.ShaderSupport,
     audioOutputMonitor: fr.synxio.player.playback.AudioOutputMonitor,
     smartPlaylistRepository: SmartPlaylistRepository,
     dailyMixRepository: fr.synxio.player.data.repo.DailyMixRepository,
