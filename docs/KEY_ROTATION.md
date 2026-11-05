@@ -21,14 +21,16 @@ Fait par le mainteneur le 5 novembre 2026 :
    (ancienne clé → nouvelle). Empreinte SHA-256 de la nouvelle clé :
    `fdec0635fbf76f8629159098b52b1cc0c886c80ea29d83726429b96ffaebd39b`, épinglée dans
    `UpdateSignatures.PINNED_SIGNER_SHA256`.
-2. Secrets GitHub `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`.
+2. Les cinq secrets GitHub du §4.
+3. Release `v5.7.1` publiée par la CI le même jour : premier APK signé v3 seul par la
+   nouvelle clé avec la lignée, signataire vérifié conforme à l'empreinte épinglée.
 
-Reste avant le premier tag signé par la nouvelle clé (`v5.7.1`) :
+Reste :
 
-- Les deux secrets binaires (§4) : `KEYSTORE_BASE64` et `LINEAGE_BASE64`.
 - `keystore.properties` à la racine pour les builds release locaux (facultatif, la CI n'en
   a pas besoin).
 - Sauvegarder `synxio-release-2.jks` et son mot de passe à deux endroits hors ligne.
+- Purger l'ancien keystore de l'historique Git (§8).
 
 Transition : la 5.6.0 installée (ancienne clé) accepte la 5.7.1 parce que la lignée
 contient l'ancienne clé. À partir de là, un APK signé par l'ancienne clé seule est refusé
