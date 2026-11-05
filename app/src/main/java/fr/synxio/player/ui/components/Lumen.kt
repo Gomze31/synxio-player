@@ -567,6 +567,7 @@ fun BrandProgressBar(
     modifier: Modifier = Modifier,
     height: Dp = 3.dp,
     trackColor: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+    pulse: Boolean = false,
 ) {
     val brush = SynxioTheme.colors.brandBrushHorizontal
     Box(
@@ -583,7 +584,7 @@ fun BrandProgressBar(
                     .fillMaxWidth(f)
                     .fillMaxHeight()
                     .clip(SynxioShape.pill)
-                    .pulseAlpha()
+                    .then(if (pulse) Modifier.pulseAlpha() else Modifier)
                     .background(brush)
             )
         }

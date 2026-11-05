@@ -54,7 +54,11 @@ fun rememberScenePulse(
 /** État d'énergie de l'appareil, observable par la composition. */
 private class PowerState { var powerSave by mutableStateOf(false); var batteryLow by mutableStateOf(false) }
 
-/** Économie d'énergie et batterie ≤ 15 %, suivis par diffusion système. */
+/**
+ * Économie d'énergie et batterie ≤ 15 %. La batterie vient de `ACTION_BATTERY_CHANGED`,
+ * diffusion collante : `registerReceiver` renvoie l'état courant, qui sert de valeur
+ * initiale, puis chaque variation de niveau met l'état à jour.
+ */
 @Composable
 private fun rememberPowerState(): PowerState {
     val context = LocalContext.current
@@ -62,31 +66,31 @@ private fun rememberPowerState(): PowerState {
     DisposableEffect(context) {
         val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
         state.powerSave = pm.isPowerSaveMode
-        state.batteryLow = batteryPercent(context) <= LOW_BATTERY_PERCENT
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(c: Context, intent: Intent) {
                 when (intent.action) {
                     PowerManager.ACTION_POWER_SAVE_MODE_CHANGED -> state.powerSave = pm.isPowerSaveMode
-                    Intent.ACTION_BATTERY_LOW -> state.batteryLow = batteryPercent(context) <= LOW_BATTERY_PERCENT
-                    Intent.ACTION_BATTERY_OKAY -> state.batteryLow = batteryPercent(context) <= LOW_BATTERY_PERCENT
+                    Intent.ACTION_BATTERY_CHANGED -> state.batteryLow = isBatteryLow(intent)
                 }
             }
         }
         val filter = IntentFilter().apply {
             addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
-            addAction(Intent.ACTION_BATTERY_LOW)
-            addAction(Intent.ACTION_BATTERY_OKAY)
+            addAction(Intent.ACTION_BATTERY_CHANGED)
         }
-        ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        val sticky = ContextCompat.registerReceiver(context, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        sticky?.let { state.batteryLow = isBatteryLow(it) }
         onDispose { runCatching { context.unregisterReceiver(receiver) } }
     }
     return state
 }
 
-private fun batteryPercent(context: Context): Int {
-    val bm = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager ?: return 100
-    val value = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-    return if (value in 0..100) value else 100
+/** Vrai si le niveau (`EXTRA_LEVEL` sur `EXTRA_SCALE`) est au plus à 15 %. */
+private fun isBatteryLow(intent: Intent): Boolean {
+    val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+    val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+    if (level < 0 || scale <= 0) return false
+    return level * 100 / scale <= LOW_BATTERY_PERCENT
 }
 
 private const val LOW_BATTERY_PERCENT = 15

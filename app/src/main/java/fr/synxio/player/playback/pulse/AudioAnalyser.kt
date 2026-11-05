@@ -33,6 +33,13 @@ class AudioAnalyser(
 
     init { computeBandEdges() }
 
+    /** Remet à zéro lissage, énergie précédente et attaque : le pouls repart de zéro après un silence. */
+    fun reset() {
+        smoothed.fill(0f)
+        previousRms = 0f
+        onset = 0f
+    }
+
     fun setSampleRate(rate: Int) {
         if (rate > 0 && rate != sampleRate) {
             sampleRate = rate

@@ -44,7 +44,7 @@ class AudioAnalyserTest {
     @Test
     fun `bruit blanc - toutes les bandes vivent`() {
         val pulse = settle(AudioAnalyser(rate), noise())
-        assertTrue(pulse.bands.joinToString(), pulse.bands.all { it > 0.1f })
+        assertTrue(pulse.bands.joinToString(), pulse.bands.all { it > 0.2f })
         assertEquals(32, pulse.bands.size)
     }
 

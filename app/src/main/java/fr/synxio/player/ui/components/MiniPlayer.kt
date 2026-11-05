@@ -152,11 +152,12 @@ fun MiniPlayer(
             .glass(SynxioShape.card, strength = 1f, tint = tint)
             // Lueur qui suit les basses, dessinée sans recomposition.
             .drawWithContent {
-                drawContent()
+                // Au-dessus du verre, sous le contenu : la lueur ne délave pas le texte.
                 val p = scenePulse?.value
                 if (p != null && tint != null && p.bass > 0.02f) {
                     drawRect(tint.copy(alpha = 0.08f * p.bass))
                 }
+                drawContent()
             }
             .pointerInput(threshold, reduceMotion) {
                 val tracker = VelocityTracker()
@@ -332,6 +333,7 @@ private fun MiniProgress(position: StateFlow<PlayerPosition>, reduceMotion: Bool
     BrandProgressBar(
         progress = progress,
         height = 3.dp,
+        pulse = true,
         modifier = Modifier.padding(horizontal = Space.lg),
     )
 }

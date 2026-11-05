@@ -28,7 +28,7 @@ class PulseSource internal constructor(
     @Inject
     constructor(@ApplicationScope scope: CoroutineScope) : this(Analysis(scope))
 
-    private constructor(analysis: Analysis) : this(analysis.scope, TICK_MS, analysis::next, analysis.sink)
+    internal constructor(analysis: Analysis) : this(analysis.scope, TICK_MS, analysis::next, analysis.sink)
 
     private val playing = MutableStateFlow(false)
 
@@ -44,13 +44,27 @@ class PulseSource internal constructor(
     }
 
     /** Tampon, puits et analyseur de production, réunis pour que le constructeur Hilt reste simple. */
-    private class Analysis(val scope: CoroutineScope) {
+    internal class Analysis(val scope: CoroutineScope) {
         private val buffer = PulseRingBuffer()
         val sink = PulseSink(buffer)
         private val analyser = AudioAnalyser()
         private val frame = FloatArray(FRAME_SIZE)
 
+        private var lastWritten = -1L
+        private var stalledTicks = 0
+
+        /**
+         * Analyse la dernière trame. Si le tampon n'avance plus depuis [STALL_TICKS] ticks
+         * (Cast, décrochage), renvoie [AudioPulse.SILENT] au lieu de figer la dernière valeur.
+         */
         fun next(): AudioPulse {
+            val written = buffer.written
+            if (written == lastWritten) stalledTicks++ else stalledTicks = 0
+            lastWritten = written
+            if (stalledTicks >= STALL_TICKS) {
+                if (stalledTicks == STALL_TICKS) analyser.reset()
+                return AudioPulse.SILENT
+            }
             analyser.setSampleRate(sink.sampleRate)
             buffer.readLast(frame)
             return analyser.analyse(frame)
@@ -61,5 +75,6 @@ class PulseSource internal constructor(
         const val TICK_MS = 33L
         const val STOP_TIMEOUT_MS = 500L
         const val FRAME_SIZE = 1024
+        const val STALL_TICKS = 3
     }
 }

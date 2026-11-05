@@ -22,9 +22,11 @@ Faire écouter la lumière. La scène Lumen cesse d'être une dérive lente : l'
 
 ### 1.1 `AudioTapProcessor`
 
-Nouveau `AudioProcessor` Media3 dans `playback/effects/AudioTapProcessor.kt`, placé après `vocalRemover` dans `setAudioProcessors`. Il laisse passer le tampon d'entrée tel quel (sortie = entrée, aucune copie du flux audio) et recopie, pour chaque tampon traité, les échantillons mixés en mono dans un tampon circulaire de 2048 trames (`FloatArray`, pré-alloué, écriture sans verrou ni allocation). Formats acceptés : PCM 16 bits et float ; tout autre format est déclaré non pris en charge et le processeur devient inactif (le son continue, sans pouls).
+Nouveau `AudioProcessor` Media3 dans `playback/effects/AudioTapProcessor.kt`, placé après `vocalRemover` dans `setAudioProcessors`. Il laisse passer le tampon d'entrée tel quel (sortie = entrée, aucune copie du flux audio) et recopie, pour chaque tampon traité, les échantillons mixés en mono dans un tampon circulaire de 8192 trames (`FloatArray`, pré-alloué, écriture sans verrou ni allocation). Formats acceptés : PCM 16 bits et float ; tout autre format est déclaré non pris en charge et le processeur devient inactif (le son continue, sans pouls).
 
 La fréquence d'échantillonnage courante est mémorisée pour que l'analyseur convertisse ses bandes en hertz.
+
+Le pouls est pris avant le tampon de l'`AudioTrack` (250 à 750 ms) : il peut donc devancer le son audible. Point ouvert connu, non corrigé ici, à vérifier sur appareil.
 
 ### 1.2 `AudioAnalyser`
 
@@ -51,13 +53,13 @@ Singleton Hilt dans `playback/pulse/PulseSource.kt`, injecté dans `PlaybackServ
 val pulse: StateFlow<AudioPulse>
 ```
 
-construit par `flow { while (true) { emit(analyse()); delay(33) } }.stateIn(scope, SharingStarted.WhileSubscribed(stopTimeoutMillis = 500), AudioPulse.SILENT)`. Sans abonné, rien ne tourne : ni FFT, ni réveil. `PlayerConnection.pulse` le réexpose, sur le modèle de `position` (5.7.1). En pause (`isPlaying` faux), la source émet `SILENT` sans calculer.
+construit par `flow { while (true) { emit(analyse()); delay(33) } }.stateIn(scope, SharingStarted.WhileSubscribed(stopTimeoutMillis = 500), AudioPulse.SILENT)`. Sans abonné, rien ne tourne : ni FFT, ni réveil. `PlayerConnection.pulse` le réexpose, sur le modèle de `position` (5.7.1). En pause (`isPlaying` faux), la source émet `SILENT` sans calculer. Le tampon fait 8192 trames ; quand `written` n'avance plus pendant 3 ticks (Cast, décrochage), la source émet `SILENT`.
 
 ### 1.4 Suppression de l'ancien visualiseur
 
 - `EqualizerController` perd `Visualizer`, `fftFlow`, `setVisualizerEnabled` et l'`audioSessionId` qui ne servait qu'à lui.
 - `AppViewModel.fftFlow` et `EqualizerViewModel.fftFlow` deviennent `pulse: StateFlow<AudioPulse>`.
-- `AudioVisualizer(fft: ByteArray, …)` devient `AudioVisualizer(pulse: AudioPulse, …)` et dessine `bands` ; même apparence (barres, dégradé signature). Le réglage `showVisualizer` reste.
+- `AudioVisualizer(fft: ByteArray, …)` devient `AudioVisualizer(pulse: State<AudioPulse>, …)` (lu dans la phase de dessin) et dessine `bands` ; même apparence (barres, dégradé signature). Le réglage `showVisualizer` reste.
 - `RECORD_AUDIO` est retirée du manifeste, ainsi que toute demande de permission associée.
 
 ### 1.5 Tests
@@ -97,7 +99,7 @@ Nouveau paramètre `pulse: State<AudioPulse>?` (nul = comportement actuel). Les 
 
 ### 2.4 Budget et coupures
 
-La scène est inactive (pouls `null`, abonnement coupé) si l'une des conditions suit : « Réduire les animations », « Effets lumineux » désactivé, nouveau réglage « Scène réactive » désactivé, `PowerManager.isPowerSaveMode`, batterie ≤ 15 % (`BatteryManager`, lue à l'abonnement et sur `ACTION_BATTERY_LOW` / `ACTION_BATTERY_OKAY`), écran éteint (`Lifecycle` de l'activité hors `STARTED`), lecture en pause. Ces règles vivent dans une fonction pure `sceneAllowed(...)` testée.
+La scène est inactive (pouls `null`, abonnement coupé) si l'une des conditions suit : « Réduire les animations », « Effets lumineux » désactivé, nouveau réglage « Scène réactive » désactivé, `PowerManager.isPowerSaveMode`, batterie ≤ 15 % (diffusion collante `ACTION_BATTERY_CHANGED` : l'état courant sert de valeur initiale, puis `level * 100 / scale` est recalculé à chaque variation), écran éteint (`Lifecycle` de l'activité hors `STARTED`), lecture en pause. Ces règles vivent dans une fonction pure `sceneAllowed(...)` testée.
 
 Cadence : l'analyse émet à 30 Hz ; le dessin suit l'invalidation du Canvas sur chaque émission, donc 30 images par seconde au plus, quel que soit le taux de rafraîchissement de l'écran.
 

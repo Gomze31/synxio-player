@@ -128,7 +128,6 @@ fun EqualizerScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
     val activeCurveId by viewModel.activeCurveId.collectAsStateWithLifecycle()
     val connectedDevice by viewModel.connectedDevice.collectAsStateWithLifecycle()
     val deviceProfiles by viewModel.deviceProfiles.collectAsStateWithLifecycle()
-    val pulse = viewModel.pulse.collectAsStateWithLifecycle()
     val reduceMotion = LocalReduceMotion.current
 
     LaunchedEffect(Unit) { viewModel.refreshConnectedDevice() }
@@ -222,6 +221,8 @@ fun EqualizerScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                         enter = expandVertically(Motion.spatial()) + fadeIn(Motion.enter()),
                         exit = shrinkVertically(Motion.spatial()) + fadeOut(Motion.exit()),
                     ) {
+                        // Collecté ici seulement : le bloc n'est composé que s'il est visible.
+                        val pulse = viewModel.pulse.collectAsStateWithLifecycle()
                         AudioVisualizer(
                             pulse = pulse,
                             barColor = MaterialTheme.colorScheme.primary,

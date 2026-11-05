@@ -214,8 +214,6 @@ fun NowPlayingScreen(
         if (showLyrics) lyricsViewModel.load(song)
     }
 
-    val pulse = viewModel.pulse.collectAsStateWithLifecycle()
-
     // « Garder l'écran allumé » : réglage enregistré mais jamais appliqué jusqu'ici.
     val view = LocalView.current
     DisposableEffect(settings.keepScreenOnNowPlaying) {
@@ -271,7 +269,9 @@ fun NowPlayingScreen(
                 }
         )
 
-        if (settings.showVisualizer) {
+        if (settings.showVisualizer && !reduceMotion) {
+            // Collecté ici seulement : sans visualiseur à l'écran, l'analyse reste éteinte.
+            val pulse = viewModel.pulse.collectAsStateWithLifecycle()
             AudioVisualizer(
                 pulse = pulse,
                 barColor = colors.brandEnd.copy(alpha = 0.42f),

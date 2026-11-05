@@ -5,7 +5,7 @@ package fr.synxio.player.playback.pulse
  * (l'analyseur) : pas de verrou, l'index d'écriture est volatile. Une lecture qui
  * chevauche une écriture mélange deux instants ; pour une animation, c'est sans effet.
  */
-class PulseRingBuffer(private val capacity: Int = 2048) {
+class PulseRingBuffer(private val capacity: Int = 8192) {
     private val data = FloatArray(capacity)
 
     @Volatile
@@ -25,8 +25,9 @@ class PulseRingBuffer(private val capacity: Int = 2048) {
 
     /** Remplit [out] avec les `out.size` derniers échantillons, zéros devant si trop tôt. */
     fun readLast(out: FloatArray) {
-        val total = written
         val n = out.size
+        require(n <= capacity) { "lecture de $n échantillons, tampon de $capacity" }
+        val total = written
         val available = minOf(total, n.toLong()).toInt()
         val lead = n - available
         for (i in 0 until lead) out[i] = 0f

@@ -409,6 +409,7 @@ class PlaybackService : MediaLibraryService() {
     override fun onDestroy() {
         // Écriture synchrone et bornée : lancée en tâche de fond, elle était annulée par
         // serviceScope.cancel() quelques lignes plus bas, et la dernière position perdue.
+        pulseSource.setPlaying(false)
         persistSoonJob?.cancel()
         if (canPersist()) queueWrites.trySend(queueSnapshot(includeQueue = queueDirty))
         queueWrites.close()
