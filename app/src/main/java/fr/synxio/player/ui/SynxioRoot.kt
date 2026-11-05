@@ -294,7 +294,9 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
 
     // 0 = mini-lecteur, 1 = plein écran. Un seul état continu : le doigt, le retour
     // prédictif et le tap y écrivent tous, l'affichage ne fait que le lire.
-    val expansion = remember { Animatable(0f) }
+    // Bornes 0..1 : le dépassement d'un ressort ne doit pas basculer `expanded` /
+    // `fullyExpanded` en fin d'animation.
+    val expansion = remember { Animatable(0f).apply { updateBounds(0f, 1f) } }
     val expanded by remember { derivedStateOf { expansion.value > 0f } }
     val fullyExpanded by remember { derivedStateOf { expansion.value >= 1f } }
     val scope = rememberCoroutineScope()
@@ -359,18 +361,22 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
     }
 
     PredictiveBackHandler(enabled = expanded) { progress ->
+        // L'aperçu part de la position courante : le lecteur peut être en cours d'ouverture.
+        val from = expansion.value
         try {
             progress.collect { event ->
                 // Aperçu partiel : le lecteur ne descend que de 40 % pendant le geste système.
-                if (!reduceMotion) expansion.snapTo(1f - event.progress * 0.4f)
+                if (!reduceMotion) expansion.snapTo(from * (1f - event.progress * 0.4f))
             }
-            expansion.animateTo(0f, playerSpec())
         } catch (e: CancellationException) {
             // Geste annulé : la coroutine du gestionnaire peut être annulée elle aussi, le
             // retour en place passe donc par la portée de l'écran.
-            scope.launch { expansion.animateTo(1f, playerSpec()) }
+            scope.launch { expansion.animateTo(from, playerSpec()) }
             throw e
         }
+        // Hors du `try` : l'annulation de la fermeture (second retour, doigt qui reprend le
+        // lecteur) ne doit pas le rouvrir.
+        closePlayer()
     }
 
     var dismissUpdate by remember { mutableStateOf(false) }
