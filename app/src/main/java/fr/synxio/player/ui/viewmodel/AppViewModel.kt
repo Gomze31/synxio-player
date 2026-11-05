@@ -83,6 +83,7 @@ class AppViewModel @Inject constructor(
     audioOutputMonitor: fr.synxio.player.playback.AudioOutputMonitor,
     smartPlaylistRepository: SmartPlaylistRepository,
     dailyMixRepository: fr.synxio.player.data.repo.DailyMixRepository,
+    memoryRepository: fr.synxio.player.data.repo.MemoryRepository,
     budsMonitor: fr.synxio.player.buds.BudsMonitor,
     private val ratingRepository: fr.synxio.player.data.repo.RatingRepository,
     private val showSpeedDao: fr.synxio.player.data.db.ShowSpeedDao,
@@ -278,6 +279,7 @@ class AppViewModel @Inject constructor(
 
     val smartPlaylists: StateFlow<List<SmartPlaylist>> = smartPlaylistRepository.playlists
     val dailyMixes: StateFlow<List<fr.synxio.player.data.model.DailyMix>> = dailyMixRepository.mixes
+    val memories: StateFlow<List<fr.synxio.player.data.model.Memory>> = memoryRepository.memories
     val rulePlaylists: StateFlow<List<RulePlaylist>> = rulePlaylistRepository.rulePlaylists
 
     val library: StateFlow<Library> = musicRepository.library

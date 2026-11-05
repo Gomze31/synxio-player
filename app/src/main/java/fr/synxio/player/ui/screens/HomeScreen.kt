@@ -4,6 +4,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -128,6 +129,7 @@ fun HomeScreen(
     val favorites by viewModel.favoriteSongs.collectAsStateWithLifecycle()
     val smartPlaylists by viewModel.smartPlaylists.collectAsStateWithLifecycle()
     val dailyMixes by viewModel.dailyMixes.collectAsStateWithLifecycle()
+    val memories by viewModel.memories.collectAsStateWithLifecycle()
     // Triés par le ViewModel hors du thread principal, jamais pendant la composition.
     val recentAlbums by viewModel.recentAlbums.collectAsStateWithLifecycle()
     val topArtists by viewModel.topArtists.collectAsStateWithLifecycle()
@@ -326,6 +328,37 @@ fun HomeScreen(
                                 modifier = Modifier
                                     .animateItem()
                                     .enterCascade(i, "mix-${mix.key}"),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        if (memories.isNotEmpty()) {
+            val index = order++
+            item(key = "s-memories", contentType = "smartSection") {
+                HomeSection(
+                    title = "Souvenirs",
+                    eyebrow = "L'app se souvient avec toi",
+                    modifier = Modifier.enterCascade(index, "home-memories"),
+                ) {
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = Space.gutter),
+                        horizontalArrangement = Arrangement.spacedBy(Space.md),
+                    ) {
+                        itemsIndexed(memories, key = { _, it -> it.key }) { i, memory ->
+                            MosaicCard(
+                                title = memory.title,
+                                subtitle = memory.subtitle,
+                                artworkUris = memory.artworkUris,
+                                onClickLabel = "Écouter",
+                                onClick = { viewModel.play(memory.songs) },
+                                // Appui long : la carte devient une playlist, nommée comme elle.
+                                onLongClick = { viewModel.createPlaylist(memory.title, memory.songs) },
+                                modifier = Modifier
+                                    .animateItem()
+                                    .enterCascade(i, "memory-${memory.key}"),
                             )
                         }
                     }
@@ -807,13 +840,20 @@ private fun MosaicCard(
     onClickLabel: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onLongClick: (() -> Unit)? = null,
 ) {
     Column(
         modifier = modifier
             .pressBounce()
             .width(SmartCardWidth)
             .clip(SynxioShape.artworkMd)
-            .clickable(onClickLabel = onClickLabel, role = Role.Button, onClick = onClick)
+            .combinedClickable(
+                onClickLabel = onClickLabel,
+                role = Role.Button,
+                onLongClickLabel = onLongClick?.let { "Enregistrer en playlist" },
+                onLongClick = onLongClick,
+                onClick = onClick,
+            )
             .padding(bottom = Space.sm),
     ) {
         ArtworkMosaic(
