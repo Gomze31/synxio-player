@@ -16,10 +16,10 @@ package fr.synxio.player.data.repo
 object UpdateSignatures {
 
     /**
-     * Empreinte SHA-256 du certificat de release, hexadécimal sans séparateur.
-     * Vide tant que la clé n'est pas générée : aucune mise à jour n'est alors acceptée.
+     * Empreinte SHA-256 du certificat de release (clé v2, novembre 2026), hexadécimal
+     * sans séparateur. Vide, aucune mise à jour ne serait acceptée.
      */
-    const val PINNED_SIGNER_SHA256 = ""
+    const val PINNED_SIGNER_SHA256 = "fdec0635fbf76f8629159098b52b1cc0c886c80ea29d83726429b96ffaebd39b"
 
     fun compatible(
         installedCurrent: Set<String>,

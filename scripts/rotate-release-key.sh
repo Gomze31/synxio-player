@@ -28,11 +28,18 @@ fi
 [ -e "$NEW_KS" ] && { echo "$NEW_KS existe déjà : rien n'est écrasé." >&2; exit 1; }
 mkdir -p "$OUT"
 
-# apksigner : dernière version des build-tools du SDK (apksigner.bat sous Windows).
-SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$(sed -n 's/^sdk\.dir=//p' local.properties 2>/dev/null | sed 's/\\\\/\//g; s/\\:/:/')}}"
+# apksigner : dernière version des build-tools du SDK. On lance le jar avec java plutôt
+# que apksigner.bat : le .bat se perd quand le chemin du SDK contient un espace.
+# sdk.dir de local.properties est échappé (C\:\\Users\\…) : on le remet en C:/Users/….
+if [ -n "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}" ]; then
+  SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+else
+  SDK="$(sed -n 's/^sdk\.dir=//p' local.properties 2>/dev/null | tr -s '\134' '/' | sed 's|^\([A-Za-z]\)/:|\1:|')"
+fi
 BT="$(ls -d "$SDK"/build-tools/* 2>/dev/null | sort -V | tail -1)"
-APKSIGNER="$BT/apksigner"; [ -x "$APKSIGNER" ] || APKSIGNER="$BT/apksigner.bat"
-[ -e "$APKSIGNER" ] || { echo "apksigner introuvable dans $SDK/build-tools." >&2; exit 1; }
+APKSIGNER_JAR="$BT/lib/apksigner.jar"
+[ -f "$APKSIGNER_JAR" ] || { echo "apksigner introuvable dans $SDK/build-tools." >&2; exit 1; }
+APKSIGNER() { java -jar "$APKSIGNER_JAR" "$@"; }
 
 echo "1/3 — Nouvelle clé : choisis un mot de passe long (gestionnaire de mots de passe)."
 keytool -genkeypair -v -keystore "$NEW_KS" -storetype PKCS12 -alias synxio \
@@ -41,10 +48,10 @@ keytool -genkeypair -v -keystore "$NEW_KS" -storetype PKCS12 -alias synxio \
 echo "2/3 — Lignée ancienne clé → nouvelle clé (apksigner demande le mot de passe de chaque clé)."
 # Droits par défaut de l'ancienne clé : tout sauf le retour arrière. Un APK signé avec
 # l'ancienne clé seule ne pourra plus mettre à jour une appli déjà passée sur la lignée.
-"$APKSIGNER" rotate --out "$LINEAGE" \
+APKSIGNER rotate --out "$LINEAGE" \
   --old-signer --ks "$OLD_KS" --ks-key-alias synxio \
   --new-signer --ks "$NEW_KS" --ks-key-alias synxio
-"$APKSIGNER" lineage --in "$LINEAGE" --print-certs
+APKSIGNER lineage --in "$LINEAGE" --print-certs
 
 echo "3/3 — Empreinte de la nouvelle clé (à reporter sans « : » dans PINNED_SIGNER_SHA256) :"
 keytool -list -v -keystore "$NEW_KS" -alias synxio | grep -i "SHA256" || true

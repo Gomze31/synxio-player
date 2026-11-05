@@ -14,18 +14,24 @@ Fait dans le code (5.6.1) :
 - `UpdateSignatures.PINNED_SIGNER_SHA256` : empreinte de la nouvelle clé exigée sur tout
   APK de mise à jour.
 
-Reste au mainteneur, une seule fois, avant le tag `v5.6.1` :
+Fait par le mainteneur le 5 novembre 2026 :
 
-1. `scripts/rotate-release-key.sh` (clé + lignée, mots de passe saisis à la main).
-2. Les cinq secrets GitHub (§4) : `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`,
-   `KEY_PASSWORD`, `LINEAGE_BASE64`.
-3. Renseigner `PINNED_SIGNER_SHA256` avec l'empreinte affichée par le script (hexadécimal
-   sans « : »), puis commit.
-4. `keystore.properties` à la racine pour les builds release locaux.
+1. Rotation : `~/synxio-keys/synxio-release-2.jks` (alias `synxio`) et `synxio.lineage`
+   (ancienne clé → nouvelle). Empreinte SHA-256 de la nouvelle clé :
+   `fdec0635fbf76f8629159098b52b1cc0c886c80ea29d83726429b96ffaebd39b`, épinglée dans
+   `UpdateSignatures.PINNED_SIGNER_SHA256`.
+2. Secrets GitHub `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`.
 
-Transition : la 5.6.0 (ancienne clé) accepte la 5.6.1 parce que la lignée contient
-l'ancienne clé. À partir de la 5.6.1, un APK signé par l'ancienne clé seule est refusé par
-l'application et par Android. Android 8.x ne reçoit plus de mise à jour.
+Reste avant le premier tag signé par la nouvelle clé (`v5.7.1`) :
+
+- Les deux secrets binaires (§4) : `KEYSTORE_BASE64` et `LINEAGE_BASE64`.
+- `keystore.properties` à la racine pour les builds release locaux (facultatif, la CI n'en
+  a pas besoin).
+- Sauvegarder `synxio-release-2.jks` et son mot de passe à deux endroits hors ligne.
+
+Transition : la 5.6.0 installée (ancienne clé) accepte la 5.7.1 parce que la lignée
+contient l'ancienne clé. À partir de là, un APK signé par l'ancienne clé seule est refusé
+par l'application et par Android. Android 8.x ne reçoit plus de mise à jour.
 
 ## 1. Le risque
 
