@@ -71,6 +71,7 @@ import androidx.compose.ui.unit.dp
 import fr.synxio.player.ui.theme.EyebrowTextStyle
 import fr.synxio.player.ui.theme.LocalGlowEffects
 import fr.synxio.player.ui.theme.LocalReduceMotion
+import fr.synxio.player.ui.theme.LocalScenePulse
 import fr.synxio.player.ui.theme.Motion
 import fr.synxio.player.ui.theme.Space
 import fr.synxio.player.ui.theme.SynxioShape
@@ -549,6 +550,16 @@ fun ScreenHeader(
 // Progression, chargement
 // ---------------------------------------------------------------------------------------
 
+/**
+ * Fait respirer l'alpha d'un élément sur le niveau global du pouls (`rms`), lu dans
+ * `graphicsLayer` : aucune recomposition par tick. Sans scène réactive, alpha = 1.
+ */
+@Composable
+fun Modifier.pulseAlpha(min: Float = 0.9f, span: Float = 0.1f): Modifier {
+    val pulse = LocalScenePulse.current ?: return this
+    return graphicsLayer { alpha = (min + span * pulse.value.rms).coerceIn(0f, 1f) }
+}
+
 /** Barre de progression fine à la signature Lumen (mini-lecteur, widgets in-app…). */
 @Composable
 fun BrandProgressBar(
@@ -572,6 +583,7 @@ fun BrandProgressBar(
                     .fillMaxWidth(f)
                     .fillMaxHeight()
                     .clip(SynxioShape.pill)
+                    .pulseAlpha()
                     .background(brush)
             )
         }

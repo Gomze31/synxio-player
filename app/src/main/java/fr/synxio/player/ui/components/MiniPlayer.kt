@@ -39,6 +39,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
@@ -54,6 +55,7 @@ import fr.synxio.player.playback.PlayerPosition
 import fr.synxio.player.playback.PlayerUiState
 import fr.synxio.player.ui.theme.LocalArtworkColors
 import fr.synxio.player.ui.theme.LocalReduceMotion
+import fr.synxio.player.ui.theme.LocalScenePulse
 import fr.synxio.player.ui.haptics.LocalSynxioHaptics
 import fr.synxio.player.ui.theme.Motion
 import fr.synxio.player.ui.theme.Space
@@ -109,6 +111,8 @@ fun MiniPlayer(
     val colors = SynxioTheme.colors
     val art = LocalArtworkColors.current
     val tint = art.vibrant ?: art.seed
+    // Le State seul est lu ici ; la valeur du pouls ne l'est qu'en phase de dessin.
+    val scenePulse = LocalScenePulse.current
 
     // Retour tactile : le mini-lecteur s'enfonce légèrement sous le doigt.
     val interaction = remember { MutableInteractionSource() }
@@ -146,6 +150,14 @@ fun MiniPlayer(
             .glowShadow(SynxioShape.card, (tint ?: colors.brandEnd).copy(alpha = 0.7f), elevation = 16.dp)
             .clip(SynxioShape.card)
             .glass(SynxioShape.card, strength = 1f, tint = tint)
+            // Lueur qui suit les basses, dessinée sans recomposition.
+            .drawWithContent {
+                drawContent()
+                val p = scenePulse?.value
+                if (p != null && tint != null && p.bass > 0.02f) {
+                    drawRect(tint.copy(alpha = 0.08f * p.bass))
+                }
+            }
             .pointerInput(threshold, reduceMotion) {
                 val tracker = VelocityTracker()
                 // L'axe est fixé au premier mouvement après le seuil tactile : un balayage

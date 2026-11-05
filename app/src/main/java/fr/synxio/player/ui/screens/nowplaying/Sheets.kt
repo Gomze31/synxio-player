@@ -12,6 +12,7 @@ import fr.synxio.player.ui.components.LumenChip
 import fr.synxio.player.ui.components.SheetHandle
 import fr.synxio.player.ui.components.pressBounce
 import fr.synxio.player.ui.components.shimmer
+import fr.synxio.player.ui.components.pulseAlpha
 import fr.synxio.player.ui.theme.EyebrowTextStyle
 import fr.synxio.player.ui.theme.SynxioTheme
 import fr.synxio.player.ui.theme.glass
@@ -348,7 +349,7 @@ private fun LyricRow(line: LyricLine, active: Boolean, synced: Boolean, onClick:
         // La ligne chantée prend la signature Lumen, comme éclairée par un projecteur.
         style = if (active && synced) LyricsTextStyle.copy(brush = brand) else LyricsTextStyle,
         color = color,
-        modifier = Modifier
+        modifier = (if (active && synced) Modifier.pulseAlpha() else Modifier)
             .fillMaxWidth()
             .graphicsLayer {
                 scaleX = scale
