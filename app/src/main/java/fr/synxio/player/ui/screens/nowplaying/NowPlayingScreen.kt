@@ -125,6 +125,7 @@ import fr.synxio.player.playback.SleepTimerState
 import fr.synxio.player.playback.openSystemOutputSwitcher
 import fr.synxio.player.ui.components.AddToPlaylistHost
 import fr.synxio.player.ui.components.Artwork
+import fr.synxio.player.ui.components.ArtworkCanvas
 import fr.synxio.player.ui.haptics.LocalSynxioHaptics
 import fr.synxio.player.ui.components.AudioVisualizer
 import fr.synxio.player.ui.components.BrandPlayButton
@@ -138,6 +139,7 @@ import fr.synxio.player.ui.theme.EyebrowTextStyle
 import fr.synxio.player.ui.theme.LocalArtworkColors
 import fr.synxio.player.ui.theme.LocalGlowEffects
 import fr.synxio.player.ui.theme.LocalReduceMotion
+import fr.synxio.player.ui.theme.LocalScenePulse
 import fr.synxio.player.ui.theme.Motion
 import fr.synxio.player.ui.theme.Radius
 import fr.synxio.player.ui.theme.Space
@@ -340,6 +342,7 @@ fun NowPlayingScreen(
                         queue = state.queue,
                         queueIndex = state.queueIndex,
                         isPlaying = state.isPlaying,
+                        canvasAnimated = settings.canvasAnimated,
                         onPageChanged = viewModel::skipToQueueIndex,
                     )
                 }
@@ -806,9 +809,12 @@ private fun ArtworkStage(
     queue: List<Song>,
     queueIndex: Int,
     isPlaying: Boolean,
+    canvasAnimated: Boolean,
     onPageChanged: (Int) -> Unit,
 ) {
     if (queue.isEmpty()) return
+    // Le canvas vit sous les mêmes coupures que la scène, plus son réglage et les animations réduites.
+    val canvasOn = canvasAnimated && LocalScenePulse.current != null && !LocalReduceMotion.current
 
     val pagerState = rememberPagerState(
         initialPage = queueIndex.coerceIn(0, (queue.size - 1).coerceAtLeast(0)),
@@ -880,12 +886,20 @@ private fun ArtworkStage(
                         .aspectRatio(0.9f)
                         .glowFor(RoundedCornerShape(Radius.xl))
                         .clip(RoundedCornerShape(Radius.xl))
-                        .glass(RoundedCornerShape(Radius.xl), strength = 0.9f, refract = true)
-                        .padding(Space.lg),
+                        .glass(RoundedCornerShape(Radius.xl), strength = 0.9f, refract = true),
                 ) {
+                    // Le canvas remplit le cadre jusqu'aux bords ; la pochette garde sa marge.
+                    if (isCurrent) {
+                        ArtworkCanvas(
+                            animated = canvasOn,
+                            shape = RoundedCornerShape(Radius.xl),
+                            modifier = Modifier.matchParentSize().graphicsLayer { alpha = 0.55f },
+                        )
+                    }
                     Artwork(
                         model = song.artworkUri,
                         modifier = Modifier
+                            .padding(Space.lg)
                             .fillMaxWidth()
                             .aspectRatio(1f)
                             .then(if (isCurrent) Modifier.sharedPlayerElement(SharedKeys.playerArt(song.id), RoundedCornerShape(Radius.lg)) else Modifier),
@@ -903,15 +917,30 @@ private fun ArtworkStage(
                     shape = SynxioShape.artworkMd,
                 )
 
-                NowPlayingSkin.IMMERSIVE -> Artwork(
-                    model = song.artworkUri,
+                NowPlayingSkin.IMMERSIVE -> Box(
                     modifier = stageModifier
                         .fillMaxWidth()
                         .aspectRatio(1f)
-                        .then(if (isCurrent) Modifier.sharedPlayerElement(SharedKeys.playerArt(song.id), SynxioShape.artworkLg) else Modifier)
                         .glowFor(SynxioShape.artworkLg),
-                    shape = SynxioShape.artworkLg,
-                )
+                ) {
+                    // Canvas un peu plus grand que la pochette : il déborde en halo coloré.
+                    if (isCurrent) {
+                        ArtworkCanvas(
+                            animated = canvasOn,
+                            shape = SynxioShape.artworkLg,
+                            modifier = Modifier
+                                .matchParentSize()
+                                .graphicsLayer { scaleX = 1.08f; scaleY = 1.08f; alpha = 0.85f },
+                        )
+                    }
+                    Artwork(
+                        model = song.artworkUri,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .then(if (isCurrent) Modifier.sharedPlayerElement(SharedKeys.playerArt(song.id), SynxioShape.artworkLg) else Modifier),
+                        shape = SynxioShape.artworkLg,
+                    )
+                }
             }
         }
     }
