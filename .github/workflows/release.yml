@@ -100,12 +100,15 @@ jobs:
             exit 1
           fi
           BT="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+          # apksigner écrit « Signer #1 » en v1/v2 et « V3.0 Signer: » en v3 seul ;
+          # le signataire courant vient avant la lignée.
           found=0
           for apk in app/build/outputs/apk/release/*.apk; do
             [ -f "$apk" ] || continue
             found=1
             actual="$("$BT/apksigner" verify --print-certs "$apk" \
-              | sed -n 's/^Signer #1 certificate SHA-256 digest: *//p' | head -1 \
+              | grep -m1 -E '^(Signer #1 |Signer \(|V[0-9.]+ Signer: )certificate SHA-256 digest:' \
+              | sed 's/.*digest: *//' \
               | tr -d ': ' | tr '[:upper:]' '[:lower:]')"
             if [ "$actual" != "$pinned" ]; then
               echo "::error title=Signataire inattendu::$(basename "$apk") est signé par ${actual:-un certificat illisible}, l'empreinte épinglée est $pinned."
