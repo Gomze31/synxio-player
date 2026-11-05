@@ -169,6 +169,12 @@ abstract class QueueDao {
     @Query("SELECT * FROM queue ORDER BY position")
     abstract suspend fun queue(): List<QueueEntity>
 
+    @Query("SELECT * FROM queue ORDER BY position")
+    abstract fun observeQueue(): Flow<List<QueueEntity>>
+
+    @Query("SELECT * FROM playback_state WHERE id = 0")
+    abstract fun observeState(): Flow<PlaybackStateEntity?>
+
     @Query("DELETE FROM queue")
     abstract suspend fun clear()
 

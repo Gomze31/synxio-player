@@ -1,6 +1,9 @@
 package fr.synxio.player.playback
 
 import fr.synxio.player.data.db.PodcastProgressEntity
+import fr.synxio.player.data.model.DailyMix
+import fr.synxio.player.data.model.DailyMixKind
+import fr.synxio.player.data.model.Memory
 import fr.synxio.player.data.model.Album
 import fr.synxio.player.data.model.Artist
 import fr.synxio.player.data.model.Genre
@@ -52,6 +55,10 @@ class BrowseTreeTest {
         override var audiobooks: List<Song> = emptyList(),
         override var podcasts: List<Song> = emptyList(),
         override var savedPositions: Map<Long, PodcastProgressEntity> = emptyMap(),
+        override var dailyMixes: List<DailyMix> = emptyList(),
+        override var memories: List<Memory> = emptyList(),
+        override var playCounts: Map<Long, Int> = emptyMap(),
+        override var lastQueue: BrowseQueue? = null,
     ) : BrowseSource {
         override fun search(query: String, limitPerSection: Int): SearchResults {
             val q = query.lowercase()
@@ -73,8 +80,8 @@ class BrowseTreeTest {
         radios = listOf(radio("fip", "FIP", "jazz,eclectic")),
     )
 
-    /** Mélange prévisible : l'ordre inverse. */
-    private fun tree(source: BrowseSource = fullSource()) = BrowseTree(source) { it.reversed() }
+    /** Mélange prévisible : l'ordre inverse. Jour fixe : « Surprends-moi » stable. */
+    private fun tree(source: BrowseSource = fullSource(), day: Long = 20_762L) = BrowseTree(source, { it.reversed() }, { day })
 
     @Test
     fun `racine - quatre onglets dans l'ordre, chacun avec son style`() {
@@ -104,12 +111,102 @@ class BrowseTreeTest {
     }
 
     @Test
-    fun `accueil - lecture aleatoire puis seulement les categories non vides`() {
+    fun `accueil - raccourcis seulement, groupes vides omis`() {
         val home = tree().children(BrowseIds.TAB_HOME)
-        assertEquals(listOf(BrowseIds.SHUFFLE_ALL, BrowseIds.CAT_FAVORITES), home.map { it.id })
+        assertEquals(listOf(BrowseIds.SHUFFLE_ALL, BrowseIds.CAT_FAVORITES, BrowseIds.SURPRISE), home.map { it.id })
+        assertTrue(home.all { it.groupTitle == BrowseTree.GROUP_SHORTCUTS })
         assertEquals(NodeKind.ACTION, home[0].kind)
         assertTrue(home[0].kind.playable)
         assertEquals("1 titre", home[1].subtitle)
+    }
+
+    @Test
+    fun `accueil - groupes dans l'ordre reprendre, pour toi, raccourcis, recents`() {
+        val mix = DailyMix("daily", DailyMixKind.DAILY, "Ton mix du jour", "", listOf(s1, s5))
+        val memory = Memory.FirstTimes(listOf(s2, s4, s5))
+        val source = fullSource().apply {
+            dailyMixes = listOf(mix)
+            memories = listOf(memory)
+            recentlyPlayed = listOf(s3)
+            lastQueue = BrowseQueue(listOf(s5, s1), startIndex = 1, startPositionMs = 42_000L)
+        }
+        val home = tree(source).children(BrowseIds.TAB_HOME)
+        assertEquals(
+            listOf(BrowseIds.LAST_QUEUE, BrowseIds.MIX_PREFIX + "daily", BrowseIds.MEMORY_PREFIX + "firsttimes",
+                BrowseIds.SHUFFLE_ALL, BrowseIds.CAT_FAVORITES, BrowseIds.SURPRISE, BrowseIds.CAT_RECENTLY_PLAYED),
+            home.map { it.id },
+        )
+        assertEquals(
+            listOf(BrowseTree.GROUP_RESUME, BrowseTree.GROUP_FOR_YOU, BrowseTree.GROUP_FOR_YOU, BrowseTree.GROUP_SHORTCUTS,
+                BrowseTree.GROUP_SHORTCUTS, BrowseTree.GROUP_SHORTCUTS, BrowseTree.GROUP_RECENT),
+            home.map { it.groupTitle },
+        )
+        val last = home[0]
+        assertEquals("Dernière file", last.title)
+        assertEquals("Alors on danse · 2 titres", last.subtitle)
+        assertEquals(NodeKind.ACTION, last.kind)
+        assertEquals(ChildStyle.GRID, home[1].selfStyle)
+        assertTrue(home[1].art is NodeArt.Mosaic)
+        assertEquals("Tes premières fois du mois", home[2].title)
+    }
+
+    @Test
+    fun `mix - ses titres dans l'ordre, un titre choisi joue le mix`() {
+        val mix = DailyMix("daily", DailyMixKind.DAILY, "Ton mix du jour", "", listOf(s5, s1, s2))
+        val t = tree(fullSource().apply { dailyMixes = listOf(mix) })
+        val id = BrowseIds.MIX_PREFIX + "daily"
+        val children = t.children(id)
+        assertEquals(BrowseIds.SHUFFLE_PREFIX + id, children[0].id)
+        assertEquals(listOf(5L, 1L, 2L), children.drop(1).map { it.song!!.id })
+        val queue = t.queueFor(BrowseIds.songInContext(id, 1))!!
+        assertEquals(listOf(5L, 1L, 2L), queue.songs.map { it.id })
+        assertEquals(1, queue.startIndex)
+        assertEquals("Ton mix du jour", t.item(id)?.title)
+    }
+
+    @Test
+    fun `souvenir - les titres de la carte, mosaique sur quatre albums distincts`() {
+        // La fabrique de test met tous les titres dans l'album 1 : on distingue les albums ici.
+        val memory = Memory.ThatDay(1, listOf(s1, s2, s4.copy(albumId = 11), s5.copy(albumId = 12)))
+        val t = tree(fullSource().apply { memories = listOf(memory) })
+        val node = t.children(BrowseIds.TAB_HOME).first { it.id == BrowseIds.MEMORY_PREFIX + "thatday-1" }
+        assertEquals("Ce jour-là, il y a 1 an", node.title)
+        assertEquals(listOf(1L, 4L, 5L), (node.art as NodeArt.Mosaic).songs.map { it.id })
+        assertEquals(listOf(1L, 2L, 4L, 5L), t.children(node.id).filter { it.kind == NodeKind.SONG }.map { it.song!!.id })
+    }
+
+    @Test
+    fun `surprends-moi - favoris puis titres rarement joues, deux par artiste, stable dans la journee`() {
+        val source = fullSource().apply {
+            favorites = listOf(s4)
+            playCounts = mapOf(1L to 5, 2L to 0, 3L to 1, 5L to 0)
+        }
+        val first = tree(source).queueFor(BrowseIds.SURPRISE)!!.songs
+        val second = tree(source).queueFor(BrowseIds.SURPRISE)!!.songs
+        assertEquals(first.map { it.id }, second.map { it.id })
+        // s1 est joué cinq fois : écarté. s4 favori + un seul autre Stromae + Daft Punk.
+        assertTrue(first.any { it.id == 4L })
+        assertTrue(first.any { it.id == 5L })
+        assertEquals(3, first.size)
+        assertTrue(first.count { it.artist == "Stromae" } <= 2)
+        assertFalse(first.any { it.id == 1L })
+    }
+
+    @Test
+    fun `surprends-moi - absent sous trois titres`() {
+        val source = FakeSource(songs = listOf(s1, s2), albums = listOf(cheese))
+        assertTrue(tree(source).children(BrowseIds.TAB_HOME).none { it.id == BrowseIds.SURPRISE })
+        assertNull(tree(source).queueFor(BrowseIds.SURPRISE))
+    }
+
+    @Test
+    fun `derniere file - reprise a l'index et a la position sauvegardes`() {
+        val source = fullSource().apply { lastQueue = BrowseQueue(listOf(s5, s1), 1, 42_000L) }
+        val queue = tree(source).queueFor(BrowseIds.LAST_QUEUE)!!
+        assertEquals(listOf(5L, 1L), queue.songs.map { it.id })
+        assertEquals(1, queue.startIndex)
+        assertEquals(42_000L, queue.startPositionMs)
+        assertNull(tree().queueFor(BrowseIds.LAST_QUEUE))
     }
 
     @Test

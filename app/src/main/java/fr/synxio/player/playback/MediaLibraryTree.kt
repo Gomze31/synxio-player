@@ -13,18 +13,28 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.session.MediaConstants
 import dagger.hilt.android.qualifiers.ApplicationContext
 import fr.synxio.player.R
+import fr.synxio.player.data.db.QueueDao
 import fr.synxio.player.data.model.Album
 import fr.synxio.player.data.model.Artist
+import fr.synxio.player.data.model.DailyMix
 import fr.synxio.player.data.model.Genre
+import fr.synxio.player.data.model.Memory
 import fr.synxio.player.data.model.Playlist
 import fr.synxio.player.data.model.RadioStation
 import fr.synxio.player.data.model.Song
+import fr.synxio.player.data.repo.DailyMixRepository
+import fr.synxio.player.data.repo.MemoryRepository
 import fr.synxio.player.data.repo.MusicRepository
 import fr.synxio.player.data.repo.PlaylistRepository
 import fr.synxio.player.data.repo.RadioRepository
 import fr.synxio.player.data.repo.SearchResults
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.merge
@@ -44,6 +54,9 @@ class MediaLibraryTree @Inject constructor(
     private val music: MusicRepository,
     private val playlists: PlaylistRepository,
     private val radios: RadioRepository,
+    private val dailyMixes: DailyMixRepository,
+    private val memories: MemoryRepository,
+    queueDao: QueueDao,
     podcastProgressDao: fr.synxio.player.data.db.PodcastProgressDao,
     @fr.synxio.player.di.ApplicationScope scope: kotlinx.coroutines.CoroutineScope,
 ) {
@@ -51,7 +64,21 @@ class MediaLibraryTree @Inject constructor(
     /** Positions de reprise tenues à jour en continu : l'hôte lit l'arborescence sans attendre. */
     private val positions = podcastProgressDao.observeAll()
         .map { list -> list.associateBy { it.songId } }
-        .stateIn(scope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptyMap())
+        .stateIn(scope, SharingStarted.Eagerly, emptyMap())
+
+    /**
+     * File sauvegardée, relue comme au démarrage (titres disparus écartés). Tenue à jour
+     * tant que le service collecte [changes], c'est-à-dire tant qu'un hôte peut naviguer.
+     */
+    private val lastQueue: StateFlow<BrowseQueue?> = combine(
+        queueDao.observeQueue(), queueDao.observeState(), music.library,
+    ) { rows, state, library ->
+        val byId = library.songs.associateBy { it.id }
+        restoreQueue(rows.sortedBy { it.position }.map { it.songId }, state?.currentIndex ?: 0, state?.positionMs ?: 0L, byId)
+            ?.let { BrowseQueue(it.items, it.index, it.positionMs) }
+    }
+        .flowOn(Dispatchers.Default)
+        .stateIn(scope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val source = object : BrowseSource {
         override val hasPermission: Boolean get() = hasAudioPermission()
@@ -69,6 +96,10 @@ class MediaLibraryTree @Inject constructor(
         override val audiobooks: List<Song> get() = music.library.value.audiobooks
         override val podcasts: List<Song> get() = music.library.value.podcasts
         override val savedPositions get() = positions.value
+        override val dailyMixes: List<DailyMix> get() = this@MediaLibraryTree.dailyMixes.mixes.value
+        override val memories: List<Memory> get() = this@MediaLibraryTree.memories.memories.value
+        override val playCounts: Map<Long, Int> get() = music.allStats.value.mapValues { it.value.playCount }
+        override val lastQueue: BrowseQueue? get() = this@MediaLibraryTree.lastQueue.value
         override fun search(query: String, limitPerSection: Int): SearchResults = music.search(query, limitPerSection)
     }
 
@@ -85,6 +116,10 @@ class MediaLibraryTree @Inject constructor(
         music.favoriteIds,
         music.recentlyPlayed,
         radios.favoriteStations,
+        // Partagés « tant qu'abonnés » : les collecter ici les tient vivants tant que le service écoute.
+        dailyMixes.mixes,
+        memories.memories,
+        lastQueue,
     ).map { }
 
     val rootItem: MediaItem
@@ -179,6 +214,8 @@ class MediaLibraryTree @Inject constructor(
         browsableStyle?.let { putInt(MediaConstants.EXTRAS_KEY_CONTENT_STYLE_BROWSABLE, it.toConstant()) }
         playableStyle?.let { putInt(MediaConstants.EXTRAS_KEY_CONTENT_STYLE_PLAYABLE, it.toConstant()) }
         groupTitle?.let { putString(MediaConstants.EXTRAS_KEY_CONTENT_STYLE_GROUP_TITLE, it) }
+        // L'hôte lit cet indice pour l'élément lui-même, pas pour ses enfants.
+        selfStyle?.let { putInt(MediaConstants.EXTRAS_KEY_CONTENT_STYLE_SINGLE_ITEM, it.toConstant()) }
     }
 
     private fun BrowseNode.mediaType(): Int = when (kind) {
@@ -197,7 +234,8 @@ class MediaLibraryTree @Inject constructor(
             BrowseIds.TAB_RADIOS -> MediaMetadata.MEDIA_TYPE_FOLDER_RADIO_STATIONS
             BrowseIds.CAT_AUDIOBOOKS -> MediaMetadata.MEDIA_TYPE_FOLDER_AUDIO_BOOKS
             BrowseIds.CAT_PODCASTS -> MediaMetadata.MEDIA_TYPE_FOLDER_PODCASTS
-            else -> MediaMetadata.MEDIA_TYPE_FOLDER_MIXED
+            else -> if (id.startsWith(BrowseIds.MIX_PREFIX) || id.startsWith(BrowseIds.MEMORY_PREFIX)) MediaMetadata.MEDIA_TYPE_PLAYLIST
+            else MediaMetadata.MEDIA_TYPE_FOLDER_MIXED
         }
     }
 
@@ -217,6 +255,7 @@ class MediaLibraryTree @Inject constructor(
         is NodeArt.OfRadio ->
             if (art.station.favicon.isBlank()) iconUri(BrowseIcon.RADIOS)
             else ArtworkProvider.radioUri(art.station.stationUuid)
+        is NodeArt.Mosaic -> art.songs.firstOrNull()?.let { ArtworkProvider.publicUri(it.artworkUri) } ?: iconUri(BrowseIcon.PLAYLISTS)
     }
 
     /** Les hôtes lisent les vecteurs en `android.resource://`, teintés à leurs couleurs. */

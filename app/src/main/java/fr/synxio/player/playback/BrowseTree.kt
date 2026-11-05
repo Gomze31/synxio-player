@@ -7,7 +7,9 @@ import fr.synxio.player.data.db.PodcastProgressEntity
 import fr.synxio.player.data.model.Album
 import fr.synxio.player.data.model.Artist
 import fr.synxio.player.data.model.BookProgress
+import fr.synxio.player.data.model.DailyMix
 import fr.synxio.player.data.model.EpisodeState
+import fr.synxio.player.data.model.Memory
 import fr.synxio.player.data.model.Genre
 import fr.synxio.player.data.model.Playlist
 import fr.synxio.player.data.model.RadioStation
@@ -18,6 +20,7 @@ import fr.synxio.player.data.model.inBookOrder
 import fr.synxio.player.data.model.remainingLabel
 import fr.synxio.player.data.model.statusLabel
 import fr.synxio.player.data.repo.SearchResults
+import kotlin.random.Random
 
 /**
  * Identifiants de l'arborescence exposée à Android Auto, Assistant et aux `MediaBrowser`.
@@ -53,6 +56,14 @@ object BrowseIds {
     /** Livre audio : `synxio://book/` suivi du chemin de son dossier. */
     const val BOOK_PREFIX = "synxio://book/"
     const val RADIO_PREFIX = "synxio://radio/"
+    /** Mix du jour : `synxio://mix/` suivi de `DailyMix.key`. */
+    const val MIX_PREFIX = "synxio://mix/"
+    /** Carte Souvenirs : `synxio://memory/` suivi de `Memory.key`. */
+    const val MEMORY_PREFIX = "synxio://memory/"
+    /** « Surprends-moi » : file calculée du jour. */
+    const val SURPRISE = "synxio://surprise"
+    /** La file sauvegardée au dernier arrêt, reprise là où elle en était. */
+    const val LAST_QUEUE = "synxio://last-queue"
     const val SEARCH_PREFIX = "synxio://search/"
     const val INFO_PREFIX = "synxio://info/"
 
@@ -86,6 +97,8 @@ sealed interface NodeArt {
     data class OfAlbum(val album: Album) : NodeArt
     data class OfArtist(val artist: Artist) : NodeArt
     data class OfRadio(val station: RadioStation) : NodeArt
+    /** Mosaïque 2×2 des pochettes de ces titres (albums distincts, quatre au plus). */
+    data class Mosaic(val songs: List<Song>) : NodeArt
 }
 
 enum class NodeKind(val browsable: Boolean, val playable: Boolean) {
@@ -114,6 +127,8 @@ data class BrowseNode(
     val playableStyle: ChildStyle? = null,
     /** En-tête de section, pour les éléments consécutifs qui le partagent. */
     val groupTitle: String? = null,
+    /** Mise en page de ce nœud lui-même dans la liste de son parent (tuile de mix dans l'accueil en liste). */
+    val selfStyle: ChildStyle? = null,
     val song: Song? = null,
     val station: RadioStation? = null,
 )
@@ -136,6 +151,12 @@ interface BrowseSource {
     val podcasts: List<Song> get() = emptyList()
     /** Positions de reprise des podcasts et chapitres, par identifiant de morceau. */
     val savedPositions: Map<Long, PodcastProgressEntity> get() = emptyMap()
+    val dailyMixes: List<DailyMix> get() = emptyList()
+    val memories: List<Memory> get() = emptyList()
+    /** Lectures par titre : « Surprends-moi » cherche les titres joués au plus une fois. */
+    val playCounts: Map<Long, Int> get() = emptyMap()
+    /** File sauvegardée au dernier arrêt, avec son index et sa position. Null sans file. */
+    val lastQueue: BrowseQueue? get() = null
     fun search(query: String, limitPerSection: Int): SearchResults
 }
 
@@ -172,6 +193,8 @@ data class BrowseQueue(val songs: List<Song>, val startIndex: Int = 0, val start
 class BrowseTree(
     private val source: BrowseSource,
     private val shuffle: (List<Song>) -> List<Song> = { it.shuffled() },
+    /** Numéro du jour : graine de « Surprends-moi », stable jusqu'à minuit. */
+    private val today: () -> Long = { java.time.LocalDate.now().toEpochDay() },
 ) {
 
     fun root(): List<BrowseNode> = listOf(
@@ -242,6 +265,8 @@ class BrowseTree(
             val songs = songsOf(id.removePrefix(BrowseIds.SHUFFLE_PREFIX))?.takeIf { it.isNotEmpty() } ?: return null
             return BrowseQueue(shuffle(songs), 0)
         }
+        if (id == BrowseIds.SURPRISE) return surprise()?.let { BrowseQueue(it) }
+        if (id == BrowseIds.LAST_QUEUE) return source.lastQueue?.takeIf { it.songs.isNotEmpty() }
         val (parent, songId) = BrowseIds.parseSongInContext(id) ?: return null
         if (parent == BrowseIds.CAT_CONTINUE) return continueListening().firstOrNull { it.song.id == songId }?.queue
         val songs = songsOf(parent) ?: return null
@@ -305,25 +330,67 @@ class BrowseTree(
     // --- Onglets --------------------------------------------------------------------
 
     private fun home(): List<BrowseNode> = buildList {
-        // En voiture, reprendre un livre ou un podcast entamé passe avant tout le reste.
+        // Reprendre : un livre ou un podcast entamé, puis la file laissée au dernier arrêt.
         val resumable = continueListening()
         if (resumable.isNotEmpty()) {
             add(BrowseNode(BrowseIds.CAT_CONTINUE, "Continuer l'écoute", resumable.first().node.title,
-                NodeKind.FOLDER, NodeArt.Icon(BrowseIcon.RESUME), playableStyle = ChildStyle.LIST))
+                NodeKind.FOLDER, NodeArt.Icon(BrowseIcon.RESUME), playableStyle = ChildStyle.LIST, groupTitle = GROUP_RESUME))
         }
+        source.lastQueue?.takeIf { it.songs.isNotEmpty() }?.let { queue ->
+            val current = queue.songs[queue.startIndex.coerceIn(0, queue.songs.lastIndex)]
+            add(BrowseNode(BrowseIds.LAST_QUEUE, "Dernière file", "${current.title.cleanTitle()} · ${titles(queue.songs.size)}",
+                NodeKind.ACTION, NodeArt.OfSong(current), groupTitle = GROUP_RESUME))
+        }
+
+        // Pour toi : mixs du jour et souvenirs, en tuiles.
+        addAll(source.dailyMixes.filter { it.songs.isNotEmpty() }.map { mixNode(it).copy(groupTitle = GROUP_FOR_YOU) })
+        addAll(source.memories.filter { it.songs.isNotEmpty() }.map { memoryNode(it).copy(groupTitle = GROUP_FOR_YOU) })
+
+        // Raccourcis.
         if (source.songs.isNotEmpty()) {
             add(BrowseNode(BrowseIds.SHUFFLE_ALL, "Lecture aléatoire", titles(source.songs.size),
-                NodeKind.ACTION, NodeArt.Icon(BrowseIcon.SHUFFLE)))
+                NodeKind.ACTION, NodeArt.Icon(BrowseIcon.SHUFFLE), groupTitle = GROUP_SHORTCUTS))
         }
-        category(BrowseIds.CAT_FAVORITES, "Favoris", source.favorites, BrowseIcon.FAVORITES)
-        category(BrowseIds.CAT_RECENTLY_PLAYED, "Écoutés récemment", source.recentlyPlayed, BrowseIcon.HISTORY)
-        category(BrowseIds.CAT_MOST_PLAYED, "Les plus écoutés", source.mostPlayed, BrowseIcon.MOST_PLAYED)
-        category(BrowseIds.CAT_RECENT, "Ajoutés récemment", source.recentlyAdded, BrowseIcon.NEW)
+        category(BrowseIds.CAT_FAVORITES, "Favoris", source.favorites, BrowseIcon.FAVORITES, GROUP_SHORTCUTS)
+        surprise()?.let { songs ->
+            add(BrowseNode(BrowseIds.SURPRISE, "Surprends-moi", titles(songs.size),
+                NodeKind.ACTION, NodeArt.Icon(BrowseIcon.SHUFFLE), groupTitle = GROUP_SHORTCUTS))
+        }
+
+        // Récents.
+        category(BrowseIds.CAT_RECENTLY_PLAYED, "Écoutés récemment", source.recentlyPlayed, BrowseIcon.HISTORY, GROUP_RECENT)
+        category(BrowseIds.CAT_RECENT, "Ajoutés récemment", source.recentlyAdded, BrowseIcon.NEW, GROUP_RECENT)
+        category(BrowseIds.CAT_MOST_PLAYED, "Les plus écoutés", source.mostPlayed, BrowseIcon.MOST_PLAYED, GROUP_RECENT)
     }
 
-    private fun MutableList<BrowseNode>.category(id: String, title: String, songs: List<Song>, icon: BrowseIcon) {
+    private fun MutableList<BrowseNode>.category(id: String, title: String, songs: List<Song>, icon: BrowseIcon, group: String) {
         if (songs.isEmpty()) return
-        add(BrowseNode(id, title, titles(songs.size), NodeKind.FOLDER, NodeArt.Icon(icon), playableStyle = ChildStyle.LIST))
+        add(BrowseNode(id, title, titles(songs.size), NodeKind.FOLDER, NodeArt.Icon(icon), playableStyle = ChildStyle.LIST, groupTitle = group))
+    }
+
+    /**
+     * « Surprends-moi » : des favoris, puis des titres joués au plus une fois, deux titres
+     * au plus par artiste, mélangés avec la graine du jour. Null sous trois titres.
+     */
+    private fun surprise(): List<Song>? {
+        val random = Random(today())
+        val favoriteIds = source.favorites.mapTo(HashSet()) { it.id }
+        val favorites = source.favorites.shuffled(random)
+        val rare = source.songs.filter { it.id !in favoriteIds && (source.playCounts[it.id] ?: 0) <= 1 }.shuffled(random)
+        val picked = ArrayList<Song>(SURPRISE_SIZE)
+        fun take(from: List<Song>, upTo: Int) {
+            for (song in from) {
+                if (picked.size >= upTo) return
+                if (picked.any { it.id == song.id }) continue
+                if (picked.count { it.displayArtist == song.displayArtist } >= SURPRISE_PER_ARTIST) continue
+                picked += song
+            }
+        }
+        take(favorites, SURPRISE_FAVORITES)
+        take(rare, SURPRISE_SIZE)
+        take(favorites, SURPRISE_SIZE)
+        if (picked.size < SURPRISE_MIN) return null
+        return picked.shuffled(random)
     }
 
     private fun library(): List<BrowseNode> = buildList {
@@ -408,6 +475,10 @@ class BrowseTree(
         parentId.startsWith(BrowseIds.BOOK_PREFIX) -> parentId.removePrefix(BrowseIds.BOOK_PREFIX).let { path ->
             source.audiobooks.filter { it.folderPath == path }.inBookOrder().takeIf { it.isNotEmpty() }
         }
+        parentId.startsWith(BrowseIds.MIX_PREFIX) ->
+            source.dailyMixes.firstOrNull { it.key == parentId.removePrefix(BrowseIds.MIX_PREFIX) }?.songs
+        parentId.startsWith(BrowseIds.MEMORY_PREFIX) ->
+            source.memories.firstOrNull { it.key == parentId.removePrefix(BrowseIds.MEMORY_PREFIX) }?.songs
         else -> null
     }
 
@@ -507,6 +578,19 @@ class BrowseTree(
         playableStyle = ChildStyle.LIST,
     )
 
+    private fun mixNode(mix: DailyMix) = BrowseNode(
+        BrowseIds.MIX_PREFIX + mix.key, mix.title, titles(mix.songs.size), NodeKind.FOLDER,
+        mosaic(mix.songs), playableStyle = ChildStyle.LIST, selfStyle = ChildStyle.GRID,
+    )
+
+    private fun memoryNode(memory: Memory) = BrowseNode(
+        BrowseIds.MEMORY_PREFIX + memory.key, memory.title, titles(memory.songs.size), NodeKind.FOLDER,
+        mosaic(memory.songs), playableStyle = ChildStyle.LIST, selfStyle = ChildStyle.GRID,
+    )
+
+    /** Quatre pochettes d'albums distincts, dans l'ordre des titres. */
+    private fun mosaic(songs: List<Song>): NodeArt = NodeArt.Mosaic(songs.distinctBy { it.albumId }.take(4))
+
     private fun radioNode(station: RadioStation) = BrowseNode(
         BrowseIds.RADIO_PREFIX + station.stationUuid, station.name,
         station.tags.split(',').firstOrNull { it.isNotBlank() }?.trim()?.replaceFirstChar { it.uppercase() }
@@ -578,6 +662,16 @@ class BrowseTree(
         const val MATCH_SCORE = 400
         private const val SEARCH_LIMIT = 30
         private const val HISTORY_LIMIT = 50
+
+        const val GROUP_RESUME = "Reprendre"
+        const val GROUP_FOR_YOU = "Pour toi"
+        const val GROUP_SHORTCUTS = "Raccourcis"
+        const val GROUP_RECENT = "Récents"
+
+        private const val SURPRISE_SIZE = 50
+        private const val SURPRISE_FAVORITES = 30
+        private const val SURPRISE_PER_ARTIST = 2
+        private const val SURPRISE_MIN = 3
 
         private val FAVORITE_WORDS = setOf("favoris", "mes favoris", "mes titres favoris", "mes coups de coeur", "coups de coeur")
         private val SHUFFLE_WORDS = setOf("aleatoire", "lecture aleatoire", "au hasard", "shuffle", "de la musique", "musique")
