@@ -44,6 +44,11 @@ import fr.synxio.player.ui.theme.shaders.ShaderMode
 import fr.synxio.player.ui.theme.shaders.ShaderSupport
 import fr.synxio.player.ui.theme.shaders.fillSceneUniforms
 import kotlinx.coroutines.flow.MutableStateFlow
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import fr.synxio.player.ui.theme.shaders.LocalSceneUniforms
+import fr.synxio.player.ui.theme.shaders.LocalShaderSupport
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
@@ -83,6 +88,7 @@ fun Modifier.glass(
     strength: Float = 0.6f,
     border: Boolean = true,
     tint: Color? = null,
+    refract: Boolean = false,
 ): Modifier = composed {
     val scheme = MaterialTheme.colorScheme
     val dark = isDarkSurface
@@ -97,7 +103,30 @@ fun Modifier.glass(
         if (dark) listOf(Color.White.copy(alpha = 0.20f), Color.White.copy(alpha = 0.04f))
         else listOf(Color.White.copy(alpha = 0.95f), Color.Black.copy(alpha = 0.07f))
     )
+    // Verre réfracté : le champ de l'aurore, déformé, dessiné sous le voile. Compose ne
+    // sait pas échantillonner le fond ; l'aurore étant procédurale, on la redessine depuis
+    // les mêmes uniformes. Invalidé par les ticks du pouls ; statique hors lecture.
+    val support = LocalShaderSupport.current
+    val uniforms = LocalSceneUniforms.current
+    val pulse = LocalScenePulse.current
+    val refractShader = remember(refract, support) { if (refract) support?.glass() else null }
+    val refractBrush = remember(refractShader) { (refractShader as? android.graphics.Shader)?.let { ShaderBrush(it) } }
+    val origin = remember { FloatArray(2) }
+    val refractModifier = if (refractBrush != null && refractShader != null && Build.VERSION.SDK_INT >= AGSL_MIN_SDK) {
+        Modifier
+            .clip(shape)
+            .onGloballyPositioned { val p = it.positionInRoot(); origin[0] = p.x; origin[1] = p.y }
+            .drawBehind {
+                // Lecture du pouls : le verre suit l'aurore en lecture, image par tick.
+                pulse?.value
+                GlassAgsl.apply(refractShader as android.graphics.RuntimeShader, uniforms, origin)
+                drawRect(refractBrush, alpha = if (dark) 0.9f else 0.6f)
+            }
+    } else {
+        Modifier
+    }
     this
+        .then(refractModifier)
         .background(fill, shape)
         .drawBehind {
             // Reflet : une tache de lumière douce, comme une fenêtre sur une vitre.
@@ -308,6 +337,16 @@ internal object AgslUniforms {
         shader.setFloatUniform("base", u.base[0], u.base[1], u.base[2], u.base[3])
         shader.setFloatUniform("dispersion", 1f)
         shader.setFloatUniform("time", u.time)
+    }
+}
+
+/** Uniformes du verre : le champ commun, plus la position de la surface et l'ondulation. */
+@RequiresApi(AGSL_MIN_SDK)
+private object GlassAgsl {
+    fun apply(shader: android.graphics.RuntimeShader, u: SceneUniforms, origin: FloatArray) {
+        AgslUniforms.applyField(shader, u)
+        shader.setFloatUniform("origin", origin[0], origin[1])
+        shader.setFloatUniform("wobble", 2f)
     }
 }
 

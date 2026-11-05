@@ -149,7 +149,7 @@ fun MiniPlayer(
             }
             .glowShadow(SynxioShape.card, (tint ?: colors.brandEnd).copy(alpha = 0.7f), elevation = 16.dp)
             .clip(SynxioShape.card)
-            .glass(SynxioShape.card, strength = 1f, tint = tint)
+            .glass(SynxioShape.card, strength = 1f, tint = tint, refract = true)
             // Lueur qui suit les basses, dessinée sans recomposition.
             .drawWithContent {
                 // Au-dessus du verre, sous le contenu : la lueur ne délave pas le texte.

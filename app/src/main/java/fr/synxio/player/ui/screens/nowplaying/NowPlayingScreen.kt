@@ -880,7 +880,7 @@ private fun ArtworkStage(
                         .aspectRatio(0.9f)
                         .glowFor(RoundedCornerShape(Radius.xl))
                         .clip(RoundedCornerShape(Radius.xl))
-                        .glass(RoundedCornerShape(Radius.xl), strength = 0.9f)
+                        .glass(RoundedCornerShape(Radius.xl), strength = 0.9f, refract = true)
                         .padding(Space.lg),
                 ) {
                     Artwork(
