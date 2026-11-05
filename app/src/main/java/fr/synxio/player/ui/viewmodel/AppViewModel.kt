@@ -297,12 +297,14 @@ class AppViewModel @Inject constructor(
 
     /** Balayage vers le bas du mini-lecteur : pause, masquage, et une chance de se raviser. */
     fun dismissMiniPlayer() {
+        // « Annuler » ne relance que ce qui jouait : un titre déjà en pause le reste.
+        val wasPlaying = playerState.value.isPlaying
         player.pause()
         _miniPlayerHidden.value = true
         viewModelScope.launch {
             _actionMessages.emit(ActionMessage("Lecture arrêtée", "Annuler") {
                 _miniPlayerHidden.value = false
-                player.resume()
+                if (wasPlaying) player.resume()
             })
         }
     }

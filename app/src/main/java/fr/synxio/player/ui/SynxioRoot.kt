@@ -288,10 +288,14 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
     val snackbarHost = remember { SnackbarHostState() }
     val playerState by viewModel.playerState.collectAsStateWithLifecycle()
     val miniHidden by viewModel.miniPlayerHidden.collectAsStateWithLifecycle()
-    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    // Seul le réglage haptique sert ici : le reste des réglages ne doit pas recomposer
+    // tout l'écran.
+    val hapticsEnabled by remember(viewModel) {
+        viewModel.settings.map { it.hapticsEnabled }.distinctUntilChanged()
+    }.collectAsStateWithLifecycle(initialValue = true)
     val metadataProgress by viewModel.metadataProgress.collectAsStateWithLifecycle()
     val reduceMotion = LocalReduceMotion.current
-    val haptics = rememberSynxioHaptics(settings.hapticsEnabled)
+    val haptics = rememberSynxioHaptics(hapticsEnabled)
 
     // 0 = mini-lecteur, 1 = plein écran. Un seul état continu : le doigt, le retour
     // prédictif et le tap y écrivent tous, l'affichage ne fait que le lire.
@@ -311,6 +315,8 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
         if (reduceMotion) Motion.standard(Motion.SHORT) else Motion.spatial()
     fun openPlayer() { scope.launch { expansion.animateTo(1f, playerSpec()) } }
     fun closePlayer() { scope.launch { expansion.animateTo(0f, playerSpec()) } }
+    // Seuil d'ouverture déjà signalé pendant le balayage vers le haut en cours.
+    var expandTicked by remember { mutableStateOf(false) }
 
     val updateViewModel: UpdateViewModel = hiltViewModel()
     val updateState by updateViewModel.state.collectAsStateWithLifecycle()
@@ -364,6 +370,10 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
     PredictiveBackHandler(enabled = expanded) { progress ->
         // L'aperçu part de la position courante : le lecteur peut être en cours d'ouverture.
         val from = expansion.value
+        // Cible à rétablir si le geste est annulé : celle de l'animation en cours (le
+        // premier `snapTo` l'interrompt), ou la valeur courante au repos. Revenir à `from`
+        // laisserait le lecteur à mi-course, mini-lecteur invisible et taps avalés.
+        val restore = expansion.targetValue
         try {
             progress.collect { event ->
                 // Aperçu partiel : le lecteur ne descend que de 40 % pendant le geste système.
@@ -372,7 +382,7 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
         } catch (e: CancellationException) {
             // Geste annulé : la coroutine du gestionnaire peut être annulée elle aussi, le
             // retour en place passe donc par la portée de l'écran.
-            scope.launch { expansion.animateTo(from, playerSpec()) }
+            scope.launch { expansion.animateTo(restore, playerSpec()) }
             throw e
         }
         // Hors du `try` : l'annulation de la fermeture (second retour, doigt qui reprend le
@@ -462,9 +472,18 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
                             onExpand = { openPlayer() },
                             onExpandDrag = { totalY ->
                                 val s = sheet
-                                if (!reduceMotion && s != null) scope.launch { expansion.snapTo(s.dragTo(0f, totalY)) }
+                                if (!reduceMotion && s != null) {
+                                    val next = s.dragTo(0f, totalY)
+                                    // Un `tick` au franchissement du seuil d'ouverture, une fois par geste.
+                                    if (!expandTicked && next >= PlayerSheetState.OPEN_THRESHOLD) {
+                                        expandTicked = true
+                                        haptics.tick()
+                                    }
+                                    scope.launch { expansion.snapTo(next) }
+                                }
                             },
                             onExpandRelease = { velocity ->
+                                expandTicked = false
                                 val s = sheet
                                 val target = if (reduceMotion || s == null) 1f else s.settle(0f, expansion.value, velocity)
                                 scope.launch { expansion.animateTo(target, playerSpec()) }
@@ -571,7 +590,8 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
  * Balayage vers le bas qui referme le lecteur en suivant le doigt.
  *
  * Le geste ne part que du haut de l'écran ([PlayerSheetState.canStartDrag]) ; une liste
- * qui peut encore défiler consomme le déplacement avant nous. Un `tick` haptique signale
+ * défilable (paroles, file) consomme entièrement le geste vertical : le lecteur ne se
+ * ferme pas depuis ces zones. Un `tick` haptique signale
  * le franchissement du seuil de fermeture, une fois par geste. Animations réduites : rien
  * ne suit le doigt, la décision tombe au relâcher. Sans hauteur d'écran mesurée
  * ([sheet] nul), le geste est inactif.
@@ -589,6 +609,10 @@ private fun Modifier.playerDismissGesture(
     var start = 1f
     var total = 0f
     var ticked = false
+    // Le lecteur peut être saisi en pleine animation : la règle de décision et le retour
+    // en cas d'annulation partent de l'ancre la plus proche du départ, pas de la valeur
+    // intermédiaire (saisi en se fermant, il ne doit pas se rouvrir sur un infime glissé).
+    fun origin(from: Float): Float = if (from > 0.5f) 1f else 0f
     detectVerticalDragGestures(
         onDragStart = { offset ->
             allowed = sheet.canStartDrag(offset.y / size.height)
@@ -603,12 +627,12 @@ private fun Modifier.playerDismissGesture(
             val target = if (reduceMotion) {
                 if (total > size.height * PlayerSheetState.OPEN_THRESHOLD || velocity >= PlayerSheetState.FLING_VELOCITY) 0f else 1f
             } else {
-                sheet.settle(start, expansion.value, velocity)
+                sheet.settle(origin(start), expansion.value, velocity)
             }
             scope.launch { expansion.animateTo(target, spec) }
         },
         onDragCancel = {
-            if (allowed) scope.launch { expansion.animateTo(1f, spec) }
+            if (allowed) scope.launch { expansion.animateTo(origin(start), spec) }
         },
     ) { change, dragAmount ->
         if (!allowed) return@detectVerticalDragGestures

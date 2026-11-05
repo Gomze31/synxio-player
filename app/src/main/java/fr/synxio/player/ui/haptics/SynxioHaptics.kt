@@ -17,7 +17,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 interface SynxioHaptics {
     /** Commande simple : lecture/pause, changement d'onglet. */
     fun tap()
-    /** Action qui laisse une trace : cœur, ajout à la file, signet. */
+    /** Action qui laisse une trace : cœur, signet. */
     fun confirm()
     /** Cran franchi : changement de piste par balayage, seuil d'un geste. */
     fun tick()
