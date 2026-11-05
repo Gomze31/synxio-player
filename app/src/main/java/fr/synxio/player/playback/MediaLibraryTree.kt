@@ -170,19 +170,25 @@ class MediaLibraryTree @Inject constructor(
         }
     }
 
-    fun children(parentId: String, page: Int, pageSize: Int): List<MediaItem> {
+    /** Taille de pochette annoncée par chaque navigateur (indice de racine), par `uid`. */
+    private val artSizes = java.util.concurrent.ConcurrentHashMap<Int, Int>()
+
+    fun setArtSize(uid: Int, size: Int) { artSizes[uid] = size }
+
+    fun children(parentId: String, page: Int, pageSize: Int, uid: Int): List<MediaItem> {
         val nodes = tree.children(parentId)
         val from = (page.toLong() * pageSize).coerceAtMost(nodes.size.toLong()).toInt()
         val to = (from.toLong() + pageSize).coerceAtMost(nodes.size.toLong()).toInt()
-        return nodes.subList(from, to).map { it.toMediaItem() }
+        val size = artSizes[uid]
+        return nodes.subList(from, to).map { it.toMediaItem(size) }
     }
 
-    fun itemById(mediaId: String): MediaItem? {
+    fun itemById(mediaId: String, uid: Int): MediaItem? {
         if (mediaId == BrowseIds.ROOT) return rootItem
-        return tree.item(mediaId)?.toMediaItem()
+        return tree.item(mediaId)?.toMediaItem(artSizes[uid])
     }
 
-    fun search(query: String): List<MediaItem> = tree.search(query).map { it.toMediaItem() }
+    fun search(query: String, uid: Int): List<MediaItem> = tree.search(query).map { it.toMediaItem(artSizes[uid]) }
 
     /** File jouable d'un élément choisi sur l'hôte : titre en contexte ou lecture aléatoire. */
     fun queueFor(mediaId: String): BrowseQueue? = tree.queueFor(mediaId)
@@ -207,14 +213,14 @@ class MediaLibraryTree @Inject constructor(
 
     // --- Traduction en MediaItem ----------------------------------------------------
 
-    private fun BrowseNode.toMediaItem(): MediaItem {
-        song?.let { return songItem(it) }
+    private fun BrowseNode.toMediaItem(size: Int?): MediaItem {
+        song?.let { return songItem(it, size) }
 
         val metadata = MediaMetadata.Builder()
             .setTitle(title)
             .setSubtitle(subtitle)
             .setArtist(if (id.startsWith(BrowseIds.ALBUM_PREFIX)) subtitle else null)
-            .setArtworkUri(artworkFor(art))
+            .setArtworkUri(artworkFor(art, size))
             .setIsBrowsable(kind.browsable)
             .setIsPlayable(kind.playable)
             .setMediaType(mediaType())
@@ -224,7 +230,7 @@ class MediaLibraryTree @Inject constructor(
     }
 
     /** Titre parcouru : le `MediaItem` complet du morceau, sous son identifiant en contexte. */
-    private fun BrowseNode.songItem(song: Song): MediaItem {
+    private fun BrowseNode.songItem(song: Song, size: Int?): MediaItem {
         val base = song.toMediaItem()
         val extras = Bundle(base.mediaMetadata.extras ?: Bundle.EMPTY).apply { putAll(extras()) }
         return base.buildUpon()
@@ -233,6 +239,7 @@ class MediaLibraryTree @Inject constructor(
                 base.mediaMetadata.buildUpon()
                     .setTitle(title)
                     .setSubtitle(subtitle)
+                    .apply { if (size != null) setArtworkUri(ArtworkProvider.sizedUri(song.artworkUri, size)) }
                     .setExtras(extras)
                     .build()
             )
@@ -293,16 +300,16 @@ class MediaLibraryTree @Inject constructor(
         ChildStyle.CATEGORY_GRID -> MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_CATEGORY_GRID_ITEM
     }
 
-    private fun artworkFor(art: NodeArt?): Uri? = when (art) {
+    private fun artworkFor(art: NodeArt?, size: Int?): Uri? = when (art) {
         null -> null
         is NodeArt.Icon -> iconUri(art.icon)
-        is NodeArt.OfSong -> ArtworkProvider.publicUri(art.song.artworkUri)
-        is NodeArt.OfAlbum -> ArtworkProvider.publicUri(art.album.artworkUri)
-        is NodeArt.OfArtist -> ArtworkProvider.publicUri(art.artist.artworkUri) ?: iconUri(BrowseIcon.ARTISTS)
+        is NodeArt.OfSong -> ArtworkProvider.sizedUri(art.song.artworkUri, size)
+        is NodeArt.OfAlbum -> ArtworkProvider.sizedUri(art.album.artworkUri, size)
+        is NodeArt.OfArtist -> ArtworkProvider.sizedUri(art.artist.artworkUri, size) ?: iconUri(BrowseIcon.ARTISTS)
         is NodeArt.OfRadio ->
             if (art.station.favicon.isBlank()) iconUri(BrowseIcon.RADIOS)
             else ArtworkProvider.radioUri(art.station.stationUuid)
-        is NodeArt.Mosaic -> art.songs.firstOrNull()?.let { ArtworkProvider.publicUri(it.artworkUri) } ?: iconUri(BrowseIcon.PLAYLISTS)
+        is NodeArt.Mosaic -> art.songs.firstOrNull()?.let { ArtworkProvider.sizedUri(it.artworkUri, size) } ?: iconUri(BrowseIcon.PLAYLISTS)
     }
 
     /** Les hôtes lisent les vecteurs en `android.resource://`, teintés à leurs couleurs. */

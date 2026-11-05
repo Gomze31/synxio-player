@@ -26,6 +26,7 @@ import androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder
 import androidx.media3.session.CommandButton
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
+import androidx.media3.session.MediaConstants
 import androidx.media3.session.MediaSession
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
@@ -1605,6 +1606,8 @@ class PlaybackService : MediaLibraryService() {
             // Styles par défaut de l'hôte ; la recherche est annoncée par Media3 lui-même,
             // puisque la commande de recherche est accordée.
             params?.extras?.getInt(AutoKeys.ROOT_HINT_ACTION_LIMIT, 0)?.takeIf { it > 0 }?.let { libraryTree.actionLimit = it }
+            params?.extras?.getInt(MediaConstants.EXTRAS_KEY_MEDIA_ART_SIZE_PIXELS, 0)?.takeIf { it > 0 }
+                ?.let { libraryTree.setArtSize(browser.uid, it) }
             val rootParams = LibraryParams.Builder()
                 .setOffline(params?.isOffline ?: false)
                 .setRecent(params?.isRecent ?: false)
@@ -1623,7 +1626,7 @@ class PlaybackService : MediaLibraryService() {
             params: LibraryParams?,
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
             fun result() = LibraryResult.ofItemList(
-                ImmutableList.copyOf(libraryTree.children(parentId, page, pageSize.coerceAtLeast(1))),
+                ImmutableList.copyOf(libraryTree.children(parentId, page, pageSize.coerceAtLeast(1), browser.uid)),
                 params,
             )
             // Au démarrage à froid depuis la voiture, le scan n'est pas fini : on l'attend
@@ -1645,7 +1648,7 @@ class PlaybackService : MediaLibraryService() {
             browser: MediaSession.ControllerInfo,
             mediaId: String,
         ): ListenableFuture<LibraryResult<MediaItem>> {
-            val item = libraryTree.itemById(mediaId)
+            val item = libraryTree.itemById(mediaId, browser.uid)
             return Futures.immediateFuture(
                 if (item != null) LibraryResult.ofItem(item, null)
                 else LibraryResult.ofError(androidx.media3.session.SessionError.ERROR_BAD_VALUE)
@@ -1678,7 +1681,7 @@ class PlaybackService : MediaLibraryService() {
             query: String,
             params: LibraryParams?,
         ): ListenableFuture<LibraryResult<Void>> {
-            val results = searchResults(query)
+            val results = searchResults(query, browser.uid)
             session.notifySearchResultChanged(browser, query, results.size, params)
             return Futures.immediateFuture(LibraryResult.ofVoid())
         }
@@ -1691,7 +1694,7 @@ class PlaybackService : MediaLibraryService() {
             pageSize: Int,
             params: LibraryParams?,
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
-            val results = searchResults(query)
+            val results = searchResults(query, browser.uid)
             val size = pageSize.coerceAtLeast(1)
             val from = (page.toLong() * size).coerceAtMost(results.size.toLong()).toInt()
             val to = (from.toLong() + size).coerceAtMost(results.size.toLong()).toInt()
@@ -1841,9 +1844,9 @@ class PlaybackService : MediaLibraryService() {
     }
 
     /** Résultats de recherche, gardés pour la requête en cours : l'hôte les demande page par page. */
-    private fun searchResults(query: String): List<MediaItem> {
+    private fun searchResults(query: String, uid: Int): List<MediaItem> {
         lastSearch?.takeIf { it.first == query }?.let { return it.second }
-        val results = libraryTree.search(query)
+        val results = libraryTree.search(query, uid)
         lastSearch = query to results
         return results
     }

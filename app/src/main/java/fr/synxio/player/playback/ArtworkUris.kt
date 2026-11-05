@@ -12,7 +12,14 @@ object ArtworkUris {
     const val SEGMENT_ART = "art"
     const val SEGMENT_FOLDER = "folder"
     const val SEGMENT_RADIO = "radio"
+    const val SEGMENT_ALBUM = "album"
+    const val SEGMENT_MOSAIC = "mosaic"
+    /** Paramètre de requête : côté en pixels de l'image carrée voulue. */
+    const val PARAM_SIZE = "size"
+    const val MIN_SIZE = 64
+    const val MAX_SIZE = 2048
 
+    private const val ALBUM_ART_PREFIX = "content://media/external/audio/albumart/"
     private const val PRIVATE_DIR_MARKER = "/files/meta-artwork/"
     private val PRIVATE_NAME = Regex("[0-9a-f]{40}\\.jpg")
     private val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "webp")
@@ -37,6 +44,16 @@ object ArtworkUris {
         }
         return if (isServableFolderImage(path)) listOf(SEGMENT_FOLDER, path) else null
     }
+
+    /** Segments pour une pochette d'album MediaStore, ou null pour toute autre adresse. */
+    fun albumArtSegments(uri: String): List<String>? {
+        if (!uri.startsWith(ALBUM_ART_PREFIX)) return null
+        val id = uri.removePrefix(ALBUM_ART_PREFIX)
+        return if (id.isNotEmpty() && id.all { it.isDigit() }) listOf(SEGMENT_ALBUM, id) else null
+    }
+
+    /** Taille demandée, bornée ; null si absente ou illisible. */
+    fun sizeOf(raw: String?): Int? = raw?.toIntOrNull()?.takeIf { it > 0 }?.coerceIn(MIN_SIZE, MAX_SIZE)
 
     /** Nom de fichier servi sous « art » : uniquement une empreinte produite par `ArtworkStore`. */
     fun isPrivateArtName(name: String): Boolean = PRIVATE_NAME.matches(name)

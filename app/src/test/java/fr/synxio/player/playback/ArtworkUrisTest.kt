@@ -54,4 +54,22 @@ class ArtworkUrisTest {
         assertEquals("image/webp", ArtworkUris.mimeTypeFor("a.WEBP"))
         assertEquals("image/jpeg", ArtworkUris.mimeTypeFor("$sha.jpg"))
     }
+
+    @Test
+    fun `pochette MediaStore - segment album avec l'identifiant`() {
+        assertEquals(listOf("album", "42"), ArtworkUris.albumArtSegments("content://media/external/audio/albumart/42"))
+        assertNull(ArtworkUris.albumArtSegments("content://media/external/audio/albumart/42/x"))
+        assertNull(ArtworkUris.albumArtSegments("content://media/external/audio/albumart/abc"))
+        assertNull(ArtworkUris.albumArtSegments("file:///storage/emulated/0/Music/cover.jpg"))
+    }
+
+    @Test
+    fun `taille demandee - bornee entre 64 et 2048, sinon ignoree`() {
+        assertEquals(512, ArtworkUris.sizeOf("512"))
+        assertEquals(64, ArtworkUris.sizeOf("10"))
+        assertEquals(2048, ArtworkUris.sizeOf("9000"))
+        assertNull(ArtworkUris.sizeOf(null))
+        assertNull(ArtworkUris.sizeOf("grand"))
+        assertNull(ArtworkUris.sizeOf("0"))
+    }
 }

@@ -2,8 +2,11 @@ package fr.synxio.player.playback
 
 import android.content.ContentProvider
 import android.content.ContentResolver
+import android.content.ContentUris
 import android.content.ContentValues
+import android.content.Context
 import android.database.Cursor
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.util.Log
@@ -13,6 +16,7 @@ import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 import fr.synxio.player.BuildConfig
 import fr.synxio.player.data.repo.RadioRepository
+import fr.synxio.player.playback.art.ArtBitmaps
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -51,22 +55,31 @@ class ArtworkProvider : ContentProvider() {
         return when (segments.firstOrNull()) {
             ArtworkUris.SEGMENT_ART, ArtworkUris.SEGMENT_FOLDER -> ArtworkUris.mimeTypeFor(segments.lastOrNull().orEmpty())
             ArtworkUris.SEGMENT_RADIO -> "image/*"
+            ArtworkUris.SEGMENT_ALBUM -> "image/jpeg"
             else -> null
         }
     }
 
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
         if (mode != "r") throw SecurityException("Lecture seule")
-        val file = resolve(uri) ?: throw FileNotFoundException(uri.toString())
+        val size = ArtworkUris.sizeOf(uri.getQueryParameter(ArtworkUris.PARAM_SIZE))
+        val segments = uri.pathSegments
+        // Pochette MediaStore sans taille : on la relaie telle quelle.
+        if (size == null && segments.size == 2 && segments[0] == ArtworkUris.SEGMENT_ALBUM) {
+            val albumId = segments[1].toLongOrNull() ?: throw FileNotFoundException(uri.toString())
+            return requireNotNull(context).contentResolver.openFileDescriptor(albumArtUri(albumId), "r")
+                ?: throw FileNotFoundException(uri.toString())
+        }
+        val file = resolve(uri, size) ?: throw FileNotFoundException(uri.toString())
         return ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
     }
 
-    private fun resolve(uri: Uri): File? {
+    private fun resolve(uri: Uri, size: Int?): File? {
         val context = context ?: return null
         val segments = uri.pathSegments
         if (segments.size != 2) return null
         val (kind, value) = segments
-        return when (kind) {
+        val original: File? = when (kind) {
             ArtworkUris.SEGMENT_ART -> value.takeIf(ArtworkUris::isPrivateArtName)
                 ?.let { File(File(context.filesDir, "meta-artwork"), it) }
             ArtworkUris.SEGMENT_FOLDER -> value.takeIf(ArtworkUris::isServableFolderImage)
@@ -74,8 +87,35 @@ class ArtworkProvider : ContentProvider() {
                 // Le chemin réel doit rester une image du stockage partagé, même via un lien.
                 ?.takeIf { ArtworkUris.isServableFolderImage(it.canonicalPath) }
             ArtworkUris.SEGMENT_RADIO -> radioLogo(context.cacheDir, value)
-            else -> null
+            ArtworkUris.SEGMENT_ALBUM -> null
+            else -> return null
         }?.takeIf { it.isFile && it.canRead() }
+        if (size == null) return original
+        return when (kind) {
+            ArtworkUris.SEGMENT_ALBUM -> value.toLongOrNull()
+                ?.let { id -> sized(context, "album/$id", size) { ArtBitmaps.decode(context, albumArtUri(id), size) } }
+            else -> original?.let { file -> sized(context, "$kind/$value", size) { ArtBitmaps.decode(context, Uri.fromFile(file), size) } }
+        }
+    }
+
+    /**
+     * Version carrée de [size] pixels, rendue une fois puis gardée en cache par clé et
+     * taille : Android Auto demande la même pochette à chaque ouverture de liste.
+     */
+    private fun sized(context: Context, key: String, size: Int, decode: () -> Bitmap?): File? {
+        val dir = File(context.cacheDir, SIZED_CACHE_DIR).apply { mkdirs() }
+        val target = File(dir, sha1("$key@$size") + ".jpg")
+        if (target.isFile) return target
+        val source = decode() ?: return null
+        return runCatching {
+            val square = ArtBitmaps.centerCrop(source, size)
+            val tmp = File(dir, target.name + ".tmp")
+            tmp.outputStream().use { square.compress(Bitmap.CompressFormat.JPEG, SIZED_QUALITY, it) }
+            if (square !== source) square.recycle()
+            source.recycle()
+            if (!tmp.renameTo(target)) tmp.delete()
+            target.takeIf { it.isFile }
+        }.onFailure { Log.d(TAG, "Pochette redimensionnée non rendue", it) }.getOrNull()
     }
 
     /**
@@ -123,12 +163,31 @@ class ArtworkProvider : ContentProvider() {
         private const val RADIO_CACHE_DIR = "auto-radio-art"
         private const val RADIO_CACHE_MS = 7L * 24 * 3600 * 1000
         private const val MAX_LOGO_BYTES = 1_000_000L
+        private const val SIZED_CACHE_DIR = "auto-art"
+        private const val SIZED_QUALITY = 88
+        private val ALBUM_ART_BASE: Uri = Uri.parse("content://media/external/audio/albumart")
+
+        fun albumArtUri(albumId: Long): Uri = ContentUris.withAppendedId(ALBUM_ART_BASE, albumId)
 
         /** Adresse publique d'une pochette ; l'URI d'origine si elle est déjà lisible. */
         fun publicUri(uri: Uri?): Uri? {
             if (uri == null) return null
             val segments = ArtworkUris.providerSegments(uri.toString()) ?: return uri
             return build(segments)
+        }
+
+        /**
+         * Adresse publique d'une pochette à [size] pixels de côté ; sans taille, [publicUri].
+         * Une pochette MediaStore passe alors par le fournisseur, segment `album`, pour
+         * être réduite ; une ressource ou une adresse http reste telle quelle.
+         */
+        fun sizedUri(uri: Uri?, size: Int?): Uri? {
+            if (uri == null) return null
+            if (size == null) return publicUri(uri)
+            val segments = ArtworkUris.providerSegments(uri.toString())
+                ?: ArtworkUris.albumArtSegments(uri.toString())
+                ?: return uri
+            return build(segments).buildUpon().appendQueryParameter(ArtworkUris.PARAM_SIZE, size.toString()).build()
         }
 
         fun radioUri(stationUuid: String): Uri = build(listOf(ArtworkUris.SEGMENT_RADIO, stationUuid))

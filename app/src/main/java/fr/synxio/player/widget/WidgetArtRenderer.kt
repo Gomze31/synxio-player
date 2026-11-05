@@ -2,7 +2,6 @@ package fr.synxio.player.widget
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.BitmapShader
 import android.graphics.Canvas
 import android.graphics.LinearGradient
@@ -15,6 +14,7 @@ import androidx.core.graphics.ColorUtils
 import androidx.palette.graphics.Palette
 import dagger.hilt.android.qualifiers.ApplicationContext
 import fr.synxio.player.core.util.PlaceholderPalette
+import fr.synxio.player.playback.art.ArtBitmaps
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -66,11 +66,11 @@ class WidgetArtRenderer @Inject constructor(
         }
 
         // Sans pochette : le même dégradé que dans l'application, plutôt qu'un carré gris.
-        val source = artworkUri?.let { decode(it, ART_PIXELS) }
+        val source = artworkUri?.let { ArtBitmaps.decode(context, it, ART_PIXELS) }
             ?: placeholder(artworkUri ?: key)
 
         return runCatching {
-            val square = centerCrop(source, ART_PIXELS)
+            val square = ArtBitmaps.centerCrop(source, ART_PIXELS)
             val palette = Palette.from(square).maximumColorCount(16).generate()
 
             // Coins arrondis cuits dans l'image : `cornerRadius` n'agit qu'à partir
@@ -114,31 +114,6 @@ class WidgetArtRenderer @Inject constructor(
         val y = side / 2f - (note.descent() + note.ascent()) / 2f
         canvas.drawText("♪", side / 2f, y, note)
         return bitmap
-    }
-
-    /** Décode en réduisant avant lecture : jamais plus de deux fois [target] de côté. */
-    private fun decode(uri: Uri, target: Int): Bitmap? = runCatching {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-        var sample = 1
-        while (minOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= target) sample *= 2
-        val options = BitmapFactory.Options().apply {
-            inSampleSize = sample
-            inPreferredConfig = Bitmap.Config.ARGB_8888
-        }
-        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
-    }.getOrNull()
-
-    private fun centerCrop(src: Bitmap, side: Int): Bitmap {
-        val min = minOf(src.width, src.height)
-        val x = (src.width - min) / 2
-        val y = (src.height - min) / 2
-        val cropped = Bitmap.createBitmap(src, x, y, min, min)
-        if (min <= side) return cropped
-        val scaled = Bitmap.createScaledBitmap(cropped, side, side, true)
-        if (cropped !== src) cropped.recycle()
-        return scaled
     }
 
     /** Rayon proportionnel au côté : la pochette garde la même silhouette à toute taille. */
