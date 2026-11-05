@@ -82,6 +82,7 @@ jobs:
               --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD \
               --lineage "$RUNNER_TEMP/synxio.lineage" \
               --min-sdk-version 28 --rotation-min-sdk-version 28 \
+              --v1-signing-enabled false \
               "$apk"
             "$BT/apksigner" verify --verbose --print-certs "$apk" | grep -E "Verified using|Signer|SHA-256"
           done
