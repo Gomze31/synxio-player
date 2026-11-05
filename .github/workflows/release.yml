@@ -107,7 +107,7 @@ jobs:
             [ -f "$apk" ] || continue
             found=1
             actual="$("$BT/apksigner" verify --print-certs "$apk" \
-              | grep -m1 -E '^(Signer #1 |Signer \(|V[0-9.]+ Signer: )certificate SHA-256 digest:' \
+              | grep -m1 -E '^(Signer #1 |Signer \([^)]*\) |V[0-9.]+ Signer: )certificate SHA-256 digest:' \
               | sed 's/.*digest: *//' \
               | tr -d ': ' | tr '[:upper:]' '[:lower:]')"
             if [ "$actual" != "$pinned" ]; then
