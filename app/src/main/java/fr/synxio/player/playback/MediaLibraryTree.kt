@@ -184,7 +184,7 @@ class MediaLibraryTree @Inject constructor(
         val metadata = MediaMetadata.Builder()
             .setTitle(title)
             .setSubtitle(subtitle)
-            .setArtist(if (kind == NodeKind.ALBUM) subtitle else null)
+            .setArtist(if (id.startsWith(BrowseIds.ALBUM_PREFIX)) subtitle else null)
             .setArtworkUri(artworkFor(art))
             .setIsBrowsable(kind.browsable)
             .setIsPlayable(kind.playable)
@@ -226,6 +226,11 @@ class MediaLibraryTree @Inject constructor(
         NodeKind.SONG -> MediaMetadata.MEDIA_TYPE_MUSIC
         NodeKind.RADIO -> MediaMetadata.MEDIA_TYPE_RADIO_STATION
         NodeKind.ACTION -> MediaMetadata.MEDIA_TYPE_PLAYLIST
+        NodeKind.FOLDER_PLAYABLE -> when {
+            id.startsWith(BrowseIds.ALBUM_PREFIX) -> MediaMetadata.MEDIA_TYPE_ALBUM
+            id.startsWith(BrowseIds.GENRE_PREFIX) -> MediaMetadata.MEDIA_TYPE_GENRE
+            else -> MediaMetadata.MEDIA_TYPE_PLAYLIST
+        }
         NodeKind.FOLDER, NodeKind.INFO -> when (id) {
             BrowseIds.CAT_ALBUMS -> MediaMetadata.MEDIA_TYPE_FOLDER_ALBUMS
             BrowseIds.CAT_ARTISTS -> MediaMetadata.MEDIA_TYPE_FOLDER_ARTISTS
@@ -234,8 +239,7 @@ class MediaLibraryTree @Inject constructor(
             BrowseIds.TAB_RADIOS -> MediaMetadata.MEDIA_TYPE_FOLDER_RADIO_STATIONS
             BrowseIds.CAT_AUDIOBOOKS -> MediaMetadata.MEDIA_TYPE_FOLDER_AUDIO_BOOKS
             BrowseIds.CAT_PODCASTS -> MediaMetadata.MEDIA_TYPE_FOLDER_PODCASTS
-            else -> if (id.startsWith(BrowseIds.MIX_PREFIX) || id.startsWith(BrowseIds.MEMORY_PREFIX)) MediaMetadata.MEDIA_TYPE_PLAYLIST
-            else MediaMetadata.MEDIA_TYPE_FOLDER_MIXED
+            else -> MediaMetadata.MEDIA_TYPE_FOLDER_MIXED
         }
     }
 

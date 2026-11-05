@@ -103,6 +103,8 @@ sealed interface NodeArt {
 
 enum class NodeKind(val browsable: Boolean, val playable: Boolean) {
     FOLDER(true, false),
+    /** Contenu qui s'ouvre et se lance d'un toucher : album, playlist, genre, mix, souvenir. */
+    FOLDER_PLAYABLE(true, true),
     ALBUM(true, false),
     ARTIST(true, false),
     GENRE(true, false),
@@ -267,11 +269,16 @@ class BrowseTree(
         }
         if (id == BrowseIds.SURPRISE) return surprise()?.let { BrowseQueue(it) }
         if (id == BrowseIds.LAST_QUEUE) return source.lastQueue?.takeIf { it.songs.isNotEmpty() }
-        val (parent, songId) = BrowseIds.parseSongInContext(id) ?: return null
-        if (parent == BrowseIds.CAT_CONTINUE) return continueListening().firstOrNull { it.song.id == songId }?.queue
-        val songs = songsOf(parent) ?: return null
-        val index = songs.indexOfFirst { it.id == songId }
-        return if (index >= 0) BrowseQueue(songs, index) else null
+        BrowseIds.parseSongInContext(id)?.let { (parent, songId) ->
+            if (parent == BrowseIds.CAT_CONTINUE) return continueListening().firstOrNull { it.song.id == songId }?.queue
+            val songs = songsOf(parent) ?: return null
+            val index = songs.indexOfFirst { it.id == songId }
+            return if (index >= 0) BrowseQueue(songs, index) else null
+        }
+        // Tuile jouable : son contenu entier dans l'ordre, mélangé pour un genre.
+        if (id.startsWith(BrowseIds.BOOK_PREFIX)) return null
+        val songs = songsOf(id)?.takeIf { it.isNotEmpty() } ?: return null
+        return BrowseQueue(if (id.startsWith(BrowseIds.GENRE_PREFIX)) shuffle(songs) else songs)
     }
 
     fun radioFor(id: String): RadioStation? =
@@ -432,7 +439,7 @@ class BrowseTree(
     private fun artists(): List<BrowseNode> = source.artists.sortedBy { it.name.lowercase() }.map(::artistNode)
 
     private fun genres(): List<BrowseNode> = source.genres.sortedBy { it.name.lowercase() }.map { genre ->
-        BrowseNode(BrowseIds.GENRE_PREFIX + genre.name, genre.name, titles(genre.songCount), NodeKind.GENRE,
+        BrowseNode(BrowseIds.GENRE_PREFIX + genre.name, genre.name, titles(genre.songCount), NodeKind.FOLDER_PLAYABLE,
             genre.songs.firstOrNull()?.let(NodeArt::OfSong), playableStyle = ChildStyle.LIST)
     }
 
@@ -562,7 +569,7 @@ class BrowseTree(
     }
 
     private fun albumNode(album: Album) = BrowseNode(
-        BrowseIds.ALBUM_PREFIX + album.id, album.title, album.artist, NodeKind.ALBUM,
+        BrowseIds.ALBUM_PREFIX + album.id, album.title, album.artist, NodeKind.FOLDER_PLAYABLE,
         NodeArt.OfAlbum(album), playableStyle = ChildStyle.LIST,
     )
 
@@ -573,18 +580,18 @@ class BrowseTree(
     )
 
     private fun playlistNode(playlist: Playlist) = BrowseNode(
-        BrowseIds.PLAYLIST_PREFIX + playlist.id, playlist.name, titles(playlist.songCount), NodeKind.PLAYLIST,
+        BrowseIds.PLAYLIST_PREFIX + playlist.id, playlist.name, titles(playlist.songCount), NodeKind.FOLDER_PLAYABLE,
         playlist.songs.firstOrNull()?.let(NodeArt::OfSong) ?: NodeArt.Icon(BrowseIcon.PLAYLISTS),
         playableStyle = ChildStyle.LIST,
     )
 
     private fun mixNode(mix: DailyMix) = BrowseNode(
-        BrowseIds.MIX_PREFIX + mix.key, mix.title, titles(mix.songs.size), NodeKind.FOLDER,
+        BrowseIds.MIX_PREFIX + mix.key, mix.title, titles(mix.songs.size), NodeKind.FOLDER_PLAYABLE,
         mosaic(mix.songs), playableStyle = ChildStyle.LIST, selfStyle = ChildStyle.GRID,
     )
 
     private fun memoryNode(memory: Memory) = BrowseNode(
-        BrowseIds.MEMORY_PREFIX + memory.key, memory.title, titles(memory.songs.size), NodeKind.FOLDER,
+        BrowseIds.MEMORY_PREFIX + memory.key, memory.title, titles(memory.songs.size), NodeKind.FOLDER_PLAYABLE,
         mosaic(memory.songs), playableStyle = ChildStyle.LIST, selfStyle = ChildStyle.GRID,
     )
 

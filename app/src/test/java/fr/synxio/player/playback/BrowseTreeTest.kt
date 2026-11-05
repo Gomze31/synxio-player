@@ -200,6 +200,34 @@ class BrowseTreeTest {
     }
 
     @Test
+    fun `tuiles jouables - albums, playlists, genres, mixs, souvenirs, mais pas les livres`() {
+        val mix = DailyMix("daily", DailyMixKind.DAILY, "Ton mix du jour", "", listOf(s5, s1))
+        val memory = Memory.FirstTimes(listOf(s2, s4, s5))
+        val t = tree(listeningSource().apply { dailyMixes = listOf(mix); memories = listOf(memory) })
+        assertTrue(t.children(BrowseIds.CAT_ALBUMS).all { it.kind == NodeKind.FOLDER_PLAYABLE })
+        assertTrue(t.children(BrowseIds.TAB_PLAYLISTS).all { it.kind == NodeKind.FOLDER_PLAYABLE })
+        assertTrue(t.children(BrowseIds.CAT_GENRES).all { it.kind == NodeKind.FOLDER_PLAYABLE })
+        val home = t.children(BrowseIds.TAB_HOME)
+        assertEquals(NodeKind.FOLDER_PLAYABLE, home.first { it.id == BrowseIds.MIX_PREFIX + "daily" }.kind)
+        assertEquals(NodeKind.FOLDER_PLAYABLE, home.first { it.id == BrowseIds.MEMORY_PREFIX + "firsttimes" }.kind)
+        assertEquals(NodeKind.ALBUM, t.children(BrowseIds.CAT_AUDIOBOOKS).single().kind)
+        assertTrue(NodeKind.FOLDER_PLAYABLE.browsable && NodeKind.FOLDER_PLAYABLE.playable)
+    }
+
+    @Test
+    fun `tuile jouable - l'album entier dans l'ordre, le genre melange, le mix tel quel`() {
+        val mix = DailyMix("daily", DailyMixKind.DAILY, "Ton mix du jour", "", listOf(s5, s1))
+        val t = tree(fullSource().apply { dailyMixes = listOf(mix); genres = listOf(Genre("Électro", listOf(s5, s1, s2))) })
+        assertEquals(listOf(1L, 2L, 3L), t.queueFor(BrowseIds.ALBUM_PREFIX + cheese.id)!!.songs.map { it.id })
+        assertEquals(listOf(5L, 1L), t.queueFor(BrowseIds.PLAYLIST_PREFIX + 7)!!.songs.map { it.id })
+        assertEquals(listOf(2L, 1L, 5L), t.queueFor(BrowseIds.GENRE_PREFIX + "Électro")!!.songs.map { it.id })
+        assertEquals(listOf(5L, 1L), t.queueFor(BrowseIds.MIX_PREFIX + "daily")!!.songs.map { it.id })
+        assertEquals(0, t.queueFor(BrowseIds.ALBUM_PREFIX + cheese.id)!!.startIndex)
+        assertNull(t.queueFor(BrowseIds.PLAYLIST_PREFIX + 8))
+        assertNull(t.queueFor(BrowseIds.ALBUM_PREFIX + 999))
+    }
+
+    @Test
     fun `derniere file - reprise a l'index et a la position sauvegardes`() {
         val source = fullSource().apply { lastQueue = BrowseQueue(listOf(s5, s1), 1, 42_000L) }
         val queue = tree(source).queueFor(BrowseIds.LAST_QUEUE)!!
@@ -263,7 +291,7 @@ class BrowseTreeTest {
     fun `artiste a plusieurs albums - aleatoire, section albums puis section titres`() {
         val children = tree().children(BrowseIds.ARTIST_PREFIX + "Stromae")
         assertEquals(NodeKind.ACTION, children[0].kind)
-        val albums = children.filter { it.kind == NodeKind.ALBUM }
+        val albums = children.filter { it.kind == NodeKind.FOLDER_PLAYABLE }
         assertEquals(listOf("Racine carrée", "Cheese"), albums.map { it.title })
         assertTrue(albums.all { it.groupTitle == "Albums" })
         val titles = children.filter { it.kind == NodeKind.SONG }
