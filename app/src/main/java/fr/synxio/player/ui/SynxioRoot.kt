@@ -24,7 +24,23 @@ import kotlinx.coroutines.flow.map
 import android.content.Intent
 import android.os.Build
 import android.util.Base64
-import androidx.activity.compose.BackHandler
+import androidx.activity.compose.PredictiveBackHandler
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.AnimationVector1D
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.platform.LocalWindowInfo
+import fr.synxio.player.ui.components.PlayerSheetState
+import fr.synxio.player.ui.haptics.SynxioHaptics
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.scaleIn
@@ -273,7 +289,25 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
     val playerState by viewModel.playerState.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val metadataProgress by viewModel.metadataProgress.collectAsStateWithLifecycle()
-    var playerExpanded by remember { mutableStateOf(false) }
+    val reduceMotion = LocalReduceMotion.current
+    val haptics = rememberSynxioHaptics(settings.hapticsEnabled)
+
+    // 0 = mini-lecteur, 1 = plein écran. Un seul état continu : le doigt, le retour
+    // prédictif et le tap y écrivent tous, l'affichage ne fait que le lire.
+    val expansion = remember { Animatable(0f) }
+    val expanded by remember { derivedStateOf { expansion.value > 0f } }
+    val fullyExpanded by remember { derivedStateOf { expansion.value >= 1f } }
+    val scope = rememberCoroutineScope()
+    // La fenêtre peut ne pas être mesurée à la première composition : sans hauteur
+    // positive, pas de suivi au doigt (les gestes se replient sur l'ouverture simple).
+    val screenHeightPx = LocalWindowInfo.current.containerSize.height.toFloat()
+    val sheet = remember(screenHeightPx) {
+        if (screenHeightPx > 0f) PlayerSheetState(screenHeightPx) else null
+    }
+    fun playerSpec(): AnimationSpec<Float> =
+        if (reduceMotion) Motion.standard(Motion.SHORT) else Motion.spatial()
+    fun openPlayer() { scope.launch { expansion.animateTo(1f, playerSpec()) } }
+    fun closePlayer() { scope.launch { expansion.animateTo(0f, playerSpec()) } }
 
     val updateViewModel: UpdateViewModel = hiltViewModel()
     val updateState by updateViewModel.state.collectAsStateWithLifecycle()
@@ -281,9 +315,8 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
     // Un jeton plutôt qu'un booléen : la notification peut demander le lecteur plusieurs
     // fois pendant que l'app tourne, chaque demande doit l'ouvrir.
     LaunchedEffect(openPlayerRequest) {
-        if (openPlayerRequest > 0L) playerExpanded = true
+        if (openPlayerRequest > 0L) openPlayer()
     }
-    val reduceMotion = LocalReduceMotion.current
 
     LaunchedEffect(Unit) {
         viewModel.messages.collect { snackbarHost.showSnackbar(it) }
@@ -325,7 +358,20 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
         }
     }
 
-    BackHandler(enabled = playerExpanded) { playerExpanded = false }
+    PredictiveBackHandler(enabled = expanded) { progress ->
+        try {
+            progress.collect { event ->
+                // Aperçu partiel : le lecteur ne descend que de 40 % pendant le geste système.
+                if (!reduceMotion) expansion.snapTo(1f - event.progress * 0.4f)
+            }
+            expansion.animateTo(0f, playerSpec())
+        } catch (e: CancellationException) {
+            // Geste annulé : la coroutine du gestionnaire peut être annulée elle aussi, le
+            // retour en place passe donc par la portée de l'écran.
+            scope.launch { expansion.animateTo(1f, playerSpec()) }
+            throw e
+        }
+    }
 
     var dismissUpdate by remember { mutableStateOf(false) }
 
@@ -375,7 +421,6 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
 
     // Couche commune des éléments partagés : pochettes des grilles vers les détails, et
     // pochette du mini-lecteur vers le lecteur plein écran.
-    val haptics = rememberSynxioHaptics(settings.hapticsEnabled)
     CompositionLocalProvider(LocalSynxioHaptics provides haptics) {
     SharedTransitionLayout(Modifier.fillMaxSize()) {
     CompositionLocalProvider(LocalSharedTransitionScope provides this) {
@@ -388,14 +433,14 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
                     // Seules les récupérations demandées à la main s'affichent ici : la passe
                     // automatique de la bibliothèque reste discrète, visible dans les réglages.
                     AnimatedVisibility(
-                        visible = metadataProgress.manual && !playerExpanded,
+                        visible = metadataProgress.manual && !fullyExpanded,
                         enter = slideInVertically(Motion.enter()) { it / 2 } + fadeIn(Motion.enter()),
                         exit = slideOutVertically(Motion.exit()) { it / 2 } + fadeOut(Motion.exit()),
                     ) {
                         fr.synxio.player.ui.components.MetadataProgressPill(metadataProgress)
                     }
                     AnimatedVisibility(
-                        visible = playerState.currentSong != null && !playerExpanded,
+                        visible = playerState.currentSong != null && !fullyExpanded,
                         enter = slideInVertically(Motion.enter()) { it / 2 } + fadeIn(Motion.enter()),
                         exit = slideOutVertically(Motion.exit()) { it / 2 } + fadeOut(Motion.exit()),
                     ) {
@@ -403,7 +448,20 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
                         MiniPlayer(
                             state = playerState,
                             position = viewModel.position,
-                            onExpand = { playerExpanded = true },
+                            // Le mini-lecteur s'efface pendant la première moitié de l'ouverture.
+                            modifier = Modifier.graphicsLayer {
+                                alpha = (1f - 2f * expansion.value).coerceIn(0f, 1f)
+                            },
+                            onExpand = { openPlayer() },
+                            onExpandDrag = { totalY ->
+                                val s = sheet
+                                if (!reduceMotion && s != null) scope.launch { expansion.snapTo(s.dragTo(0f, totalY)) }
+                            },
+                            onExpandRelease = { velocity ->
+                                val s = sheet
+                                val target = if (reduceMotion || s == null) 1f else s.settle(0f, expansion.value, velocity)
+                                scope.launch { expansion.animateTo(target, playerSpec()) }
+                            },
                             onPlayPause = viewModel::togglePlayPause,
                             onNext = viewModel::next,
                             onPrevious = viewModel::previous,
@@ -431,7 +489,7 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
             AppNavHost(
                 navController = navController,
                 viewModel = viewModel,
-                onOpenPlayer = { playerExpanded = true },
+                onOpenPlayer = { openPlayer() },
                 // Marge haute réservée aux onglets : leurs en-têtes éditoriaux n'ont pas de
                 // barre Material. Les écrans secondaires ont une TopAppBar qui absorbe déjà
                 // la barre d'état ; ajouter la marge du Scaffold la doublait.
@@ -442,60 +500,121 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
             )
         }
 
-        // Le lecteur monte depuis le mini-lecteur et redescend vers lui : même axe, et la
-        // pochette du mini-lecteur grandit jusqu'à sa place (élément partagé) pendant que
-        // l'écran glisse. Animations réduites : simple fondu.
+        // Le lecteur suit [expansion] : il monte depuis le mini-lecteur et redescend vers
+        // lui sous le doigt, et la pochette du mini-lecteur grandit jusqu'à sa place
+        // (élément partagé, d'où le conteneur AnimatedVisibility sans transition propre).
+        // Animations réduites : simple fondu, sans déplacement.
         AnimatedVisibility(
-            visible = playerExpanded,
-            enter = if (reduceMotion) {
-                fadeIn(Motion.enter(Motion.SHORT))
-            } else {
-                slideInVertically(Motion.enter(Motion.LONG)) { it / 3 } + fadeIn(Motion.enter(Motion.MEDIUM))
-            },
-            exit = if (reduceMotion) {
-                fadeOut(Motion.exit())
-            } else {
-                slideOutVertically(Motion.exit(Motion.MEDIUM)) { it / 3 } + fadeOut(Motion.exit(Motion.MEDIUM))
-            },
+            visible = expanded,
+            enter = EnterTransition.None,
+            exit = ExitTransition.None,
         ) {
             CompositionLocalProvider(LocalPlayerAnimatedScope provides this) {
             NowPlayingScreen(
                 viewModel = viewModel,
-                onCollapse = { playerExpanded = false },
+                onCollapse = { closePlayer() },
                 onOpenAlbum = { id ->
-                    playerExpanded = false
+                    closePlayer()
                     navController.navigate(Routes.album(id))
                 },
                 onOpenArtist = { name ->
-                    playerExpanded = false
+                    closePlayer()
                     navController.navigate(Routes.artist(name))
                 },
                 onEditTags = { songId ->
-                    playerExpanded = false
+                    closePlayer()
                     navController.navigate(Routes.tags(songId))
                 },
                 onOpenEqualizer = {
-                    playerExpanded = false
+                    closePlayer()
                     navController.navigate(Routes.EQUALIZER)
                 },
                 onOpenDriveMode = {
-                    playerExpanded = false
+                    closePlayer()
                     navController.navigate(Routes.DRIVE_MODE)
                 },
                 onOpenPartyMode = {
-                    playerExpanded = false
+                    closePlayer()
                     navController.navigate(Routes.PARTY_MODE)
                 },
                 onTrim = { song ->
-                    playerExpanded = false
+                    closePlayer()
                     navController.navigate(Routes.trim(song.id))
                 },
+                // Le geste est posé avant la couche graphique : ses coordonnées restent
+                // celles de l'écran, pas celles du lecteur qui descend sous le doigt.
+                modifier = Modifier
+                    .playerDismissGesture(sheet, expansion, scope, haptics, reduceMotion)
+                    .graphicsLayer {
+                        val e = expansion.value.coerceIn(0f, 1f)
+                        translationY = if (reduceMotion) 0f else (1f - e) * size.height
+                        alpha = if (reduceMotion) e else 1f
+                    },
             )
             }
         }
     }
     }
     }
+    }
+}
+
+/**
+ * Balayage vers le bas qui referme le lecteur en suivant le doigt.
+ *
+ * Le geste ne part que du haut de l'écran ([PlayerSheetState.canStartDrag]) ; une liste
+ * qui peut encore défiler consomme le déplacement avant nous. Un `tick` haptique signale
+ * le franchissement du seuil de fermeture, une fois par geste. Animations réduites : rien
+ * ne suit le doigt, la décision tombe au relâcher. Sans hauteur d'écran mesurée
+ * ([sheet] nul), le geste est inactif.
+ */
+private fun Modifier.playerDismissGesture(
+    sheet: PlayerSheetState?,
+    expansion: Animatable<Float, AnimationVector1D>,
+    scope: CoroutineScope,
+    haptics: SynxioHaptics,
+    reduceMotion: Boolean,
+): Modifier = if (sheet == null) this else pointerInput(sheet, reduceMotion, haptics) {
+    val spec: AnimationSpec<Float> = if (reduceMotion) Motion.standard(Motion.SHORT) else Motion.spatial()
+    val tracker = VelocityTracker()
+    var allowed = false
+    var start = 1f
+    var total = 0f
+    var ticked = false
+    detectVerticalDragGestures(
+        onDragStart = { offset ->
+            allowed = sheet.canStartDrag(offset.y / size.height)
+            start = expansion.value
+            total = 0f
+            ticked = false
+            tracker.resetTracking()
+        },
+        onDragEnd = {
+            if (!allowed) return@detectVerticalDragGestures
+            val velocity = tracker.calculateVelocity().y
+            val target = if (reduceMotion) {
+                if (total > size.height * PlayerSheetState.OPEN_THRESHOLD || velocity >= PlayerSheetState.FLING_VELOCITY) 0f else 1f
+            } else {
+                sheet.settle(start, expansion.value, velocity)
+            }
+            scope.launch { expansion.animateTo(target, spec) }
+        },
+        onDragCancel = {
+            if (allowed) scope.launch { expansion.animateTo(1f, spec) }
+        },
+    ) { change, dragAmount ->
+        if (!allowed) return@detectVerticalDragGestures
+        change.consume()
+        total += dragAmount
+        tracker.addPosition(change.uptimeMillis, change.position)
+        if (!reduceMotion) {
+            val next = sheet.dragTo(start, total)
+            if (!ticked && next <= 1f - PlayerSheetState.OPEN_THRESHOLD) {
+                ticked = true
+                haptics.tick()
+            }
+            scope.launch { expansion.snapTo(next) }
+        }
     }
 }
 

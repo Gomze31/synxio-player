@@ -41,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
@@ -67,6 +68,12 @@ import kotlin.math.abs
 /** Distance de balayage qui déclenche un changement de piste. */
 private val SwipeThreshold = 72.dp
 
+/** Part de la hauteur du mini-lecteur à parcourir vers le bas pour l'écarter. */
+private const val DISMISS_FRACTION = 0.4f
+
+/** Axe d'un balayage, fixé au premier mouvement. */
+private enum class Axis { Vertical, Horizontal }
+
 /**
  * Barre de lecture compacte posée au-dessus de la navigation.
  *
@@ -75,7 +82,9 @@ private val SwipeThreshold = 72.dp
  * élément partagé avec le lecteur plein écran : elle grandit jusqu'à sa place quand on
  * l'ouvre.
  *
- * Gestes : toucher ou balayer vers le haut ouvre le lecteur ; balayer vers la gauche
+ * Gestes : toucher ouvre le lecteur ; balayer vers le haut l'ouvre en suivant le doigt
+ * ([onExpandDrag] reçoit le déplacement cumulé, négatif, puis [onExpandRelease] la
+ * vélocité verticale au relâcher) ; balayer vers le bas appelle [onDismiss] ; vers la gauche
  * passe au titre suivant, vers la droite revient au précédent. La carte suit le doigt et
  * revient en place par un ressort. Les mêmes commandes existent en boutons et en
  * actions d'accessibilité : aucun geste n'est le seul chemin.
@@ -89,6 +98,9 @@ fun MiniPlayer(
     onNext: () -> Unit,
     modifier: Modifier = Modifier,
     onPrevious: (() -> Unit)? = null,
+    onExpandDrag: (Float) -> Unit = {},
+    onExpandRelease: (Float) -> Unit = {},
+    onDismiss: () -> Unit = {},
 ) {
     val song = state.currentSong ?: return
     val haptics = LocalSynxioHaptics.current
@@ -115,6 +127,10 @@ fun MiniPlayer(
     val latestPrevious by rememberUpdatedState(onPrevious)
     val latestExpand by rememberUpdatedState(onExpand)
     val hasNext by rememberUpdatedState(state.hasNext)
+    val latestExpandDrag by rememberUpdatedState(onExpandDrag)
+    val latestExpandRelease by rememberUpdatedState(onExpandRelease)
+    val latestDismiss by rememberUpdatedState(onDismiss)
+    val latestHaptics by rememberUpdatedState(haptics)
 
     Box(
         modifier = modifier
@@ -130,27 +146,68 @@ fun MiniPlayer(
             .glowShadow(SynxioShape.card, (tint ?: colors.brandEnd).copy(alpha = 0.7f), elevation = 16.dp)
             .clip(SynxioShape.card)
             .glass(SynxioShape.card, strength = 1f, tint = tint)
-            .pointerInput(threshold) {
+            .pointerInput(threshold, reduceMotion) {
+                val tracker = VelocityTracker()
+                // L'axe est fixé au premier mouvement après le seuil tactile : un balayage
+                // vertical ouvre (ou écarte), un balayage horizontal change de piste.
+                var axis: Axis? = null
                 var totalY = 0f
                 detectDragGestures(
-                    onDragStart = { totalY = 0f },
+                    onDragStart = { axis = null; totalY = 0f; tracker.resetTracking() },
                     onDragEnd = {
-                        val x = dragX.value
-                        when {
-                            totalY < -threshold * 0.7f -> latestExpand()
-                            x < -threshold && hasNext -> { haptics.tick(); latestNext() }
-                            x > threshold && latestPrevious != null -> { haptics.tick(); latestPrevious?.invoke() }
+                        when (axis) {
+                            Axis.Vertical -> {
+                                val velocity = tracker.calculateVelocity().y
+                                if (totalY < 0f) {
+                                    // Vers le haut : ouvrir ; la racine décide d'après la vélocité.
+                                    if (reduceMotion) {
+                                        if (totalY < -threshold * 0.7f) latestExpand()
+                                    } else {
+                                        latestExpandRelease(velocity)
+                                    }
+                                } else {
+                                    // Revenu sous le point de départ : l'expansion est déjà à 0,
+                                    // la racine la confirme.
+                                    if (!reduceMotion) latestExpandRelease(velocity.coerceAtLeast(0f))
+                                    if (totalY > size.height * DISMISS_FRACTION || velocity >= PlayerSheetState.FLING_VELOCITY) {
+                                        latestDismiss()
+                                    }
+                                }
+                            }
+                            Axis.Horizontal -> {
+                                val x = dragX.value
+                                when {
+                                    x < -threshold && hasNext -> { latestHaptics.tick(); latestNext() }
+                                    x > threshold && latestPrevious != null -> { latestHaptics.tick(); latestPrevious?.invoke() }
+                                }
+                            }
+                            null -> Unit
                         }
                         scope.launch { dragX.animateTo(0f, Motion.spatial()) }
                     },
-                    onDragCancel = { scope.launch { dragX.animateTo(0f, Motion.spatial()) } },
+                    onDragCancel = {
+                        if (axis == Axis.Vertical && !reduceMotion) latestExpandRelease(0f)
+                        scope.launch { dragX.animateTo(0f, Motion.spatial()) }
+                    },
                 ) { change, amount ->
                     change.consume()
-                    totalY += amount.y
-                    // Résistance : au-delà du seuil, la carte suit de moins en moins.
-                    val next = dragX.value + amount.x
-                    val resisted = if (abs(next) > threshold) dragX.value + amount.x * 0.35f else next
-                    scope.launch { dragX.snapTo(resisted) }
+                    if (axis == null) axis = if (abs(amount.y) >= abs(amount.x)) Axis.Vertical else Axis.Horizontal
+                    tracker.addPosition(change.uptimeMillis, change.position)
+                    when (axis) {
+                        Axis.Vertical -> {
+                            totalY += amount.y
+                            // Borné à 0 : redescendre sous le point de départ referme sans
+                            // laisser le lecteur entrouvert.
+                            if (!reduceMotion) latestExpandDrag(totalY.coerceAtMost(0f))
+                        }
+                        Axis.Horizontal -> {
+                            // Résistance : au-delà du seuil, la carte suit de moins en moins.
+                            val next = dragX.value + amount.x
+                            val resisted = if (abs(next) > threshold) dragX.value + amount.x * 0.35f else next
+                            scope.launch { dragX.snapTo(resisted) }
+                        }
+                        null -> Unit
+                    }
                 }
             }
             .semantics {
