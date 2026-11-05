@@ -498,6 +498,14 @@ fun SettingsScreen(
                             )
                             GroupDivider()
                             SwitchSetting(
+                                title = "Scène réactive",
+                                subtitle = "L'aurore et la signature respirent sur la musique",
+                                icon = Icons.Rounded.GraphicEq,
+                                checked = settings.sceneReactive,
+                                onCheckedChange = settingsViewModel::setSceneReactive
+                            )
+                            GroupDivider()
+                            SwitchSetting(
                                 title = "Retour haptique",
                                 subtitle = "Vibrations légères sur les commandes et les gestes",
                                 icon = Icons.Rounded.Vibration,

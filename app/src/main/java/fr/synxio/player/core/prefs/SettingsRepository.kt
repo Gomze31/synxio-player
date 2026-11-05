@@ -177,7 +177,9 @@ data class Settings(
     val reduceAnimations: Boolean = false,
     /** Halos, aurore du fond et lueur des pochettes. */
     val glowEffects: Boolean = true,
-    
+    /** L'aurore et la signature respirent sur la musique (lecteur et mini-lecteur). */
+    val sceneReactive: Boolean = true,
+
     // Expérimental
     val developerMode: Boolean = false,
 
@@ -305,6 +307,7 @@ class SettingsRepository @Inject constructor(
         // Accessibilité
         val REDUCE_ANIMATIONS = booleanPreferencesKey("reduce_animations")
         val GLOW_EFFECTS = booleanPreferencesKey("glow_effects")
+        val SCENE_REACTIVE = booleanPreferencesKey("scene_reactive")
         
         // Expérimental
         val DEVELOPER_MODE = booleanPreferencesKey("developer_mode")
@@ -423,6 +426,7 @@ class SettingsRepository @Inject constructor(
                 // Accessibilité
                 reduceAnimations = p[Keys.REDUCE_ANIMATIONS] ?: false,
                 glowEffects = p[Keys.GLOW_EFFECTS] ?: true,
+                sceneReactive = p[Keys.SCENE_REACTIVE] ?: true,
                 
                 // Expérimental
                 developerMode = p[Keys.DEVELOPER_MODE] ?: false,
@@ -572,6 +576,7 @@ class SettingsRepository @Inject constructor(
     // Accessibilité
     suspend fun setReduceAnimations(value: Boolean) = put(Keys.REDUCE_ANIMATIONS, value)
     suspend fun setGlowEffects(value: Boolean) = put(Keys.GLOW_EFFECTS, value)
+    suspend fun setSceneReactive(value: Boolean) = put(Keys.SCENE_REACTIVE, value)
     
     // Expérimental
     suspend fun setDeveloperMode(value: Boolean) = put(Keys.DEVELOPER_MODE, value)
