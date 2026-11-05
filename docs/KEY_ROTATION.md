@@ -9,8 +9,9 @@ Fait dans le code (5.6.1) :
 
 - `app/build.gradle.kts` : plus de clé de secours ; un build release sans
   `keystore.properties` échoue.
-- `release.yml` : secrets obligatoires, signature avec la nouvelle clé et sa lignée,
-  `--min-sdk-version 28`.
+- `release.yml` : secrets obligatoires, signature v3 seule avec la nouvelle clé et sa
+  lignée, `--min-sdk-version 28`. v1 et v2 sont désactivés : ces schémas ignorent la
+  rotation et exigeraient l'ancienne clé dans la CI.
 - `UpdateSignatures.PINNED_SIGNER_SHA256` : empreinte de la nouvelle clé exigée sur tout
   APK de mise à jour.
 

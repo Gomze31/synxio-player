@@ -29,9 +29,10 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      # Gradle signe avec la clé privée (v1 + v2 + v3). apksigner rejoue ensuite la
-      # signature avec la lignée ancienne → nouvelle, pour que les installations encore
-      # signées par l'ancienne clé acceptent la mise à jour (Android 9+).
+      # Gradle signe avec la clé privée. apksigner rejoue ensuite la signature en v3
+      # seul, avec la lignée ancienne → nouvelle, pour que les installations encore
+      # signées par l'ancienne clé acceptent la mise à jour. v1 et v2 ignorent la
+      # rotation et exigeraient l'ancienne clé ; v3 suffit dès Android 9 (minSdk 28).
       - name: Check release secrets
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -82,7 +83,7 @@ jobs:
               --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD \
               --lineage "$RUNNER_TEMP/synxio.lineage" \
               --min-sdk-version 28 --rotation-min-sdk-version 28 \
-              --v1-signing-enabled false \
+              --v1-signing-enabled false --v2-signing-enabled false \
               "$apk"
             "$BT/apksigner" verify --verbose --print-certs "$apk" | grep -E "Verified using|Signer|SHA-256"
           done
