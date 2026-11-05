@@ -117,6 +117,12 @@ enum class NodeKind(val browsable: Boolean, val playable: Boolean) {
     INFO(false, false),
 }
 
+/** État de complétion affiché par Android Auto (coche, barre de progression). */
+enum class Completion { NOT_PLAYED, PARTIALLY_PLAYED, FULLY_PLAYED }
+
+/** Progression d'un livre, d'un chapitre ou d'un épisode ; [fraction] de 0 à 1. */
+data class Progress(val completion: Completion, val fraction: Float)
+
 data class BrowseNode(
     val id: String,
     val title: String,
@@ -131,6 +137,8 @@ data class BrowseNode(
     val groupTitle: String? = null,
     /** Mise en page de ce nœud lui-même dans la liste de son parent (tuile de mix dans l'accueil en liste). */
     val selfStyle: ChildStyle? = null,
+    /** Progression d'écoute, pour les livres, chapitres et épisodes seulement. */
+    val progress: Progress? = null,
     val song: Song? = null,
     val station: RadioStation? = null,
 )
@@ -516,7 +524,7 @@ class BrowseTree(
             val node = BrowseNode(
                 BrowseIds.songInContext(BrowseIds.CAT_CONTINUE, file.id), bookName(path),
                 "${progress.chapterLabel()} · ${progress.remainingLabel()}", NodeKind.SONG, NodeArt.OfSong(file),
-                groupTitle = "Livres audio", song = file,
+                groupTitle = "Livres audio", progress = progress.toProgress(), song = file,
             )
             Resumable(node, file, BrowseQueue(files, progress.fileIndex, start), progress.lastPlayedSec)
         }
@@ -538,9 +546,29 @@ class BrowseTree(
                 BrowseIds.BOOK_PREFIX + path, bookName(path),
                 progress?.statusLabel() ?: "${plural(files.size, "chapitre")} · ${files.sumOf { it.durationMs }.asLongDuration()}",
                 NodeKind.ALBUM, files.firstOrNull()?.let(NodeArt::OfSong), playableStyle = ChildStyle.LIST,
+                progress = progress?.toProgress(),
             )
         }
         .sortedBy { it.title.lowercase() }
+
+    /** Progression d'un fichier (chapitre ou épisode) d'après sa position enregistrée. */
+    private fun fileProgress(song: Song): Progress {
+        val entry = source.savedPositions[song.id]
+        return when (episodeState(entry, song.durationMs)) {
+            EpisodeState.PLAYED -> Progress(Completion.FULLY_PLAYED, 1f)
+            EpisodeState.NEW -> Progress(Completion.NOT_PLAYED, 0f)
+            EpisodeState.IN_PROGRESS -> Progress(
+                Completion.PARTIALLY_PLAYED,
+                if (song.durationMs > 0L) ((entry?.positionMs ?: 0L).toFloat() / song.durationMs).coerceIn(0f, 1f) else 0f,
+            )
+        }
+    }
+
+    private fun BookProgress.toProgress(): Progress = when {
+        finished -> Progress(Completion.FULLY_PLAYED, 1f)
+        started -> Progress(Completion.PARTIALLY_PLAYED, fraction)
+        else -> Progress(Completion.NOT_PLAYED, 0f)
+    }
 
     /** Épisode : son émission, et où en est l'écoute s'il est entamé ou fini. */
     private fun episodeNode(parentId: String, episode: Song): BrowseNode {
@@ -553,7 +581,8 @@ class BrowseTree(
         }
         val show = episode.album.ifBlank { episode.displayArtist }.cleanTitle()
         return BrowseNode(BrowseIds.songInContext(parentId, episode.id), episode.title.cleanTitle(),
-            listOfNotNull(show, state).joinToString(" · "), NodeKind.SONG, NodeArt.OfSong(episode), song = episode)
+            listOfNotNull(show, state).joinToString(" · "), NodeKind.SONG, NodeArt.OfSong(episode),
+            progress = fileProgress(episode), song = episode)
     }
 
     private fun bookName(path: String) = path.substringAfterLast('/', path)
@@ -565,7 +594,8 @@ class BrowseTree(
         val subtitle = if (parentId.startsWith(BrowseIds.ALBUM_PREFIX)) song.displayArtist.cleanTitle()
         else "${song.displayArtist.cleanTitle()} · ${song.displayAlbum}"
         return BrowseNode(BrowseIds.songInContext(parentId, song.id), song.title.cleanTitle(), subtitle,
-            NodeKind.SONG, NodeArt.OfSong(song), song = song)
+            NodeKind.SONG, NodeArt.OfSong(song),
+            progress = if (parentId.startsWith(BrowseIds.BOOK_PREFIX)) fileProgress(song) else null, song = song)
     }
 
     private fun albumNode(album: Album) = BrowseNode(

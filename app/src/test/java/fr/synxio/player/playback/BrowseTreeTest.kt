@@ -495,6 +495,33 @@ class BrowseTreeTest {
     }
 
     @Test
+    fun `progression - livre entame, chapitres fini, en cours et non commence`() {
+        val t = tree(listeningSource())
+        val book = t.children(BrowseIds.CAT_AUDIOBOOKS).single()
+        assertEquals(Completion.PARTIALLY_PLAYED, book.progress!!.completion)
+        // 600 000 ms lus (chapitre 1) + 120 000 (chapitre 2) sur 1 800 000.
+        assertEquals(0.4f, book.progress!!.fraction, 0.001f)
+        val chapters = t.children(book.id)
+        assertEquals(Progress(Completion.FULLY_PLAYED, 1f), chapters[0].progress)
+        assertEquals(Completion.PARTIALLY_PLAYED, chapters[1].progress!!.completion)
+        assertEquals(0.2f, chapters[1].progress!!.fraction, 0.001f)
+        assertEquals(Progress(Completion.NOT_PLAYED, 0f), chapters[2].progress)
+    }
+
+    @Test
+    fun `progression - episodes et livre marque comme lu`() {
+        val source = listeningSource().apply {
+            savedPositions = mapOf(102L to at(102, 600_000, 1), 200L to at(200, 1_200_000, 2), 201L to at(201, 300_000, 3))
+        }
+        val t = tree(source)
+        val episodes = t.children(BrowseIds.CAT_PODCASTS)
+        assertEquals(Progress(Completion.FULLY_PLAYED, 1f), episodes[0].progress)
+        assertEquals(0.25f, episodes[1].progress!!.fraction, 0.001f)
+        assertEquals(Progress(Completion.FULLY_PLAYED, 1f), t.children(BrowseIds.CAT_AUDIOBOOKS).single().progress)
+        assertNull(t.children(BrowseIds.CAT_ALBUMS)[0].progress)
+    }
+
+    @Test
     fun `continuer l'ecoute - absent sans rien d'entame, livres finis ecartes`() {
         val source = listeningSource().apply {
             savedPositions = mapOf(102L to at(102, 600_000, lastPlayedSec = 1), 200L to at(200, 1_200_000, lastPlayedSec = 2))

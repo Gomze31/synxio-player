@@ -216,6 +216,17 @@ class MediaLibraryTree @Inject constructor(
         groupTitle?.let { putString(MediaConstants.EXTRAS_KEY_CONTENT_STYLE_GROUP_TITLE, it) }
         // L'hôte lit cet indice pour l'élément lui-même, pas pour ses enfants.
         selfStyle?.let { putInt(MediaConstants.EXTRAS_KEY_CONTENT_STYLE_SINGLE_ITEM, it.toConstant()) }
+        progress?.let {
+            putInt(
+                MediaConstants.EXTRAS_KEY_COMPLETION_STATUS,
+                when (it.completion) {
+                    Completion.NOT_PLAYED -> MediaConstants.EXTRAS_VALUE_COMPLETION_STATUS_NOT_PLAYED
+                    Completion.PARTIALLY_PLAYED -> MediaConstants.EXTRAS_VALUE_COMPLETION_STATUS_PARTIALLY_PLAYED
+                    Completion.FULLY_PLAYED -> MediaConstants.EXTRAS_VALUE_COMPLETION_STATUS_FULLY_PLAYED
+                },
+            )
+            putDouble(MediaConstants.EXTRAS_KEY_COMPLETION_PERCENTAGE, it.fraction.toDouble())
+        }
     }
 
     private fun BrowseNode.mediaType(): Int = when (kind) {
