@@ -213,10 +213,6 @@ class SettingsRepository @Inject constructor(
     /** Sérialise la migration et les écritures de secrets : pas de vérifier-puis-écrire entrelacé. */
     private val secretsMutex = Mutex()
 
-    init {
-        scope.launch { migrateSecrets() }
-    }
-
     private object Keys {
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val ACCENT_SOURCE = stringPreferencesKey("accent_source")
@@ -337,6 +333,12 @@ class SettingsRepository @Inject constructor(
 
     private val preferences: Flow<Preferences> = context.dataStore.data
         .catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }
+
+    // Après `preferences` : lancé plus haut, la coroutine pouvait lire le champ encore nul
+    // et faire planter l'app au démarrage (course entre le constructeur et Dispatchers.Default).
+    init {
+        scope.launch { migrateSecrets() }
+    }
 
     /** Le déchiffrement des secrets touche le Keystore : jamais sur le thread principal. */
     val settings: Flow<Settings> = combine(preferences, secretStore.changes) { p, _ ->
