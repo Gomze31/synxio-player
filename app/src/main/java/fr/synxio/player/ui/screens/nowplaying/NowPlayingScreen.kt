@@ -214,7 +214,7 @@ fun NowPlayingScreen(
         if (showLyrics) lyricsViewModel.load(song)
     }
 
-    val pulse by viewModel.pulse.collectAsStateWithLifecycle()
+    val pulse = viewModel.pulse.collectAsStateWithLifecycle()
 
     // « Garder l'écran allumé » : réglage enregistré mais jamais appliqué jusqu'ici.
     val view = LocalView.current

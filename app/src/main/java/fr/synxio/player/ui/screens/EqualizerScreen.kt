@@ -86,11 +86,11 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.synxio.player.data.model.EqCategory
 import fr.synxio.player.data.model.EqCurves
+import fr.synxio.player.ui.components.AudioVisualizer
 import fr.synxio.player.ui.components.EmptyState
 import fr.synxio.player.ui.components.GlassButton
 import fr.synxio.player.ui.components.GlassCard
 import fr.synxio.player.ui.components.LumenChip
-import fr.synxio.player.ui.components.AudioVisualizer
 import fr.synxio.player.ui.components.enterCascade
 import fr.synxio.player.ui.theme.EyebrowTextStyle
 import fr.synxio.player.ui.theme.LocalGlowEffects
@@ -128,7 +128,7 @@ fun EqualizerScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
     val activeCurveId by viewModel.activeCurveId.collectAsStateWithLifecycle()
     val connectedDevice by viewModel.connectedDevice.collectAsStateWithLifecycle()
     val deviceProfiles by viewModel.deviceProfiles.collectAsStateWithLifecycle()
-    val pulse by viewModel.pulse.collectAsStateWithLifecycle()
+    val pulse = viewModel.pulse.collectAsStateWithLifecycle()
     val reduceMotion = LocalReduceMotion.current
 
     LaunchedEffect(Unit) { viewModel.refreshConnectedDevice() }

@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -18,16 +19,19 @@ import fr.synxio.player.ui.theme.LocalReduceMotion
  *
  * Animation ambiante par nature : avec « Réduire les animations », les barres restent
  * couchées.
+ *
+ * Le pouls arrive en [State] et n'est lu que dans la phase de dessin : un tick invalide le
+ * dessin, jamais la composition.
  */
 @Composable
 fun AudioVisualizer(
-    pulse: AudioPulse,
+    pulse: State<AudioPulse>,
     modifier: Modifier = Modifier,
     barColor: Color = MaterialTheme.colorScheme.primary,
 ) {
     val reduceMotion = LocalReduceMotion.current
-    val bands = if (reduceMotion) AudioPulse.SILENT.bands else pulse.bands
     Canvas(modifier = modifier.fillMaxSize()) {
+        val bands = if (reduceMotion) AudioPulse.SILENT.bands else pulse.value.bands
         val barCount = bands.size
         val barWidth = size.width / (barCount * 1.5f)
         val spacing = barWidth * 0.5f
