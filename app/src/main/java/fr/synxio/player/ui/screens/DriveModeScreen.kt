@@ -1,5 +1,24 @@
 package fr.synxio.player.ui.screens
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.Intent
+import android.view.WindowManager
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import fr.synxio.player.core.car.DriveQueue
+import fr.synxio.player.data.model.TextSize
+import fr.synxio.player.data.model.ThemeMode
+import fr.synxio.player.playback.PlayerUiState
+import fr.synxio.player.ui.theme.ThemePreset
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
@@ -94,12 +113,52 @@ private val DriveExitButton = 72.dp
  * que lorsque le morceau change, pas à chaque tic de position. La barre de progression
  * lit [AppViewModel.position] au dessin seulement.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DriveModeScreen(
     viewModel: AppViewModel,
     onExit: () -> Unit,
 ) {
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val view = LocalView.current
+    // Écran allumé et au maximum tant que le mode voiture est affiché ; on rend tout à la sortie.
+    DisposableEffect(view) {
+        val window = view.context.findActivity()?.window
+        val previousBrightness = window?.attributes?.screenBrightness
+        window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        window?.let { w -> w.attributes = w.attributes.apply { screenBrightness = 1f } }
+        onDispose {
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            window?.let { w ->
+                w.attributes = w.attributes.apply {
+                    screenBrightness = previousBrightness ?: WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                }
+            }
+        }
+    }
+    // Thème sombre forcé : la nuit comme au soleil, l'encre lit mieux que le papier au volant.
+    SynxioTheme(
+        themeMode = ThemeMode.DARK,
+        accentSource = settings.accentSource,
+        artworkColors = LocalArtworkColors.current,
+        themePreset = ThemePreset.fromName(settings.themePreset),
+        customAccent = settings.primaryColor,
+        reduceAnimations = settings.reduceAnimations,
+        glowEffects = settings.glowEffects,
+        textScale = TextSize.entries.firstOrNull { it.name == settings.textSize }?.scale ?: 1f,
+    ) {
+        DriveModeContent(viewModel, onExit)
+    }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DriveModeContent(viewModel: AppViewModel, onExit: () -> Unit) {
     val haptics = LocalSynxioHaptics.current
     val playerState = viewModel.playerState.collectAsStateWithLifecycle()
     val position = viewModel.position.collectAsStateWithLifecycle()
@@ -191,7 +250,8 @@ fun DriveModeScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = Space.xxl),
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = Space.xxl, vertical = Space.lg),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
@@ -199,7 +259,7 @@ fun DriveModeScreen(
                 // et un fondu enchaîné à chaque changement de titre.
                 Box(
                     Modifier
-                        .widthIn(max = 320.dp)
+                        .widthIn(max = 280.dp)
                         .fillMaxWidth()
                         .aspectRatio(1f)
                         .graphicsLayer {
@@ -256,7 +316,7 @@ fun DriveModeScreen(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
                             text = s.title,
-                            style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.ExtraBold),
+                            style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.ExtraBold),
                             color = scheme.onSurface,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
@@ -265,7 +325,7 @@ fun DriveModeScreen(
                         Spacer(Modifier.height(Space.sm))
                         Text(
                             text = s.displayArtist,
-                            style = MaterialTheme.typography.titleLarge,
+                            style = MaterialTheme.typography.headlineSmall,
                             // onSurface plutôt qu'onSurfaceVariant : lisible d'un coup d'œil, en plein soleil.
                             color = scheme.onSurface,
                             maxLines = 1,
@@ -287,7 +347,7 @@ fun DriveModeScreen(
                     DriveRoundButton(
                         icon = Icons.Rounded.SkipPrevious,
                         description = "Titre précédent",
-                        onClick = viewModel::previous,
+                        onClick = { haptics.tap(); viewModel.previous() },
                     )
 
                     BrandPlayButton(
@@ -300,11 +360,52 @@ fun DriveModeScreen(
                     DriveRoundButton(
                         icon = Icons.Rounded.SkipNext,
                         description = "Titre suivant",
-                        onClick = viewModel::next,
+                        onClick = { haptics.tap(); viewModel.next() },
                     )
                 }
 
                 Spacer(Modifier.height(Space.xl))
+                val favoriteIds by viewModel.favoriteIds.collectAsStateWithLifecycle()
+                val isFavorite = current.id in favoriteIds
+                val shuffle by remember { derivedStateOf { playerState.value.shuffleEnabled } }
+                val context = LocalContext.current
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    DriveRoundButton(
+                        icon = if (isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                        description = if (isFavorite) "Retirer des favoris" else "Ajouter aux favoris",
+                        onClick = { haptics.tap(); viewModel.toggleFavorite(current) },
+                        size = DriveExitButton,
+                        iconSize = 36.dp,
+                        tint = if (isFavorite) scheme.primary else scheme.onSurface,
+                    )
+                    DriveRoundButton(
+                        icon = Icons.Rounded.Shuffle,
+                        description = if (shuffle) "Désactiver l'aléatoire" else "Activer l'aléatoire",
+                        onClick = { haptics.tap(); viewModel.toggleShuffle() },
+                        size = DriveExitButton,
+                        iconSize = 36.dp,
+                        tint = if (shuffle) scheme.primary else scheme.onSurface,
+                    )
+                    DriveRoundButton(
+                        icon = Icons.Rounded.Mic,
+                        description = "Parler à l'Assistant",
+                        onClick = {
+                            haptics.tap()
+                            // L'Assistant revient par la session média (« joue … sur Synxio »).
+                            runCatching { context.startActivity(Intent(Intent.ACTION_VOICE_COMMAND).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                        },
+                        size = DriveExitButton,
+                        iconSize = 36.dp,
+                    )
+                }
+
+                Spacer(Modifier.height(Space.xl))
+                DriveUpNext(playerState, onSkipTo = { haptics.tap(); viewModel.skipToQueueIndex(it) })
+                Spacer(Modifier.height(Space.lg))
                 Text(
                     "Glisse sur l'écran pour changer de titre",
                     style = MaterialTheme.typography.bodyLarge,
@@ -312,6 +413,39 @@ fun DriveModeScreen(
                     textAlign = TextAlign.Center,
                 )
             }
+        }
+    }
+}
+
+/** Les trois titres suivants, en grand : un toucher y saute. Rien en fin de file ou en répétition du titre. */
+@Composable
+private fun DriveUpNext(playerState: State<PlayerUiState>, onSkipTo: (Int) -> Unit) {
+    val state = playerState.value
+    val next = remember(state.queue, state.queueIndex, state.repeatMode) {
+        DriveQueue.upcoming(state.queue.size, state.queueIndex, state.repeatMode)
+    }
+    if (next.isEmpty()) return
+    Column(Modifier.fillMaxWidth()) {
+        Text("ENSUITE", style = EyebrowTextStyle, color = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.height(Space.sm))
+        for (index in next) {
+            val song = state.queue.getOrNull(index) ?: continue
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(SynxioShape.card)
+                    .glass(SynxioShape.card, strength = 0.8f)
+                    .clickable(role = Role.Button) { onSkipTo(index) }
+                    .padding(horizontal = Space.lg, vertical = Space.md)
+                    .semantics(mergeDescendants = true) { },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(song.title, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(song.displayArtist, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            Spacer(Modifier.height(Space.sm))
         }
     }
 }
@@ -351,6 +485,7 @@ private fun DriveRoundButton(
     modifier: Modifier = Modifier,
     size: androidx.compose.ui.unit.Dp = DriveButton,
     iconSize: androidx.compose.ui.unit.Dp = 52.dp,
+    tint: Color = MaterialTheme.colorScheme.onSurface,
 ) {
     Box(
         modifier
@@ -365,7 +500,7 @@ private fun DriveRoundButton(
         Icon(
             icon,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurface,
+            tint = tint,
             modifier = Modifier.size(iconSize),
         )
     }
