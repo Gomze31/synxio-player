@@ -29,8 +29,8 @@ android {
         minSdk = 28
         // 37 = Android 17, désormais stable. Vérifié sur appareil (MagicOS, API 37).
         targetSdk = 37
-        versionCode = 20261112
-        versionName = "5.7.1"
+        versionCode = 20261120
+        versionName = "5.8.0"
         vectorDrawables.useSupportLibrary = true
 
         // Le dépôt devient public, l'app peut donc chercher ses mises à jour ici directement
