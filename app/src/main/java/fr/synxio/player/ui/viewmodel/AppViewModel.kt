@@ -38,6 +38,7 @@ import fr.synxio.player.playback.SleepTimerState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -52,7 +53,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.runningFold
 import kotlinx.coroutines.flow.stateIn
+import fr.synxio.player.core.prefs.carSettings
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -91,7 +94,24 @@ class AppViewModel @Inject constructor(
     private val chapterRepository: fr.synxio.player.data.repo.ChapterRepository,
     private val bookmarkDao: fr.synxio.player.data.db.BookmarkDao,
     private val diagnostics: fr.synxio.player.core.diag.Diagnostics,
+    carDetector: fr.synxio.player.core.car.CarDetector,
 ) : ViewModel() {
+
+    /** Voiture Bluetooth connectée, pour le mode voiture. */
+    val carConnected: StateFlow<fr.synxio.player.core.car.CarDevice?> = carDetector.connected
+
+    /** « Quitter avec la voiture » : une émission à chaque déconnexion qui le demande. */
+    val carExitRequests: Flow<Unit> = carDetector.connected
+        .runningFold<fr.synxio.player.core.car.CarDevice?, Pair<fr.synxio.player.core.car.CarDevice?, fr.synxio.player.core.car.CarDevice?>>(null to null) { acc, now -> acc.second to now }
+        .filter { (before, now) -> before != null && now == null }
+        .filter {
+            fr.synxio.player.core.car.carActions(
+                fr.synxio.player.core.car.CarEvent.DISCONNECTED,
+                settingsRepository.settings.first().carSettings(),
+                foreground = true,
+            ).contains(fr.synxio.player.core.car.CarAction.ExitDriveMode)
+        }
+        .map { }
 
     /** Positions de reprise des podcasts et chapitres, par identifiant de morceau. */
     val listeningPositions: StateFlow<Map<Long, fr.synxio.player.data.db.PodcastProgressEntity>> =

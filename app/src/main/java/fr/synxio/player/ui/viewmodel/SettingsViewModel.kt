@@ -36,6 +36,8 @@ class SettingsViewModel @Inject constructor(
     private val similarity: SimilarityRepository,
     private val music: MusicRepository,
     private val budsMonitor: fr.synxio.player.buds.BudsMonitor,
+    private val carDetector: fr.synxio.player.core.car.CarDetector,
+    private val playlistRepository: fr.synxio.player.data.repo.PlaylistRepository,
 ) : ViewModel() {
 
     // ========================================================================
@@ -154,7 +156,10 @@ class SettingsViewModel @Inject constructor(
     fun hasBluetoothPermission(): Boolean = budsMonitor.hasBluetoothPermission()
 
     /** Réponse à la demande BLUETOOTH_CONNECT : batterie et codec s'écoutent dès l'accord. */
-    fun onBluetoothPermissionResult() = budsMonitor.onPermissionChanged()
+    fun onBluetoothPermissionResult() {
+        budsMonitor.onPermissionChanged()
+        carDetector.onPermissionChanged()
+    }
 
     fun spatialStatus(): fr.synxio.player.buds.SpatialStatus = fr.synxio.player.buds.SpatialAudio.status(context)
     fun isWearableInstalled(): Boolean = fr.synxio.player.buds.GalaxyWearable.isInstalled(context)
@@ -177,6 +182,10 @@ class SettingsViewModel @Inject constructor(
     fun setCarOpenDriveMode(value: Boolean) = update { settings.setCarOpenDriveMode(value) }
     fun setCarExitWithCar(value: Boolean) = update { settings.setCarExitWithCar(value) }
     fun setCarPauseOnDisconnect(value: Boolean) = update { settings.setCarPauseOnDisconnect(value) }
+
+    val car: StateFlow<fr.synxio.player.core.car.CarDevice?> = carDetector.connected
+    val playlists: StateFlow<List<fr.synxio.player.data.model.Playlist>> = playlistRepository.playlists
+    fun bondedDevices(): List<fr.synxio.player.core.car.CarDevice> = carDetector.bondedDevices()
 
     /** Coche ou décoche une voiture dans « Mes voitures ». */
     fun setCarChosen(address: String, chosen: Boolean) = update {

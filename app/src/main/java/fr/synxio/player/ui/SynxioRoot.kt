@@ -19,6 +19,7 @@ import fr.synxio.player.ui.components.LocalSharedTransitionScope
 import fr.synxio.player.ui.components.SynxioSnackbar
 import fr.synxio.player.ui.theme.SynxioTheme
 import fr.synxio.player.ui.theme.glowShadow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import android.content.Intent
@@ -241,7 +242,7 @@ object Routes {
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
-fun SynxioRoot(viewModel: AppViewModel, openPlayerRequest: Long) {
+fun SynxioRoot(viewModel: AppViewModel, openPlayerRequest: Long, openDriveModeRequest: Long = 0L) {
     val permission = rememberPermissionState(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             Manifest.permission.READ_MEDIA_AUDIO
@@ -291,7 +292,7 @@ fun SynxioRoot(viewModel: AppViewModel, openPlayerRequest: Long) {
             LocalSceneUniforms provides sceneUniforms,
         ) {
         if (permission.status.isGranted) {
-            MainScaffold(viewModel, openPlayerRequest, onSurfaceVisible = { surfaceVisible = it })
+            MainScaffold(viewModel, openPlayerRequest, openDriveModeRequest, onSurfaceVisible = { surfaceVisible = it })
         } else {
             PermissionScreen(
                 // Après « Ne plus demander », la demande système ne s'affiche plus : le
@@ -308,7 +309,7 @@ fun SynxioRoot(viewModel: AppViewModel, openPlayerRequest: Long) {
 }
 
 @Composable
-private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long, onSurfaceVisible: (Boolean) -> Unit) {
+private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long, openDriveModeRequest: Long, onSurfaceVisible: (Boolean) -> Unit) {
     val navController = rememberNavController()
     val showBottomBar = shouldShowBottomBar(navController)
     val snackbarHost = remember { SnackbarHostState() }
@@ -359,6 +360,21 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long, onSur
     // fois pendant que l'app tourne, chaque demande doit l'ouvrir.
     LaunchedEffect(openPlayerRequest) {
         if (openPlayerRequest > 0L) openPlayer()
+    }
+
+    // Notification « Voiture détectée » ou ouverture automatique : un jeton par demande.
+    LaunchedEffect(openDriveModeRequest) {
+        if (openDriveModeRequest > 0L && navController.currentDestination?.route != Routes.DRIVE_MODE) {
+            closePlayer()
+            navController.navigate(Routes.DRIVE_MODE)
+        }
+    }
+
+    // « Quitter avec la voiture » : la voiture débranchée referme l'écran du mode voiture.
+    LaunchedEffect(Unit) {
+        viewModel.carExitRequests.collect { _ ->
+            if (navController.currentDestination?.route == Routes.DRIVE_MODE) navController.popBackStack()
+        }
     }
 
     LaunchedEffect(Unit) {
