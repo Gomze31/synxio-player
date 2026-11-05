@@ -15,6 +15,8 @@ import fr.synxio.player.data.model.EqCurve
 import kotlinx.coroutines.flow.map
 import fr.synxio.player.playback.EqualizerCapabilities
 import fr.synxio.player.playback.EqualizerController
+import fr.synxio.player.playback.pulse.AudioPulse
+import fr.synxio.player.playback.pulse.PulseSource
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -26,6 +28,7 @@ import javax.inject.Inject
 @HiltViewModel
 class EqualizerViewModel @Inject constructor(
     private val controller: EqualizerController,
+    pulseSource: PulseSource,
     private val settingsRepository: SettingsRepository,
     private val deviceProfileDao: DeviceProfileDao,
     @ApplicationContext private val context: Context,
@@ -40,7 +43,7 @@ class EqualizerViewModel @Inject constructor(
     private val _bandLevels = MutableStateFlow(controller.currentBandLevels())
     val bandLevels: StateFlow<List<Short>> = _bandLevels.asStateFlow()
 
-    val fftFlow: StateFlow<ByteArray> = controller.fftFlow
+    val pulse: StateFlow<AudioPulse> = pulseSource.pulse
 
     init {
         refresh()
@@ -59,10 +62,6 @@ class EqualizerViewModel @Inject constructor(
         controller.setEnabled(enabled)
         viewModelScope.launch { settingsRepository.setEqualizerEnabled(enabled) }
         refresh()
-    }
-
-    fun setVisualizerEnabled(enabled: Boolean) {
-        controller.setVisualizerEnabled(enabled)
     }
 
     fun setBand(index: Int, millibel: Short) {

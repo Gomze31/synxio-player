@@ -338,7 +338,7 @@ class AppViewModel @Inject constructor(
     val mostPlayed: StateFlow<List<Song>> = musicRepository.mostPlayed
     val recentlyPlayed: StateFlow<List<Song>> = musicRepository.recentlyPlayed
     val sleepTimerState: StateFlow<SleepTimerState> = sleepTimer.state
-    val fftFlow: StateFlow<ByteArray> = equalizerController.fftFlow
+    val pulse: StateFlow<fr.synxio.player.playback.pulse.AudioPulse> = player.pulse
 
     val settings: StateFlow<Settings> = settingsRepository.settings
         .stateIn(viewModelScope, SharingStarted.Eagerly, Settings())
@@ -750,10 +750,6 @@ class AppViewModel @Inject constructor(
 
     fun setArtistSort(sort: ArtistSort, descending: Boolean) = viewModelScope.launch {
         settingsRepository.setArtistSort(sort, descending)
-    }
-
-    fun setVisualizerEnabled(enabled: Boolean) {
-        equalizerController.setVisualizerEnabled(enabled)
     }
 
     fun toggleKaraoke() = viewModelScope.launch {

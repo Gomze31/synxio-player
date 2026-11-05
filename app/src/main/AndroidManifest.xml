@@ -28,7 +28,6 @@
 
     <!-- Égaliseur / effets audio -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <!--
         Écouteurs Bluetooth (Galaxy Buds) : batterie et codec, diffusés par la pile

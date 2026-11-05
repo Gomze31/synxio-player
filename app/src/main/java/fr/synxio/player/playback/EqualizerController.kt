@@ -5,11 +5,7 @@ import android.media.audiofx.Equalizer
 import android.media.audiofx.LoudnessEnhancer
 import android.media.audiofx.PresetReverb
 import android.media.audiofx.Virtualizer
-import android.media.audiofx.Visualizer
 import android.util.Log
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -41,12 +37,6 @@ class EqualizerController @Inject constructor() {
     private var virtualizer: Virtualizer? = null
     private var presetReverb: PresetReverb? = null
     private var loudness: LoudnessEnhancer? = null
-    private var visualizer: Visualizer? = null
-    private var isVisualizerEnabled = false
-
-    private val _fftFlow = MutableStateFlow(ByteArray(0))
-    val fftFlow: StateFlow<ByteArray> = _fftFlow.asStateFlow()
-
     private var sessionId: Int = 0
 
     var capabilities: EqualizerCapabilities = EqualizerCapabilities()
@@ -96,36 +86,6 @@ class EqualizerController @Inject constructor() {
             reverbSupported = presetReverb != null,
             loudnessSupported = loudness != null,
         )
-
-        visualizer = runCatching {
-            Visualizer(audioSessionId).apply {
-                captureSize = Visualizer.getCaptureSizeRange()[1]
-                setDataCaptureListener(
-                    object : Visualizer.OnDataCaptureListener {
-                        override fun onWaveFormDataCapture(visualizer: Visualizer?, waveform: ByteArray?, samplingRate: Int) {}
-                        override fun onFftDataCapture(visualizer: Visualizer?, fft: ByteArray?, samplingRate: Int) {
-                            if (fft != null) {
-                                // Copie du tableau pour déclencher l'émission dans le StateFlow
-                                _fftFlow.value = fft.clone()
-                            }
-                        }
-                    },
-                    Visualizer.getMaxCaptureRate() / 2, // Moitié du maximum pour économiser la batterie
-                    false,
-                    true
-                )
-                enabled = isVisualizerEnabled
-            }
-        }.onFailure { Log.w(TAG, "Visualiseur indisponible", it) }.getOrNull()
-    }
-
-    fun setVisualizerEnabled(enabled: Boolean) {
-        isVisualizerEnabled = enabled
-        runCatching { visualizer?.enabled = enabled }
-            .onFailure { Log.w(TAG, "Activation du visualiseur impossible", it) }
-        if (!enabled) {
-            _fftFlow.value = ByteArray(0)
-        }
     }
 
     fun setEnabled(enabled: Boolean) {
@@ -210,14 +170,11 @@ class EqualizerController @Inject constructor() {
         runCatching { virtualizer?.release() }
         runCatching { presetReverb?.release() }
         runCatching { loudness?.release() }
-        runCatching { visualizer?.release() }
         equalizer = null
         bassBoost = null
         virtualizer = null
         presetReverb = null
         loudness = null
-        visualizer = null
-        _fftFlow.value = ByteArray(0)
         sessionId = 0
     }
 

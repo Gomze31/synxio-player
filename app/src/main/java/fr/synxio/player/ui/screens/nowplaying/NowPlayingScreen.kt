@@ -107,9 +107,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.google.accompanist.permissions.ExperimentalPermissionsApi
-import com.google.accompanist.permissions.isGranted
-import com.google.accompanist.permissions.rememberPermissionState
 import fr.synxio.player.core.util.asDuration
 import fr.synxio.player.data.model.NowPlayingSkin
 import fr.synxio.player.data.model.RepeatMode
@@ -166,7 +163,6 @@ import kotlin.math.abs
  * l'aurore. Changer de morceau fait pivoter les pochettes comme des disques dans un bac ;
  * la palette de toute l'app glisse vers celle du nouveau morceau.
  */
-@OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun NowPlayingScreen(
     viewModel: AppViewModel,
@@ -218,25 +214,7 @@ fun NowPlayingScreen(
         if (showLyrics) lyricsViewModel.load(song)
     }
 
-    val recordAudioPermission = rememberPermissionState(android.Manifest.permission.RECORD_AUDIO)
-    // Une seule demande par ouverture de l'app : relancer la demande à chaque changement
-    // de statut faisait réapparaître la fenêtre système juste après un refus.
-    var visualizerAsked by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
-
-    LaunchedEffect(settings.showVisualizer, recordAudioPermission.status) {
-        if (settings.showVisualizer) {
-            if (recordAudioPermission.status.isGranted) {
-                viewModel.setVisualizerEnabled(true)
-            } else if (!visualizerAsked) {
-                visualizerAsked = true
-                recordAudioPermission.launchPermissionRequest()
-            }
-        } else {
-            viewModel.setVisualizerEnabled(false)
-        }
-    }
-
-    val fft by viewModel.fftFlow.collectAsStateWithLifecycle()
+    val pulse by viewModel.pulse.collectAsStateWithLifecycle()
 
     // « Garder l'écran allumé » : réglage enregistré mais jamais appliqué jusqu'ici.
     val view = LocalView.current
@@ -293,9 +271,9 @@ fun NowPlayingScreen(
                 }
         )
 
-        if (settings.showVisualizer && recordAudioPermission.status.isGranted) {
+        if (settings.showVisualizer) {
             AudioVisualizer(
-                fft = fft,
+                pulse = pulse,
                 barColor = colors.brandEnd.copy(alpha = 0.42f),
                 modifier = Modifier
                     .fillMaxWidth()

@@ -49,7 +49,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -91,7 +90,7 @@ import fr.synxio.player.ui.components.EmptyState
 import fr.synxio.player.ui.components.GlassButton
 import fr.synxio.player.ui.components.GlassCard
 import fr.synxio.player.ui.components.LumenChip
-import fr.synxio.player.ui.components.VisualizerView
+import fr.synxio.player.ui.components.AudioVisualizer
 import fr.synxio.player.ui.components.enterCascade
 import fr.synxio.player.ui.theme.EyebrowTextStyle
 import fr.synxio.player.ui.theme.LocalGlowEffects
@@ -129,15 +128,10 @@ fun EqualizerScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
     val activeCurveId by viewModel.activeCurveId.collectAsStateWithLifecycle()
     val connectedDevice by viewModel.connectedDevice.collectAsStateWithLifecycle()
     val deviceProfiles by viewModel.deviceProfiles.collectAsStateWithLifecycle()
-    val fftFlow by viewModel.fftFlow.collectAsStateWithLifecycle()
+    val pulse by viewModel.pulse.collectAsStateWithLifecycle()
     val reduceMotion = LocalReduceMotion.current
 
     LaunchedEffect(Unit) { viewModel.refreshConnectedDevice() }
-
-    DisposableEffect(reduceMotion) {
-        viewModel.setVisualizerEnabled(!reduceMotion)
-        onDispose { viewModel.setVisualizerEnabled(false) }
-    }
 
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     Scaffold(
@@ -228,8 +222,9 @@ fun EqualizerScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                         enter = expandVertically(Motion.spatial()) + fadeIn(Motion.enter()),
                         exit = shrinkVertically(Motion.spatial()) + fadeOut(Motion.exit()),
                     ) {
-                        VisualizerView(
-                            fftBytes = fftFlow,
+                        AudioVisualizer(
+                            pulse = pulse,
+                            barColor = MaterialTheme.colorScheme.primary,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = Space.md)
