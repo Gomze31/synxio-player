@@ -139,6 +139,8 @@ data class BrowseNode(
     val selfStyle: ChildStyle? = null,
     /** Progression d'écoute, pour les livres, chapitres et épisodes seulement. */
     val progress: Progress? = null,
+    /** Actions du menu contextuel Android Auto, identifiants de [AutoKeys]. */
+    val actions: List<String> = emptyList(),
     val song: Song? = null,
     val station: RadioStation? = null,
 )
@@ -153,6 +155,8 @@ interface BrowseSource {
     val genres: List<Genre>
     val playlists: List<Playlist>
     val favorites: List<Song>
+    /** Identifiants des favoris : décide quelle action, favori ou retrait, un titre porte. */
+    val favoriteIds: Set<Long> get() = favorites.mapTo(HashSet()) { it.id }
     val recentlyPlayed: List<Song>
     val mostPlayed: List<Song>
     val recentlyAdded: List<Song>
@@ -193,6 +197,27 @@ data class VoiceRequest(
 
 /** File à lancer, titre de départ et position dans ce titre (reprise d'un livre ou d'un podcast). */
 data class BrowseQueue(val songs: List<Song>, val startIndex: Int = 0, val startPositionMs: Long = 0L)
+
+/** Ce qu'une action du menu contextuel demande au service, avec le message à afficher. */
+sealed interface AutoAction {
+    val message: String
+
+    data class SetFavorite(val song: Song, val favorite: Boolean) : AutoAction {
+        override val message: String get() = if (favorite) "Ajouté aux favoris" else "Retiré des favoris"
+    }
+
+    data class PlayNext(val songs: List<Song>) : AutoAction {
+        override val message: String get() = "Sera lu ensuite"
+    }
+
+    data class AddToQueue(val songs: List<Song>) : AutoAction {
+        override val message: String get() = "Ajouté à la file"
+    }
+
+    data class Shuffle(val songs: List<Song>) : AutoAction {
+        override val message: String get() = "Lecture aléatoire"
+    }
+}
 
 /**
  * Arborescence de navigation pour la voiture, sans dépendance à Android.
@@ -292,6 +317,27 @@ class BrowseTree(
     fun radioFor(id: String): RadioStation? =
         id.removePrefix(BrowseIds.RADIO_PREFIX).takeIf { id.startsWith(BrowseIds.RADIO_PREFIX) }
             ?.let { uuid -> source.radios.firstOrNull { it.stationUuid == uuid } }
+
+    /**
+     * Action du menu contextuel sur un élément : null si l'action ne s'y applique pas
+     * (favori sur un album, tout sur une radio) ou si l'élément est inconnu.
+     */
+    fun action(actionId: String, mediaId: String): AutoAction? {
+        val inContext = BrowseIds.parseSongInContext(mediaId)
+        val song = inContext?.let { (parent, songId) -> songsOf(parent)?.firstOrNull { it.id == songId } }
+        if (inContext != null && song == null) return null
+        val parentId = inContext?.first ?: mediaId
+        if (mediaId.startsWith(BrowseIds.RADIO_PREFIX) || parentId.startsWith(BrowseIds.BOOK_PREFIX)) return null
+        val content = songsOf(parentId)?.takeIf { it.isNotEmpty() } ?: return null
+        return when (actionId) {
+            AutoKeys.ACTION_FAVORITE -> song?.let { AutoAction.SetFavorite(it, favorite = true) }
+            AutoKeys.ACTION_UNFAVORITE -> song?.let { AutoAction.SetFavorite(it, favorite = false) }
+            AutoKeys.ACTION_PLAY_NEXT -> AutoAction.PlayNext(song?.let(::listOf) ?: content)
+            AutoKeys.ACTION_ADD_TO_QUEUE -> AutoAction.AddToQueue(song?.let(::listOf) ?: content)
+            AutoKeys.ACTION_SHUFFLE -> AutoAction.Shuffle(shuffle(content))
+            else -> null
+        }
+    }
 
     /** Résultats de la recherche tapée ou dictée sur l'écran de la voiture, par sections. */
     fun search(query: String): List<BrowseNode> {
@@ -448,7 +494,7 @@ class BrowseTree(
 
     private fun genres(): List<BrowseNode> = source.genres.sortedBy { it.name.lowercase() }.map { genre ->
         BrowseNode(BrowseIds.GENRE_PREFIX + genre.name, genre.name, titles(genre.songCount), NodeKind.FOLDER_PLAYABLE,
-            genre.songs.firstOrNull()?.let(NodeArt::OfSong), playableStyle = ChildStyle.LIST)
+            genre.songs.firstOrNull()?.let(NodeArt::OfSong), playableStyle = ChildStyle.LIST, actions = CONTAINER_ACTIONS)
     }
 
     /** Page d'artiste : lecture aléatoire, ses albums s'il en a plusieurs, puis ses titres. */
@@ -593,14 +639,18 @@ class BrowseTree(
         // Dans un album, l'album est déjà à l'écran : l'artiste suffit.
         val subtitle = if (parentId.startsWith(BrowseIds.ALBUM_PREFIX)) song.displayArtist.cleanTitle()
         else "${song.displayArtist.cleanTitle()} · ${song.displayAlbum}"
+        val inBook = parentId.startsWith(BrowseIds.BOOK_PREFIX)
+        val favoriteAction = if (song.id in source.favoriteIds) AutoKeys.ACTION_UNFAVORITE else AutoKeys.ACTION_FAVORITE
         return BrowseNode(BrowseIds.songInContext(parentId, song.id), song.title.cleanTitle(), subtitle,
             NodeKind.SONG, NodeArt.OfSong(song),
-            progress = if (parentId.startsWith(BrowseIds.BOOK_PREFIX)) fileProgress(song) else null, song = song)
+            progress = if (inBook) fileProgress(song) else null,
+            actions = if (inBook) emptyList() else listOf(favoriteAction, AutoKeys.ACTION_PLAY_NEXT, AutoKeys.ACTION_ADD_TO_QUEUE, AutoKeys.ACTION_SHUFFLE),
+            song = song)
     }
 
     private fun albumNode(album: Album) = BrowseNode(
         BrowseIds.ALBUM_PREFIX + album.id, album.title, album.artist, NodeKind.FOLDER_PLAYABLE,
-        NodeArt.OfAlbum(album), playableStyle = ChildStyle.LIST,
+        NodeArt.OfAlbum(album), playableStyle = ChildStyle.LIST, actions = CONTAINER_ACTIONS,
     )
 
     private fun artistNode(artist: Artist) = BrowseNode(
@@ -612,17 +662,17 @@ class BrowseTree(
     private fun playlistNode(playlist: Playlist) = BrowseNode(
         BrowseIds.PLAYLIST_PREFIX + playlist.id, playlist.name, titles(playlist.songCount), NodeKind.FOLDER_PLAYABLE,
         playlist.songs.firstOrNull()?.let(NodeArt::OfSong) ?: NodeArt.Icon(BrowseIcon.PLAYLISTS),
-        playableStyle = ChildStyle.LIST,
+        playableStyle = ChildStyle.LIST, actions = CONTAINER_ACTIONS,
     )
 
     private fun mixNode(mix: DailyMix) = BrowseNode(
         BrowseIds.MIX_PREFIX + mix.key, mix.title, titles(mix.songs.size), NodeKind.FOLDER_PLAYABLE,
-        mosaic(mix.songs), playableStyle = ChildStyle.LIST, selfStyle = ChildStyle.GRID,
+        mosaic(mix.songs), playableStyle = ChildStyle.LIST, selfStyle = ChildStyle.GRID, actions = CONTAINER_ACTIONS,
     )
 
     private fun memoryNode(memory: Memory) = BrowseNode(
         BrowseIds.MEMORY_PREFIX + memory.key, memory.title, titles(memory.songs.size), NodeKind.FOLDER_PLAYABLE,
-        mosaic(memory.songs), playableStyle = ChildStyle.LIST, selfStyle = ChildStyle.GRID,
+        mosaic(memory.songs), playableStyle = ChildStyle.LIST, selfStyle = ChildStyle.GRID, actions = CONTAINER_ACTIONS,
     )
 
     /** Quatre pochettes d'albums distincts, dans l'ordre des titres. */
@@ -709,6 +759,9 @@ class BrowseTree(
         private const val SURPRISE_FAVORITES = 30
         private const val SURPRISE_PER_ARTIST = 2
         private const val SURPRISE_MIN = 3
+
+        /** Actions d'un contenu entier : album, playlist, genre, mix, souvenir. */
+        private val CONTAINER_ACTIONS = listOf(AutoKeys.ACTION_PLAY_NEXT, AutoKeys.ACTION_ADD_TO_QUEUE, AutoKeys.ACTION_SHUFFLE)
 
         private val FAVORITE_WORDS = setOf("favoris", "mes favoris", "mes titres favoris", "mes coups de coeur", "coups de coeur")
         private val SHUFFLE_WORDS = setOf("aleatoire", "lecture aleatoire", "au hasard", "shuffle", "de la musique", "musique")

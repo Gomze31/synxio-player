@@ -228,6 +228,56 @@ class BrowseTreeTest {
     }
 
     @Test
+    fun `actions - par type de noeud`() {
+        val mix = DailyMix("daily", DailyMixKind.DAILY, "Ton mix du jour", "", listOf(s5, s1))
+        val t = tree(fullSource().apply { dailyMixes = listOf(mix) })
+        val album = BrowseIds.ALBUM_PREFIX + cheese.id
+        val songs = t.children(album).filter { it.kind == NodeKind.SONG }
+        assertEquals(listOf("favorite", "play_next", "add_to_queue", "shuffle"), songs[0].actions)
+        // s4 est favori : l'action proposée est le retrait.
+        val favorite = t.children(BrowseIds.CAT_FAVORITES).first { it.song?.id == 4L }
+        assertEquals("unfavorite", favorite.actions[0])
+        assertEquals(listOf("play_next", "add_to_queue", "shuffle"), t.children(BrowseIds.CAT_ALBUMS)[0].actions)
+        assertEquals(listOf("play_next", "add_to_queue", "shuffle"), t.children(BrowseIds.TAB_PLAYLISTS)[0].actions)
+        assertEquals(listOf("play_next", "add_to_queue", "shuffle"), t.children(BrowseIds.TAB_HOME).first { it.id == BrowseIds.MIX_PREFIX + "daily" }.actions)
+        assertTrue(t.children(BrowseIds.TAB_RADIOS)[0].actions.isEmpty())
+        assertTrue(t.children(BrowseIds.TAB_HOME).first { it.id == BrowseIds.SHUFFLE_ALL }.actions.isEmpty())
+    }
+
+    @Test
+    fun `actions - execution sur un titre et sur un album`() {
+        val t = tree()
+        val album = BrowseIds.ALBUM_PREFIX + cheese.id
+        val song = BrowseIds.songInContext(album, 2)
+
+        val favorite = t.action("favorite", song) as AutoAction.SetFavorite
+        assertEquals(2L, favorite.song.id)
+        assertTrue(favorite.favorite)
+        assertEquals("Ajouté aux favoris", favorite.message)
+        val unfavorite = t.action("unfavorite", BrowseIds.songInContext(BrowseIds.CAT_FAVORITES, 4)) as AutoAction.SetFavorite
+        assertFalse(unfavorite.favorite)
+        assertEquals("Retiré des favoris", unfavorite.message)
+
+        assertEquals(listOf(2L), (t.action("play_next", song) as AutoAction.PlayNext).songs.map { it.id })
+        assertEquals(listOf(2L), (t.action("add_to_queue", song) as AutoAction.AddToQueue).songs.map { it.id })
+        // Aléatoire sur un titre : son parent mélangé.
+        assertEquals(listOf(3L, 2L, 1L), (t.action("shuffle", song) as AutoAction.Shuffle).songs.map { it.id })
+
+        assertEquals(listOf(1L, 2L, 3L), (t.action("play_next", album) as AutoAction.PlayNext).songs.map { it.id })
+        assertEquals("Sera lu ensuite", t.action("play_next", album)!!.message)
+        assertEquals(listOf(3L, 2L, 1L), (t.action("shuffle", album) as AutoAction.Shuffle).songs.map { it.id })
+    }
+
+    @Test
+    fun `actions - refusees sur une radio, un album pour le favori, un identifiant inconnu`() {
+        val t = tree()
+        assertNull(t.action("favorite", BrowseIds.ALBUM_PREFIX + cheese.id))
+        assertNull(t.action("play_next", BrowseIds.RADIO_PREFIX + "fip"))
+        assertNull(t.action("play_next", "synxio://nope"))
+        assertNull(t.action("danser", BrowseIds.ALBUM_PREFIX + cheese.id))
+    }
+
+    @Test
     fun `derniere file - reprise a l'index et a la position sauvegardes`() {
         val source = fullSource().apply { lastQueue = BrowseQueue(listOf(s5, s1), 1, 42_000L) }
         val queue = tree(source).queueFor(BrowseIds.LAST_QUEUE)!!

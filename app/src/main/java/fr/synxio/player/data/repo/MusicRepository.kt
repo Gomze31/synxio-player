@@ -572,6 +572,13 @@ class MusicRepository @Inject constructor(
         return !isFavorite
     }
 
+    /** Pose ou retire le favori sans le basculer : l'appelant sait déjà l'état voulu. */
+    suspend fun setFavorite(song: Song, favorite: Boolean) {
+        if (favorite == favoriteDao.isFavorite(song.id)) return
+        if (favorite) favoriteDao.add(FavoriteEntity(song.id, song.path, System.currentTimeMillis()))
+        else favoriteDao.remove(song.id)
+    }
+
     // --- Statistiques d'écoute -------------------------------------------------------
 
     val mostPlayed: StateFlow<List<Song>> =

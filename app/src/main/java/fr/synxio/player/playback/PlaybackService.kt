@@ -1535,6 +1535,8 @@ class PlaybackService : MediaLibraryService() {
                         add(SessionCommand(CMD_SLEEP_TIMER, Bundle.EMPTY))
                         add(SessionCommand(CMD_CANCEL_SLEEP_TIMER, Bundle.EMPTY))
                         add(SessionCommand(CMD_ALARM_MODE, Bundle.EMPTY))
+                        // Menu contextuel Android Auto : l'hôte envoie l'identifiant de l'action en commande.
+                        for (action in AutoKeys.ALL_ACTIONS) add(SessionCommand(action, Bundle.EMPTY))
                     }
                 }
                 .build()
@@ -1584,6 +1586,10 @@ class PlaybackService : MediaLibraryService() {
 
                 CMD_ALARM_MODE -> enterAlarmMode(args.getInt(ARG_RAMP_SECONDS, 0))
 
+                AutoKeys.ACTION_FAVORITE, AutoKeys.ACTION_UNFAVORITE, AutoKeys.ACTION_PLAY_NEXT,
+                AutoKeys.ACTION_ADD_TO_QUEUE, AutoKeys.ACTION_SHUFFLE ->
+                    return Futures.immediateFuture(browserAction(customCommand, args))
+
                 else -> return Futures.immediateFuture(
                     SessionResult(androidx.media3.session.SessionError.ERROR_NOT_SUPPORTED)
                 )
@@ -1598,6 +1604,7 @@ class PlaybackService : MediaLibraryService() {
         ): ListenableFuture<LibraryResult<MediaItem>> {
             // Styles par défaut de l'hôte ; la recherche est annoncée par Media3 lui-même,
             // puisque la commande de recherche est accordée.
+            params?.extras?.getInt(AutoKeys.ROOT_HINT_ACTION_LIMIT, 0)?.takeIf { it > 0 }?.let { libraryTree.actionLimit = it }
             val rootParams = LibraryParams.Builder()
                 .setOffline(params?.isOffline ?: false)
                 .setRecent(params?.isRecent ?: false)
@@ -1926,6 +1933,43 @@ class PlaybackService : MediaLibraryService() {
             .setCustomIconResId(if (isFavorite) R.drawable.ic_favorite else R.drawable.ic_favorite_border)
             .setSessionCommand(SessionCommand(CMD_TOGGLE_FAVORITE, Bundle.EMPTY))
             .build()
+
+    /** Action du menu contextuel de la voiture sur un élément parcouru. */
+    private fun browserAction(command: SessionCommand, args: Bundle): SessionResult {
+        val mediaId = args.getString(AutoKeys.ACTION_MEDIA_ITEM_ID)
+            ?: command.customExtras.getString(AutoKeys.ACTION_MEDIA_ITEM_ID)
+            ?: return SessionResult(androidx.media3.session.SessionError.ERROR_BAD_VALUE)
+        val action = libraryTree.tree.action(command.customAction, mediaId)
+            ?: return SessionResult(androidx.media3.session.SessionError.ERROR_BAD_VALUE)
+        val result = Bundle().apply { putString(AutoKeys.RESULT_MESSAGE, action.message) }
+        when (action) {
+            is AutoAction.SetFavorite -> {
+                serviceScope.launch { musicRepository.setFavorite(action.song, action.favorite) }
+                result.putString(AutoKeys.RESULT_REFRESH_ITEM, mediaId)
+            }
+            is AutoAction.PlayNext -> insertIntoQueue(action.songs, next = true)
+            is AutoAction.AddToQueue -> insertIntoQueue(action.songs, next = false)
+            is AutoAction.Shuffle -> {
+                activePlayer.setMediaItems(forActivePlayer(action.songs.toMediaItems()), 0, 0L)
+                activePlayer.prepare()
+                activePlayer.play()
+            }
+        }
+        return SessionResult(SessionResult.RESULT_SUCCESS, result)
+    }
+
+    /** Insère après le titre courant ou en fin de file ; une file vide démarre la lecture. */
+    private fun insertIntoQueue(songs: List<fr.synxio.player.data.model.Song>, next: Boolean) {
+        val items = forActivePlayer(songs.toMediaItems())
+        if (activePlayer.mediaItemCount == 0) {
+            activePlayer.setMediaItems(items, 0, 0L)
+            activePlayer.prepare()
+            activePlayer.play()
+            return
+        }
+        if (next) activePlayer.addMediaItems(activePlayer.currentMediaItemIndex + 1, items)
+        else activePlayer.addMediaItems(items)
+    }
 
     private fun sessionActivityIntent(): PendingIntent = PendingIntent.getActivity(
         this,

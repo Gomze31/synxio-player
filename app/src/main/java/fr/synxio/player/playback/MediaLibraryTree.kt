@@ -89,6 +89,7 @@ class MediaLibraryTree @Inject constructor(
         override val genres: List<Genre> get() = music.library.value.genres
         override val playlists: List<Playlist> get() = this@MediaLibraryTree.playlists.playlists.value
         override val favorites: List<Song> get() = music.favoriteSongs.value
+        override val favoriteIds: Set<Long> get() = music.favoriteIds.value
         override val recentlyPlayed: List<Song> get() = music.recentlyPlayed.value
         override val mostPlayed: List<Song> get() = music.mostPlayed.value
         override val recentlyAdded: List<Song> get() = music.recentlyAdded.value
@@ -135,10 +136,38 @@ class MediaLibraryTree @Inject constructor(
             )
             .build()
 
-    /** Styles par défaut de l'hôte, transmis avec la racine. */
+    /**
+     * Nombre d'actions par élément que l'hôte sait afficher, lu dans ses indices de racine.
+     * Zéro tant qu'aucun hôte ne l'a annoncé : rien n'est déclaré.
+     */
+    @Volatile var actionLimit: Int = 0
+
+    private class ActionSpec(val id: String, val label: String, val icon: Int)
+
+    private val actionSpecs = listOf(
+        ActionSpec(AutoKeys.ACTION_FAVORITE, "Favori", R.drawable.ic_auto_favorite_border),
+        ActionSpec(AutoKeys.ACTION_UNFAVORITE, "Retirer des favoris", R.drawable.ic_auto_favorite),
+        ActionSpec(AutoKeys.ACTION_PLAY_NEXT, "Lire ensuite", R.drawable.ic_auto_play_next),
+        ActionSpec(AutoKeys.ACTION_ADD_TO_QUEUE, "Ajouter à la file", R.drawable.ic_auto_queue),
+        ActionSpec(AutoKeys.ACTION_SHUFFLE, "Aléatoire", R.drawable.ic_auto_shuffle),
+    )
+
+    /** Styles par défaut de l'hôte et actions du menu contextuel, transmis avec la racine. */
     fun rootExtras(): Bundle = Bundle().apply {
         putInt(MediaConstants.EXTRAS_KEY_CONTENT_STYLE_BROWSABLE, MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM)
         putInt(MediaConstants.EXTRAS_KEY_CONTENT_STYLE_PLAYABLE, MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM)
+        if (actionLimit > 0) {
+            val list = ArrayList<Bundle>(actionSpecs.size)
+            for (spec in actionSpecs) {
+                list += Bundle().apply {
+                    putString(AutoKeys.ACTION_ID, spec.id)
+                    putString(AutoKeys.ACTION_LABEL, spec.label)
+                    putString(AutoKeys.ACTION_ICON_URI, resourceUri(spec.icon).toString())
+                    putBundle(AutoKeys.ACTION_EXTRAS, Bundle.EMPTY)
+                }
+            }
+            putParcelableArrayList(AutoKeys.ROOT_EXTRAS_ACTION_LIST, list)
+        }
     }
 
     fun children(parentId: String, page: Int, pageSize: Int): List<MediaItem> {
@@ -227,6 +256,9 @@ class MediaLibraryTree @Inject constructor(
             )
             putDouble(MediaConstants.EXTRAS_KEY_COMPLETION_PERCENTAGE, it.fraction.toDouble())
         }
+        if (actionLimit > 0 && actions.isNotEmpty()) {
+            putStringArrayList(AutoKeys.ITEM_ACTION_ID_LIST, ArrayList(actions.take(actionLimit)))
+        }
     }
 
     private fun BrowseNode.mediaType(): Int = when (kind) {
@@ -294,11 +326,13 @@ class MediaLibraryTree @Inject constructor(
             BrowseIcon.PODCASTS -> R.drawable.ic_auto_podcast
             BrowseIcon.RESUME -> R.drawable.ic_auto_resume
         }
-        return Uri.Builder()
-            .scheme(ContentResolver.SCHEME_ANDROID_RESOURCE)
-            .authority(context.packageName)
-            .appendPath(context.resources.getResourceTypeName(res))
-            .appendPath(context.resources.getResourceEntryName(res))
-            .build()
+        return resourceUri(res)
     }
+
+    private fun resourceUri(res: Int): Uri = Uri.Builder()
+        .scheme(ContentResolver.SCHEME_ANDROID_RESOURCE)
+        .authority(context.packageName)
+        .appendPath(context.resources.getResourceTypeName(res))
+        .appendPath(context.resources.getResourceEntryName(res))
+        .build()
 }
