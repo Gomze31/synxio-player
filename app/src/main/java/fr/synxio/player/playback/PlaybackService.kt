@@ -67,6 +67,7 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.first
+import fr.synxio.player.core.prefs.carSettings
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
@@ -104,6 +105,8 @@ class PlaybackService : MediaLibraryService() {
     @Inject lateinit var historyRepository: fr.synxio.player.data.repo.HistoryRepository
     @Inject lateinit var budsMonitor: fr.synxio.player.buds.BudsMonitor
     @Inject lateinit var dailyMixes: fr.synxio.player.data.repo.DailyMixRepository
+    @Inject lateinit var carDetector: fr.synxio.player.core.car.CarDetector
+    @Inject lateinit var playlists: fr.synxio.player.data.repo.PlaylistRepository
     @Inject lateinit var showSpeedDao: fr.synxio.player.data.db.ShowSpeedDao
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -303,6 +306,7 @@ class PlaybackService : MediaLibraryService() {
         observeBrowseChanges()
         refreshSessionExtras()
         observeBuds()
+        observeCar()
         observeShowSpeed()
 
         sleepTimer.setStillnessCallbacks(
@@ -1365,6 +1369,127 @@ class PlaybackService : MediaLibraryService() {
      * Galaxy Buds : suivis pour les gestes, et pour prévenir quand leur batterie passe
      * sous 15 puis 5 %. Chaque nouvelle paire repart de sa première mesure.
      */
+    /**
+     * Voiture Bluetooth : à la connexion, ce que les réglages demandent (lecture,
+     * notification, mode voiture si l'app est visible) ; à la déconnexion, pause et
+     * retrait de la notification. La sortie du mode voiture se décide côté écran.
+     */
+    private fun observeCar() {
+        var previous: fr.synxio.player.core.car.CarDevice? = null
+        carDetector.connected
+            .onEach { car ->
+                val before = previous
+                previous = car
+                val event = when {
+                    before == null && car != null -> fr.synxio.player.core.car.CarEvent.CONNECTED
+                    before != null && car == null -> fr.synxio.player.core.car.CarEvent.DISCONNECTED
+                    else -> return@onEach
+                }
+                val settings = settingsRepository.settings.first().carSettings()
+                val foreground = fr.synxio.player.core.util.AppVisibility.foreground.value
+                for (action in fr.synxio.player.core.car.carActions(event, settings, foreground)) {
+                    when (action) {
+                        is fr.synxio.player.core.car.CarAction.StartPlayback -> startCarPlayback(action.source, action.playlistId)
+                        fr.synxio.player.core.car.CarAction.Notify -> notifyCar(car?.name ?: before?.name ?: "Voiture")
+                        fr.synxio.player.core.car.CarAction.OpenDriveMode -> runCatching {
+                            startActivity(driveModeIntent().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        }
+                        fr.synxio.player.core.car.CarAction.DismissNotification ->
+                            getSystemService(android.app.NotificationManager::class.java)?.cancel(CAR_NOTIFICATION_ID)
+                        fr.synxio.player.core.car.CarAction.Pause -> if (activePlayer.isPlaying) activePlayer.pause()
+                        fr.synxio.player.core.car.CarAction.ExitDriveMode -> Unit
+                    }
+                }
+            }
+            .launchIn(serviceScope)
+    }
+
+    private fun driveModeIntent(): Intent = Intent(this, MainActivity::class.java).apply {
+        action = MainActivity.ACTION_DRIVE_MODE
+        flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+    }
+
+    private fun notifyCar(name: String) {
+        val manager = getSystemService(android.app.NotificationManager::class.java) ?: return
+        if (!androidx.core.app.NotificationManagerCompat.from(this).areNotificationsEnabled()) return
+        if (manager.getNotificationChannel(CAR_CHANNEL_ID) == null) {
+            manager.createNotificationChannel(
+                android.app.NotificationChannel(CAR_CHANNEL_ID, "Voiture", android.app.NotificationManager.IMPORTANCE_DEFAULT)
+                    .apply { description = "Voiture détectée en Bluetooth" }
+            )
+        }
+        val openDrive = PendingIntent.getActivity(
+            this, 2, driveModeIntent(), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val play = PendingIntent.getService(
+            this, 3, Intent(this, PlaybackService::class.java).setAction(ACTION_CAR_PLAY),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val notification = androidx.core.app.NotificationCompat.Builder(this, CAR_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_stat_music)
+            .setContentTitle("Voiture détectée")
+            .setContentText(name)
+            .setContentIntent(openDrive)
+            .addAction(0, "Mode voiture", openDrive)
+            .addAction(0, "Lancer la lecture", play)
+            .setAutoCancel(true)
+            .build()
+        runCatching { manager.notify(CAR_NOTIFICATION_ID, notification) }
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_CAR_PLAY) {
+            serviceScope.launch {
+                val s = settingsRepository.settings.first()
+                startCarPlayback(s.carPlaySource, s.carPlaylistId)
+            }
+            getSystemService(android.app.NotificationManager::class.java)?.cancel(CAR_NOTIFICATION_ID)
+        }
+        return super.onStartCommand(intent, flags, startId)
+    }
+
+    /**
+     * « Lancer la lecture » à la connexion de la voiture. Rien si quelque chose joue déjà ;
+     * une source vide retombe sur l'aléatoire plutôt que sur le silence.
+     */
+    private suspend fun startCarPlayback(source: fr.synxio.player.core.car.CarPlaySource, playlistId: Long) {
+        if (activePlayer.isPlaying) return
+        val library = withTimeoutOrNull(CONNECT_SOURCE_WAIT_MS) { musicRepository.library.first { it.songs.isNotEmpty() } }?.songs.orEmpty()
+        if (library.isEmpty()) return
+
+        if (source == fr.synxio.player.core.car.CarPlaySource.RESUME) {
+            if (activePlayer.mediaItemCount > 0) {
+                if (activePlayer.playbackState == Player.STATE_IDLE) activePlayer.prepare()
+                activePlayer.play()
+                return
+            }
+            val saved = runCatching { loadSavedQueue() }.getOrNull()
+            if (saved != null) {
+                val (queue, state) = saved
+                queueLoaded = true
+                activePlayer.setMediaItems(forActivePlayer(queue.items), queue.index, queue.positionMs)
+                activePlayer.shuffleModeEnabled = state?.shuffle ?: false
+                activePlayer.prepare()
+                activePlayer.play()
+                return
+            }
+        }
+        val songs = when (source) {
+            fr.synxio.player.core.car.CarPlaySource.RESUME -> emptyList()
+            fr.synxio.player.core.car.CarPlaySource.DAILY_MIX -> withTimeoutOrNull(CONNECT_SOURCE_WAIT_MS) {
+                dailyMixes.mixes.first { it.isNotEmpty() }
+            }?.firstOrNull { it.kind == fr.synxio.player.data.model.DailyMixKind.DAILY }?.songs.orEmpty()
+            fr.synxio.player.core.car.CarPlaySource.FAVORITES -> library.filter { it.id in musicRepository.favoriteIds.value }.shuffled()
+            fr.synxio.player.core.car.CarPlaySource.PLAYLIST ->
+                if (playlistId < 0) emptyList() else playlists.observePlaylist(playlistId).first()?.songs.orEmpty()
+        }.ifEmpty { musicRepository.withoutDisliked(library).shuffled().take(CONNECT_SHUFFLE_SIZE) }
+        if (activePlayer.isPlaying) return
+        queueLoaded = true
+        activePlayer.setMediaItems(forActivePlayer(songs.toMediaItems()), 0, 0L)
+        activePlayer.prepare()
+        activePlayer.play()
+    }
+
     private fun observeBuds() {
         var lastName: String? = null
         var lastBattery: Int? = null
@@ -2040,6 +2165,9 @@ class PlaybackService : MediaLibraryService() {
         private const val BUDS_NOTIFICATION_ID = 4_201
         private const val CONNECT_SOURCE_WAIT_MS = 3_000L
         private const val CONNECT_SHUFFLE_SIZE = 100
+        const val ACTION_CAR_PLAY = "fr.synxio.player.CAR_PLAY"
+        private const val CAR_CHANNEL_ID = "car"
+        private const val CAR_NOTIFICATION_ID = 4_301
         private val ALARM_ATTRIBUTES = AudioAttributes.Builder()
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
             .setUsage(C.USAGE_ALARM)
