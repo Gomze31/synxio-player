@@ -354,6 +354,8 @@ class BrowseTreeTest {
         val playlists = tree().children(BrowseIds.TAB_PLAYLISTS)
         assertEquals(listOf(BrowseIds.PLAYLIST_PREFIX + 7), playlists.map { it.id })
         assertEquals("2 titres", playlists[0].subtitle)
+        // Même album (fabrique de test) : une seule pochette dans la mosaïque.
+        assertEquals(listOf(5L), (playlists[0].art as NodeArt.Mosaic).songs.map { it.id })
     }
 
     @Test

@@ -661,8 +661,7 @@ class BrowseTree(
 
     private fun playlistNode(playlist: Playlist) = BrowseNode(
         BrowseIds.PLAYLIST_PREFIX + playlist.id, playlist.name, titles(playlist.songCount), NodeKind.FOLDER_PLAYABLE,
-        playlist.songs.firstOrNull()?.let(NodeArt::OfSong) ?: NodeArt.Icon(BrowseIcon.PLAYLISTS),
-        playableStyle = ChildStyle.LIST, actions = CONTAINER_ACTIONS,
+        mosaic(playlist.songs), playableStyle = ChildStyle.LIST, actions = CONTAINER_ACTIONS,
     )
 
     private fun mixNode(mix: DailyMix) = BrowseNode(

@@ -52,6 +52,12 @@ object ArtworkUris {
         return if (id.isNotEmpty() && id.all { it.isDigit() }) listOf(SEGMENT_ALBUM, id) else null
     }
 
+    private val MOSAIC_IDS = Regex("[0-9]+(,[0-9]+){0,3}")
+
+    /** Identifiants de titres d'une mosaïque, un à quatre ; null si la forme est mauvaise. */
+    fun mosaicIds(value: String): List<Long>? =
+        if (MOSAIC_IDS.matches(value)) value.split(',').map { it.toLong() } else null
+
     /** Taille demandée, bornée ; null si absente ou illisible. */
     fun sizeOf(raw: String?): Int? = raw?.toIntOrNull()?.takeIf { it > 0 }?.coerceIn(MIN_SIZE, MAX_SIZE)
 

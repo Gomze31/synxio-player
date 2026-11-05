@@ -17,6 +17,7 @@ import dagger.hilt.components.SingletonComponent
 import fr.synxio.player.BuildConfig
 import fr.synxio.player.data.repo.RadioRepository
 import fr.synxio.player.playback.art.ArtBitmaps
+import fr.synxio.player.playback.art.MosaicRenderer
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -41,6 +42,7 @@ class ArtworkProvider : ContentProvider() {
     interface ProviderEntryPoint {
         fun radioRepository(): RadioRepository
         fun okHttpClient(): OkHttpClient
+        fun mosaicRenderer(): MosaicRenderer
     }
 
     private val entryPoint: ProviderEntryPoint by lazy {
@@ -55,7 +57,7 @@ class ArtworkProvider : ContentProvider() {
         return when (segments.firstOrNull()) {
             ArtworkUris.SEGMENT_ART, ArtworkUris.SEGMENT_FOLDER -> ArtworkUris.mimeTypeFor(segments.lastOrNull().orEmpty())
             ArtworkUris.SEGMENT_RADIO -> "image/*"
-            ArtworkUris.SEGMENT_ALBUM -> "image/jpeg"
+            ArtworkUris.SEGMENT_ALBUM, ArtworkUris.SEGMENT_MOSAIC -> "image/jpeg"
             else -> null
         }
     }
@@ -87,9 +89,13 @@ class ArtworkProvider : ContentProvider() {
                 // Le chemin réel doit rester une image du stockage partagé, même via un lien.
                 ?.takeIf { ArtworkUris.isServableFolderImage(it.canonicalPath) }
             ArtworkUris.SEGMENT_RADIO -> radioLogo(context.cacheDir, value)
-            ArtworkUris.SEGMENT_ALBUM -> null
+            ArtworkUris.SEGMENT_ALBUM, ArtworkUris.SEGMENT_MOSAIC -> null
             else -> return null
         }?.takeIf { it.isFile && it.canRead() }
+        if (kind == ArtworkUris.SEGMENT_MOSAIC) {
+            val ids = ArtworkUris.mosaicIds(value) ?: return null
+            return entryPoint.mosaicRenderer().render(ids, size ?: DEFAULT_MOSAIC_SIDE)
+        }
         if (size == null) return original
         return when (kind) {
             ArtworkUris.SEGMENT_ALBUM -> value.toLongOrNull()
@@ -165,6 +171,7 @@ class ArtworkProvider : ContentProvider() {
         private const val MAX_LOGO_BYTES = 1_000_000L
         private const val SIZED_CACHE_DIR = "auto-art"
         private const val SIZED_QUALITY = 88
+        private const val DEFAULT_MOSAIC_SIDE = 512
         private val ALBUM_ART_BASE: Uri = Uri.parse("content://media/external/audio/albumart")
 
         fun albumArtUri(albumId: Long): Uri = ContentUris.withAppendedId(ALBUM_ART_BASE, albumId)
@@ -191,6 +198,12 @@ class ArtworkProvider : ContentProvider() {
         }
 
         fun radioUri(stationUuid: String): Uri = build(listOf(ArtworkUris.SEGMENT_RADIO, stationUuid))
+
+        /** Mosaïque des pochettes de ces titres (un à quatre), à [size] pixels de côté. */
+        fun mosaicUri(songIds: List<Long>, size: Int?): Uri {
+            val base = build(listOf(ArtworkUris.SEGMENT_MOSAIC, songIds.take(4).joinToString(",")))
+            return if (size == null) base else base.buildUpon().appendQueryParameter(ArtworkUris.PARAM_SIZE, size.toString()).build()
+        }
 
         private fun build(segments: List<String>): Uri = Uri.Builder()
             .scheme(ContentResolver.SCHEME_CONTENT)

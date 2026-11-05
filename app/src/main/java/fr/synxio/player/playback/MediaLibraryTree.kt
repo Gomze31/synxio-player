@@ -309,7 +309,9 @@ class MediaLibraryTree @Inject constructor(
         is NodeArt.OfRadio ->
             if (art.station.favicon.isBlank()) iconUri(BrowseIcon.RADIOS)
             else ArtworkProvider.radioUri(art.station.stationUuid)
-        is NodeArt.Mosaic -> art.songs.firstOrNull()?.let { ArtworkProvider.sizedUri(it.artworkUri, size) } ?: iconUri(BrowseIcon.PLAYLISTS)
+        is NodeArt.Mosaic ->
+            if (art.songs.isEmpty()) iconUri(BrowseIcon.PLAYLISTS)
+            else ArtworkProvider.mosaicUri(art.songs.map { it.id }, size)
     }
 
     /** Les hôtes lisent les vecteurs en `android.resource://`, teintés à leurs couleurs. */

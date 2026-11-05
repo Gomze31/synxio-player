@@ -72,4 +72,14 @@ class ArtworkUrisTest {
         assertNull(ArtworkUris.sizeOf("grand"))
         assertNull(ArtworkUris.sizeOf("0"))
     }
+
+    @Test
+    fun `mosaique - un a quatre identifiants de titres`() {
+        assertEquals(listOf(1L, 22L, 333L, 4L), ArtworkUris.mosaicIds("1,22,333,4"))
+        assertEquals(listOf(7L), ArtworkUris.mosaicIds("7"))
+        assertNull(ArtworkUris.mosaicIds("1,2,3,4,5"))
+        assertNull(ArtworkUris.mosaicIds(""))
+        assertNull(ArtworkUris.mosaicIds("1,,2"))
+        assertNull(ArtworkUris.mosaicIds("a,b"))
+    }
 }
