@@ -170,6 +170,7 @@ fun MiniPlayer(
                                     // la racine la confirme.
                                     if (!reduceMotion) latestExpandRelease(velocity.coerceAtLeast(0f))
                                     if (totalY > size.height * DISMISS_FRACTION || velocity >= PlayerSheetState.FLING_VELOCITY) {
+                                        latestHaptics.tick()
                                         latestDismiss()
                                     }
                                 }
@@ -213,6 +214,7 @@ fun MiniPlayer(
             .semantics {
                 customActions = buildList {
                     add(CustomAccessibilityAction("Titre suivant") { latestNext(); true })
+                    add(CustomAccessibilityAction("Arrêter la lecture") { latestDismiss(); true })
                     latestPrevious?.let { prev -> add(CustomAccessibilityAction("Titre précédent") { prev(); true }) }
                 }
             },

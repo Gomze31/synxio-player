@@ -287,6 +287,7 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
     val showBottomBar = shouldShowBottomBar(navController)
     val snackbarHost = remember { SnackbarHostState() }
     val playerState by viewModel.playerState.collectAsStateWithLifecycle()
+    val miniHidden by viewModel.miniPlayerHidden.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val metadataProgress by viewModel.metadataProgress.collectAsStateWithLifecycle()
     val reduceMotion = LocalReduceMotion.current
@@ -446,7 +447,7 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
                         fr.synxio.player.ui.components.MetadataProgressPill(metadataProgress)
                     }
                     AnimatedVisibility(
-                        visible = playerState.currentSong != null && !fullyExpanded,
+                        visible = playerState.currentSong != null && !fullyExpanded && !miniHidden,
                         enter = slideInVertically(Motion.enter()) { it / 2 } + fadeIn(Motion.enter()),
                         exit = slideOutVertically(Motion.exit()) { it / 2 } + fadeOut(Motion.exit()),
                     ) {
@@ -471,6 +472,7 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
                             onPlayPause = viewModel::togglePlayPause,
                             onNext = viewModel::next,
                             onPrevious = viewModel::previous,
+                            onDismiss = viewModel::dismissMiniPlayer,
                         )
                         }
                     }

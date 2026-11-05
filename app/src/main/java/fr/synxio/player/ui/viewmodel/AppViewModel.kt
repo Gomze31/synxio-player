@@ -47,6 +47,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -282,6 +283,29 @@ class AppViewModel @Inject constructor(
 
     /** Position de lecture, à collecter seulement là où elle s'affiche. */
     val position: StateFlow<PlayerPosition> = player.position
+
+    private val _miniPlayerHidden = MutableStateFlow(false)
+    /** Mini-lecteur balayé vers le bas : masqué jusqu'à la prochaine reprise de la lecture. */
+    val miniPlayerHidden: StateFlow<Boolean> = _miniPlayerHidden.asStateFlow()
+
+    init {
+        // Toute reprise (bouton, notification, Auto, écouteurs) fait réapparaître la barre.
+        viewModelScope.launch {
+            player.state.map { it.isPlaying }.distinctUntilChanged().filter { it }.collect { _miniPlayerHidden.value = false }
+        }
+    }
+
+    /** Balayage vers le bas du mini-lecteur : pause, masquage, et une chance de se raviser. */
+    fun dismissMiniPlayer() {
+        player.pause()
+        _miniPlayerHidden.value = true
+        viewModelScope.launch {
+            _actionMessages.emit(ActionMessage("Lecture arrêtée", "Annuler") {
+                _miniPlayerHidden.value = false
+                player.resume()
+            })
+        }
+    }
 
     /**
      * Identifiant du titre en cours, seul.
