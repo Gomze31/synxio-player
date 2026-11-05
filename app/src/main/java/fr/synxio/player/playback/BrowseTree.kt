@@ -66,6 +66,8 @@ object BrowseIds {
     /** La file sauvegardée au dernier arrêt, reprise là où elle en était. */
     const val LAST_QUEUE = "synxio://last-queue"
     const val SEARCH_PREFIX = "synxio://search/"
+    /** « Tout lire » d'une recherche par genre ou période : `synxio://search-all/` suivi de la requête. */
+    const val SEARCH_ALL_PREFIX = "synxio://search-all/"
     const val INFO_PREFIX = "synxio://info/"
 
     /** « Lecture aléatoire » d'un parent : `synxio://shuffle/` suivi de l'identifiant du parent. */
@@ -348,19 +350,43 @@ class BrowseTree(
         }
     }
 
-    /** Résultats de la recherche tapée ou dictée sur l'écran de la voiture, par sections. */
+    /**
+     * Résultats de la recherche tapée ou dictée sur l'écran de la voiture, par sections.
+     *
+     * En tête : « Tout lire » si la demande est un genre ou une période, puis l'artiste
+     * ou la playlist qui porte exactement ce nom. Ensuite trois titres, les artistes,
+     * albums, playlists, mixs, livres et podcasts, radios, puis le reste des titres.
+     */
     fun search(query: String): List<BrowseNode> {
         val q = query.trim()
         if (q.isEmpty() || !source.hasPermission) return emptyList()
         val results = source.search(q, SEARCH_LIMIT)
         val parent = BrowseIds.SEARCH_PREFIX + q
-        val artists = results.artists.take(5).map { artistNode(it).copy(groupTitle = "Artistes") }
+
+        val artists = results.artists.take(5).map { artistNode(it).copy(groupTitle = "Artistes") to fuzzyScore(it.name, q) }
+        val playlists = matchingPlaylists(q).take(5).map { playlistNode(it).copy(groupTitle = "Playlists") to fuzzyScore(it.name, q) }
+        val exact = (artists + playlists).filter { it.second >= EXACT_SCORE }.map { it.first }
         val albums = results.albums.take(8).map { albumNode(it).copy(groupTitle = "Albums") }
-        val playlists = matchingPlaylists(q).take(5).map { playlistNode(it).copy(groupTitle = "Playlists") }
+        val mixes = source.dailyMixes.filter { it.songs.isNotEmpty() && fuzzyScore(it.title, q) >= MATCH_SCORE }.take(3)
+            .map { mixNode(it).copy(groupTitle = "Mixs") }
+        val listening = books().filter { fuzzyScore(it.title, q) >= MATCH_SCORE }.take(3).map { it.copy(groupTitle = "Livres et podcasts") } +
+            source.podcasts.filter { fuzzyScore(it.title.cleanTitle(), q) >= MATCH_SCORE }.take(3)
+                .map { episodeNode(BrowseIds.CAT_PODCASTS, it).copy(groupTitle = "Livres et podcasts") }
         val radios = source.radios.filter { fuzzyScore(it.name, q) >= MATCH_SCORE }.take(5)
             .map { radioNode(it).copy(groupTitle = "Radios") }
         val songs = results.songs.take(SEARCH_LIMIT).map { songNode(parent, it).copy(groupTitle = "Titres") }
-        return songs.take(3) + artists + albums + playlists + radios + songs.drop(3)
+
+        val intent = VoiceInterpreter.interpret(q.normalizeForSearch(), VoiceRequest(q), currentYear())
+        val playAll = if (intent.years != null || bestGenre(q) != null) {
+            songsOf(BrowseIds.SEARCH_ALL_PREFIX + q)?.let { all ->
+                listOf(BrowseNode(BrowseIds.SEARCH_ALL_PREFIX + q, "Tout lire", titles(all.size), NodeKind.FOLDER_PLAYABLE,
+                    NodeArt.Icon(BrowseIcon.SHUFFLE), playableStyle = ChildStyle.LIST, actions = CONTAINER_ACTIONS))
+            }.orEmpty()
+        } else emptyList()
+
+        val ordered = playAll + exact + songs.take(3) + artists.map { it.first } + albums + playlists.map { it.first } +
+            mixes + listening + radios + songs.drop(3)
+        return ordered.distinctBy { it.id }.take(SEARCH_LIMIT)
     }
 
     /**
@@ -580,6 +606,8 @@ class BrowseTree(
         parentId.startsWith(BrowseIds.PLAYLIST_PREFIX) ->
             parentId.removePrefix(BrowseIds.PLAYLIST_PREFIX).toLongOrNull()
                 ?.let { id -> source.playlists.firstOrNull { it.id == id } }?.songs
+        parentId.startsWith(BrowseIds.SEARCH_ALL_PREFIX) ->
+            resolveVoice(VoiceRequest(parentId.removePrefix(BrowseIds.SEARCH_ALL_PREFIX)))?.songs?.takeIf { it.isNotEmpty() }
         parentId.startsWith(BrowseIds.SEARCH_PREFIX) ->
             source.search(parentId.removePrefix(BrowseIds.SEARCH_PREFIX), SEARCH_LIMIT).songs
         parentId == BrowseIds.CAT_PODCASTS -> source.podcasts

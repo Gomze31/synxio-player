@@ -427,6 +427,45 @@ class BrowseTreeTest {
     }
 
     @Test
+    fun `recherche - artiste exact en tete, puis titres, albums, playlists`() {
+        val results = tree().search("stromae")
+        assertEquals(NodeKind.ARTIST, results[0].kind)
+        assertEquals("Artistes", results[0].groupTitle)
+        assertTrue(results.size <= 30)
+        assertEquals(results.size, results.distinctBy { it.id }.size)
+    }
+
+    @Test
+    fun `recherche - mixs, livres et podcasts dans leurs groupes`() {
+        val mix = DailyMix("daily", DailyMixKind.DAILY, "Ton mix du jour", "", listOf(s1, s5))
+        val t = tree(listeningSource().apply { dailyMixes = listOf(mix) })
+        val mixes = t.search("mix du jour").filter { it.groupTitle == "Mixs" }
+        assertEquals(listOf(BrowseIds.MIX_PREFIX + "daily"), mixes.map { it.id })
+        val books = t.search("dune").filter { it.groupTitle == "Livres et podcasts" }
+        assertEquals(listOf(BrowseIds.BOOK_PREFIX + "/livres/Dune"), books.map { it.id })
+        val episodes = t.search("épisode 2").filter { it.groupTitle == "Livres et podcasts" }
+        assertEquals(listOf(201L), episodes.map { it.song?.id })
+    }
+
+    @Test
+    fun `recherche - genre ou periode, tuile Tout lire en tete, jouable et navigable`() {
+        val t = tree(datedSource())
+        val genre = t.search("électro")
+        assertEquals(BrowseIds.SEARCH_ALL_PREFIX + "électro", genre[0].id)
+        assertEquals(NodeKind.FOLDER_PLAYABLE, genre[0].kind)
+        assertEquals("Tout lire", genre[0].title)
+        assertEquals("2 titres", genre[0].subtitle)
+        assertEquals(setOf(1L, 5L), t.queueFor(genre[0].id)!!.songs.map { it.id }.toSet())
+        assertEquals(setOf(1L, 5L), t.children(genre[0].id).mapNotNull { it.song?.id }.toSet())
+
+        val period = t.search("années 90")
+        assertEquals(BrowseIds.SEARCH_ALL_PREFIX + "années 90", period[0].id)
+        assertEquals(setOf(2L, 3L), t.queueFor(period[0].id)!!.songs.map { it.id }.toSet())
+
+        assertTrue(t.search("stromae").none { it.id.startsWith(BrowseIds.SEARCH_ALL_PREFIX) })
+    }
+
+    @Test
     fun `voix - artiste reconnu par l'assistant`() {
         val queue = tree().resolveVoice(VoiceRequest("daft punk", focus = VoiceRequest.FOCUS_ARTIST, artist = "Daft Punk"))!!
         assertEquals(listOf(5L), queue.songs.map { it.id })
