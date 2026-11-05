@@ -4,6 +4,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import android.Manifest
 import androidx.compose.animation.AnimatedContentScope
 import androidx.compose.animation.SharedTransitionLayout
+import fr.synxio.player.ui.haptics.LocalSynxioHaptics
+import fr.synxio.player.ui.haptics.rememberSynxioHaptics
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
@@ -269,6 +271,7 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
     val showBottomBar = shouldShowBottomBar(navController)
     val snackbarHost = remember { SnackbarHostState() }
     val playerState by viewModel.playerState.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
     val metadataProgress by viewModel.metadataProgress.collectAsStateWithLifecycle()
     var playerExpanded by remember { mutableStateOf(false) }
 
@@ -372,6 +375,8 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
 
     // Couche commune des éléments partagés : pochettes des grilles vers les détails, et
     // pochette du mini-lecteur vers le lecteur plein écran.
+    val haptics = rememberSynxioHaptics(settings.hapticsEnabled)
+    CompositionLocalProvider(LocalSynxioHaptics provides haptics) {
     SharedTransitionLayout(Modifier.fillMaxSize()) {
     CompositionLocalProvider(LocalSharedTransitionScope provides this) {
     Box(Modifier.fillMaxSize()) {
@@ -488,6 +493,7 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long) {
             )
             }
         }
+    }
     }
     }
     }

@@ -69,6 +69,7 @@ import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Vibration
 import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.BlurOn
@@ -494,6 +495,14 @@ fun SettingsScreen(
                                 icon = Icons.Rounded.AutoAwesome,
                                 checked = settings.glowEffects,
                                 onCheckedChange = { settingsViewModel.setGlowEffects(it) }
+                            )
+                            GroupDivider()
+                            SwitchSetting(
+                                title = "Retour haptique",
+                                subtitle = "Vibrations légères sur les commandes et les gestes",
+                                icon = Icons.Rounded.Vibration,
+                                checked = settings.hapticsEnabled,
+                                onCheckedChange = settingsViewModel::setHapticsEnabled
                             )
                         }
 
