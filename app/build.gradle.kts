@@ -108,6 +108,11 @@ android {
         )
     }
 
+    testOptions {
+        // Log.w dans WearBridge : les stubs android.jar lèvent sinon « Stub! » en test JVM.
+        unitTests.isReturnDefaultValues = true
+    }
+
     lint {
         disable.add("UnsafeOptInUsageError")
     }
