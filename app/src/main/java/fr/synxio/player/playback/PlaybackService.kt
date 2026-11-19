@@ -102,6 +102,7 @@ class PlaybackService : MediaLibraryService() {
     @Inject lateinit var discordPresence: DiscordPresenceRepository
     @Inject lateinit var podcastProgressDao: fr.synxio.player.data.db.PodcastProgressDao
     @Inject lateinit var widgetUpdater: WidgetUpdater
+    @Inject lateinit var wearBridge: fr.synxio.player.wear.WearBridge
     @Inject lateinit var historyRepository: fr.synxio.player.data.repo.HistoryRepository
     @Inject lateinit var budsMonitor: fr.synxio.player.buds.BudsMonitor
     @Inject lateinit var dailyMixes: fr.synxio.player.data.repo.DailyMixRepository
@@ -763,6 +764,8 @@ class PlaybackService : MediaLibraryService() {
                 }
                 widgetUpdater.publish(snapshot, artworkUri)
             }.onFailure { android.util.Log.d("SynxioWidget", "Widget non rafraichi", it) }
+            // La montre reçoit la même photo : WearBridge dédoublonne et n'échoue jamais.
+            wearBridge.publish(snapshot, artworkUri?.toString())
         }
     }
 
