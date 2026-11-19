@@ -33,6 +33,9 @@ jobs:
       - name: Run Lint
         run: ./gradlew lintDebug --no-daemon --configuration-cache
 
+      - name: Run Unit Tests
+        run: ./gradlew test --no-daemon --configuration-cache
+
       - name: Build Debug APK
         run: ./gradlew assembleDebug --no-daemon --configuration-cache
 

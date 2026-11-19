@@ -29,8 +29,9 @@ android {
         minSdk = 28
         // 37 = Android 17, désormais stable. Vérifié sur appareil (MagicOS, API 37).
         targetSdk = 37
-        versionCode = 20261130
-        versionName = "5.9.0"
+        // Version commune au téléphone et à la montre : gradle.properties racine.
+        versionCode = providers.gradleProperty("synxio.versionCode").get().toInt()
+        versionName = providers.gradleProperty("synxio.versionName").get()
         vectorDrawables.useSupportLibrary = true
 
         // Le dépôt devient public, l'app peut donc chercher ses mises à jour ici directement
@@ -150,7 +151,7 @@ dependencies {
     implementation("com.google.mlkit:translate:17.0.3")
     // Détection de la langue des paroles avant de les traduire
     implementation("com.google.mlkit:language-id:17.0.6")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.11.0")
+    implementation(libs.kotlinx.coroutines.play.services)
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
@@ -178,6 +179,10 @@ dependencies {
     implementation(libs.androidx.media3.common)
     implementation(libs.androidx.media3.cast)
     implementation(libs.play.services.cast.framework)
+
+    // Montre Wear OS : état publié sur le Data Layer, commandes reçues en messages.
+    implementation(project(":wear-protocol"))
+    implementation(libs.play.services.wearable)
 
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)

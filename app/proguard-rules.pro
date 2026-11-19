@@ -61,3 +61,7 @@
 -keep class com.google.mlkit.** { *; }
 -keep class com.google.android.gms.internal.mlkit_** { *; }
 -keep class com.google.firebase.components.** { *; }
+
+# Wearable Data Layer : les services d'écoute sont instanciés par Play Services.
+-keep class * extends com.google.android.gms.wearable.WearableListenerService { *; }
+-dontwarn com.google.android.gms.wearable.**

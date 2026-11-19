@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Capacité annoncée sur le Data Layer : la montre cible le nœud qui la porte. -->
+<resources>
+    <string-array name="android_wear_capabilities">
+        <item>synxio_phone</item>
+    </string-array>
+</resources>
