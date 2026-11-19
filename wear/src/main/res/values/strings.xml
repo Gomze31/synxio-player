@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Synxio</string>
+    <string name="tile_label">Synxio, en cours</string>
+    <string name="complication_label">Synxio, en cours</string>
+    <string name="paused_on_phone">Synxio est en pause sur le téléphone</string>
+    <string name="phone_out_of_range">Téléphone hors de portée</string>
+    <string name="phone_unreachable">Téléphone injoignable</string>
+    <string name="play_services_required">Play Services requis</string>
+    <string name="update_phone">Mets à jour Synxio sur le téléphone</string>
+    <string name="update_watch">Mets à jour Synxio sur la montre</string>
+    <string name="connecting">Connexion…</string>
+    <string name="resume">Reprendre</string>
+    <string name="favorites">Favoris</string>
+    <string name="shuffle">Aléatoire</string>
+    <string name="surprise">Surprends-moi</string>
+    <string name="play">Lecture</string>
+    <string name="pause">Pause</string>
+    <string name="next">Suivant</string>
+    <string name="previous">Précédent</string>
+    <string name="favorite">Favori</string>
+</resources>
