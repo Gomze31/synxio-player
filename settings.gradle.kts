@@ -22,4 +22,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "Synxio Player"
-include(":app")
+include(":app", ":wear-protocol")
