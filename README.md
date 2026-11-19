@@ -68,6 +68,30 @@
 
 ---
 
+### Montre (Wear OS)
+
+Synxio pilote la lecture du téléphone depuis une montre Wear OS (testé sur Galaxy Watch 7) :
+lecture/pause, précédent/suivant, cœur, volume à la couronne, lancement des favoris, de la
+lecture aléatoire, de la reprise ou de « Surprends-moi », plus une tuile et une complication
+« en cours ». La montre ne stocke aucune musique : c'est une télécommande.
+
+**Installation** (l'APK montre n'est pas sur le Play Store) :
+
+1. Sur la montre : *Paramètres → À propos de la montre → Logiciel*, sept appuis sur
+   *Version du logiciel*. Puis *Options de développeur* : activer *Débogage ADB* et
+   *Débogage via Wi-Fi*. La montre affiche son adresse IP.
+2. Sur le PC, montre et PC sur le même Wi-Fi :
+   ```powershell
+   adb connect <ip-montre>:5555
+   adb -s <ip-montre>:5555 install -r synxio-player-wear-vX.Y.Z.apk
+   ```
+   Accepter l'invite de débogage sur la montre.
+3. Installer la même version de `synxio-player-vX.Y.Z.apk` sur le téléphone. Versions
+   différentes : la montre demande une mise à jour.
+
+Prérequis : services Google Play sur le téléphone et la montre (c'est déjà le cas si la
+montre est appairée par Galaxy Wearable ou Wear OS).
+
 ## 🚀 Démarrage & Compilation
 
 ### Prérequis
