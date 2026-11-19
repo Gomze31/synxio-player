@@ -44,6 +44,8 @@ class DataLayerPhoneLink(
         }
         try {
             val client = Wearable.getCapabilityClient(context)
+            val connected = Wearable.getNodeClient(context).connectedNodes.await()
+            Log.d(TAG, "Nœuds connectés : ${connected.joinToString { "${it.displayName}(${it.id}, proche=${it.isNearby})" }}")
             update(client.getCapability(WearPaths.CAPABILITY_PHONE, CapabilityClient.FILTER_REACHABLE).await())
             if (!listening) {
                 client.addListener(capabilityListener, WearPaths.CAPABILITY_PHONE)
@@ -60,6 +62,7 @@ class DataLayerPhoneLink(
         val node = info.nodes.firstOrNull { it.isNearby } ?: info.nodes.firstOrNull()
         phoneNodeId = node?.id
         _connectivity.value = if (node != null) Connectivity.PHONE_REACHABLE else Connectivity.PHONE_UNREACHABLE
+        Log.d(TAG, "Capacité ${info.name} : ${info.nodes.size} nœud(s), choisi=${node?.displayName} proche=${node?.isNearby}")
     }
 
     override suspend fun send(command: WearCommand): Result<Unit> {

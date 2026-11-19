@@ -50,7 +50,8 @@ class DataLayerStatePublisher @Inject constructor(
             lastArtBlurred?.let { dataMap.putAsset(WearPaths.KEY_ART_BLURRED, Asset.createFromBytes(it)) }
         }.asPutDataRequest().setUrgent()
         try {
-            Wearable.getDataClient(context).putDataItem(request).await()
+            val item = Wearable.getDataClient(context).putDataItem(request).await()
+            Log.d(TAG, "État publié ${item.uri} : ${state.title} lecture=${state.isPlaying}")
         } catch (e: Exception) {
             // Play Services absents ou montre jamais appairée : la lecture continue sans montre.
             Log.w(TAG, "État non publié vers la montre", e)

@@ -28,6 +28,7 @@ class DataLayerStateReader(
         if (item.uri.path != WearPaths.STATE) return
         val map = DataMapItem.fromDataItem(item).dataMap
         val state = map.getString(WearPaths.KEY_STATE)?.let(WearState::fromJson) ?: return
+        Log.d(TAG, "État reçu : ${state.title} lecture=${state.isPlaying} v=${state.protocolVersion}")
         val needArt = !state.isEmpty && (store.current().state?.mediaId != state.mediaId || store.current().art == null)
         val art = if (needArt) map.getAsset(WearPaths.KEY_ART)?.let { read(it) } else null
         val blurred = if (needArt) map.getAsset(WearPaths.KEY_ART_BLURRED)?.let { read(it) } else null
@@ -39,6 +40,7 @@ class DataLayerStateReader(
         try {
             val buffer = dataClient.getDataItems(Uri.parse("wear://*${WearPaths.STATE}"), DataClient.FILTER_LITERAL).await()
             try {
+                Log.d(TAG, "DataItems ${WearPaths.STATE} : ${buffer.count}")
                 // Un seul téléphone appairé : le dernier item publié gagne.
                 buffer.lastOrNull()?.let { apply(it) }
             } finally {
