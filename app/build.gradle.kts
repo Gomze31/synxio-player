@@ -188,6 +188,8 @@ dependencies {
     // Montre Wear OS : état publié sur le Data Layer, commandes reçues en messages.
     implementation(project(":wear-protocol"))
     implementation(libs.play.services.wearable)
+    // ListenableFuture.await() pour le MediaController ouvert depuis WearCommandService.
+    implementation(libs.kotlinx.coroutines.guava)
 
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)

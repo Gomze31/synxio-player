@@ -182,6 +182,21 @@
                 android:value="true" />
         </service>
 
+        <!-- Commandes venues de la montre (Wearable Data Layer). Exporté : Play Services
+             le démarrent ; le chemin filtre les messages et le payload est validé. -->
+        <service
+            android:name=".wear.WearCommandService"
+            android:exported="true"
+            tools:ignore="ExportedService">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data
+                    android:scheme="wear"
+                    android:host="*"
+                    android:pathPrefix="/synxio/cmd" />
+            </intent-filter>
+        </service>
+
         <!-- Widget écran d'accueil (Glance) -->
         <receiver
             android:name=".widget.SynxioWidgetReceiver"
