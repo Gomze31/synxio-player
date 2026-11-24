@@ -274,11 +274,9 @@ class ShareCardRepository @Inject constructor(
         return "${cut.trimEnd()}…"
     }
 
-    private fun loadArtwork(song: Song): Bitmap? = runCatching {
-        context.contentResolver.openInputStream(song.artworkUri)?.use {
-            BitmapFactory.decodeStream(it)
-        }
-    }.getOrNull()
+    /** Pochette sous-échantillonnée : la carte fait 1080 px de large, 640 px de pochette suffisent. */
+    private fun loadArtwork(song: Song): Bitmap? =
+        fr.synxio.player.playback.art.ArtBitmaps.decode(context, song.artworkUri, SHARE_ART_PIXELS)
 
     private fun dominantColor(bitmap: Bitmap): Int {
         val palette = Palette.from(bitmap).clearFilters().generate()
@@ -317,5 +315,7 @@ class ShareCardRepository @Inject constructor(
         const val RADIUS = 48f
         const val SHARE_DIR = "share"
         const val FALLBACK_ACCENT = 0xFF6C5CE7.toInt()
+        /** Côté cible de la pochette décodée pour la carte (rendue en 1080 px de large). */
+        const val SHARE_ART_PIXELS = 640
     }
 }
