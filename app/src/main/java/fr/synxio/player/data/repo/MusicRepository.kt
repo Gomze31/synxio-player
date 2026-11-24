@@ -10,6 +10,8 @@ import fr.synxio.player.data.db.AudiobookFolderDao
 import fr.synxio.player.data.db.AudiobookFolderEntity
 import fr.synxio.player.data.db.FavoriteDao
 import fr.synxio.player.data.db.FavoriteEntity
+import fr.synxio.player.data.db.LibraryScanStateEntity
+import fr.synxio.player.data.db.LibrarySongDao
 import fr.synxio.player.data.db.PlayStatDao
 import fr.synxio.player.data.db.PlayStatEntity
 import fr.synxio.player.data.media.DeleteOutcome
@@ -24,6 +26,8 @@ import fr.synxio.player.data.model.Artist
 import fr.synxio.player.data.model.ArtistSort
 import fr.synxio.player.data.model.Folder
 import fr.synxio.player.data.model.Genre
+import fr.synxio.player.data.model.LibraryBuilder
+import fr.synxio.player.data.model.LibraryFilters
 import fr.synxio.player.data.model.Song
 import fr.synxio.player.data.model.SongSort
 import fr.synxio.player.data.model.splitArtistTag
@@ -32,6 +36,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -39,6 +44,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.launchIn
@@ -276,6 +282,8 @@ class MusicRepository @Inject constructor(
     private val excludedFolderDao: ExcludedFolderDao,
     private val audiobookFolderDao: AudiobookFolderDao,
     private val enricher: MetadataEnricher,
+    private val songDao: LibrarySongDao,
+    private val librarySync: LibrarySync,
     @ApplicationScope private val scope: CoroutineScope,
 ) {
 
@@ -297,12 +305,15 @@ class MusicRepository @Inject constructor(
     /** Une demande de rafraîchissement attend d'être servie. */
     private val refreshRequested = AtomicBoolean(false)
 
-    /** Dernier scan MediaStore brut, avant la cascade : la base des republications. */
-    @Volatile private var scannedSongs: List<Song> = emptyList()
+    /** Dernier contenu brut du cache Room, converti en [Song] (avant filtres et cascade). */
+    @Volatile private var cachedSongs: List<Song> = emptyList()
+
+    /** État du dernier scan (date, génération), pour l'écran Réglages. */
+    val scanState: Flow<LibraryScanStateEntity?> get() = songDao.observeScanState()
 
     init {
         // Le service de lecture peut démarrer sans passer par l'UI (Bluetooth, Auto) :
-        // si la permission est déjà accordée, on scanne sans attendre l'activité.
+        // si la permission est déjà accordée, on publie le cache sans attendre l'activité.
         if (scanner.hasAudioPermission()) onPermissionGranted()
 
         // MediaStore bouge (import, suppression, édition de tag) : on resynchronise.
@@ -312,9 +323,17 @@ class MusicRepository @Inject constructor(
             .launchIn(scope)
 
         // La cascade de métadonnées avance par lots en arrière-plan : on republie la
-        // bibliothèque à partir du dernier scan, sans relire MediaStore.
+        // bibliothèque à partir du cache, sans relire MediaStore.
         enricher.revision
             .sample(1_200)
+            .onEach { republish() }
+            .launchIn(scope)
+
+        // La durée minimale est un filtre de publication : pas de scan, une republication.
+        settingsRepository.settings
+            .map { it.minDurationSec }
+            .distinctUntilChanged()
+            .drop(1)
             .onEach { republish() }
             .launchIn(scope)
     }
@@ -322,57 +341,103 @@ class MusicRepository @Inject constructor(
     fun onPermissionGranted() {
         if (permissionGranted) return
         permissionGranted = true
-        scope.launch { refresh() }
+        scope.launch {
+            publishFromCache()
+            refresh()
+        }
+    }
+
+    /** Permission retirée : vider cache et bibliothèque. */
+    fun onPermissionLost() {
+        if (!permissionGranted) return
+        permissionGranted = false
+        cachedSongs = emptyList()
+        _library.value = Library()
+        _songsById.value = emptyMap()
+        scope.launch { librarySync.clear() }
     }
 
     val hasPermission: Boolean get() = permissionGranted
 
     /**
-     * Rescanne MediaStore et republie la bibliothèque.
-     *
-     * Les demandes concurrentes sont fusionnées : pendant un scan, N nouvelles demandes
-     * donnent lieu à un seul scan supplémentaire, pas à N. Chaque appelant ne reprend la
-     * main qu'une fois servi par un scan démarré après sa demande.
+     * Première publication, depuis Room, avant tout accès à MediaStore.
+     * Cache vide (premier lancement) : on laisse `isLoading` à vrai, le scan complet suit.
      */
-    suspend fun refresh() {
-        refreshRequested.set(true)
-        refreshMutex.withLock {
-            // Un scan lancé après notre demande vient de se terminer : il l'a couverte.
-            if (!refreshRequested.getAndSet(false)) return
-            doRefresh()
-        }
-    }
-
-    private suspend fun doRefresh() {
-        // Le drapeau n'est lu par l'accueil que tant que la bibliothèque est vide :
-        // republier une bibliothèque pleine pour lui ferait tout recalculer en aval.
-        val current = _library.value
-        if (current.isEmpty && !current.isLoading) _library.value = current.copy(isLoading = true)
-        val library = withContext(Dispatchers.IO) {
-            val minDurationSec = settingsRepository.settings.first().minDurationSec
-            val excluded = excludedFolderDao.paths().toSet()
-            val audiobooks = audiobookFolderDao.paths().toSet()
-            val songs = scanner.scan(minDurationSec * 1000L, excluded, audiobooks)
-            enricher.prepare()
-            scannedSongs = songs
-            buildLibrary(enricher.overlay(songs)).also { it.searchIndex }
+    private suspend fun publishFromCache() {
+        val started = System.currentTimeMillis()
+        val entities = withContext(Dispatchers.IO) { songDao.all() }
+        if (entities.isEmpty()) return
+        enricher.prepare()
+        cachedSongs = entities.map { it.toSong() }
+        val filters = currentFilters()
+        val library = withContext(Dispatchers.Default) {
+            LibraryBuilder.build(enricher.overlay(cachedSongs), filters, isRefreshing = true).also { it.searchIndex }
         }
         publish(library)
-        settingsRepository.setLastScan(System.currentTimeMillis())
-        enricher.onLibraryScanned(scannedSongs)
+        android.util.Log.i("LibrarySync", "Cache publié : ${entities.size} lignes en ${System.currentTimeMillis() - started} ms")
     }
 
-    /** Réapplique la cascade au dernier scan, quand elle a progressé. */
-    private suspend fun republish() {
-        if (scannedSongs.isEmpty()) return
+    /**
+     * Synchronisation incrémentale avec MediaStore, puis republication si quelque chose a changé.
+     *
+     * Les demandes concurrentes sont fusionnées : pendant une synchronisation, N nouvelles
+     * demandes donnent lieu à une seule synchronisation supplémentaire, pas à N.
+     */
+    suspend fun refresh() = synchronise(SyncMode.INCREMENTAL)
+
+    /** Scan complet explicite (Réglages → Bibliothèque → Rescanner). */
+    suspend fun rescan() = synchronise(SyncMode.FULL)
+
+    private suspend fun synchronise(mode: SyncMode) {
+        refreshRequested.set(true)
         refreshMutex.withLock {
-            val songs = scannedSongs
-            if (songs.isEmpty()) return
-            val library = withContext(Dispatchers.Default) {
-                buildLibrary(enricher.overlay(songs)).also { it.searchIndex }
+            // Une synchronisation lancée après notre demande vient de se terminer : elle l'a couverte.
+            if (!refreshRequested.getAndSet(false) && mode == SyncMode.INCREMENTAL) return
+            val current = _library.value
+            if (current.isEmpty && !current.isLoading) {
+                _library.value = current.copy(isLoading = true)
+            } else if (!current.isEmpty && !current.isRefreshing) {
+                _library.value = current.copy(isRefreshing = true)
             }
-            publish(library)
+
+            val result = librarySync.sync(mode)
+            if (result.changed || cachedSongs.isEmpty()) {
+                enricher.prepare()
+                cachedSongs = withContext(Dispatchers.IO) { songDao.all() }.map { it.toSong() }
+                publishBuilt(isRefreshing = false)
+                enricher.onLibraryScanned(cachedSongs)
+            } else {
+                val lib = _library.value
+                if (lib.isRefreshing || lib.isLoading) {
+                    _library.value = lib.copy(isRefreshing = false, isLoading = false, hasScanned = true)
+                }
+            }
         }
+    }
+
+    /** Republie depuis le cache mémoire (cascade ou filtres changés), sans MediaStore. */
+    private suspend fun republish() {
+        if (cachedSongs.isEmpty()) return
+        refreshMutex.withLock {
+            if (cachedSongs.isEmpty()) return
+            publishBuilt(isRefreshing = _library.value.isRefreshing)
+        }
+    }
+
+    private suspend fun publishBuilt(isRefreshing: Boolean) {
+        val filters = currentFilters()
+        val library = withContext(Dispatchers.Default) {
+            LibraryBuilder.build(enricher.overlay(cachedSongs), filters, isRefreshing).also { it.searchIndex }
+        }
+        publish(library)
+    }
+
+    private suspend fun currentFilters(): LibraryFilters = withContext(Dispatchers.IO) {
+        LibraryFilters(
+            minDurationMs = settingsRepository.settings.first().minDurationSec * 1000L,
+            excludedFolders = excludedFolderDao.paths().toSet(),
+            audiobookFolders = audiobookFolderDao.paths().toSet(),
+        )
     }
 
     private fun publish(library: Library) {
@@ -465,33 +530,18 @@ class MusicRepository @Inject constructor(
     /**
      * Résout un morceau même quand l'index en mémoire est vide.
      *
-     * [songById] lit un index peuplé par le scan MediaStore, qui n'existe qu'une fois
-     * l'application démarrée et la bibliothèque chargée. Le widget, lui, peut être
-     * redessiné avant — il affichait alors « Aucune lecture » alors qu'un morceau était
-     * bien en file, et le restait jusqu'au changement de piste suivant.
-     *
-     * Le repli relit MediaStore. C'est coûteux pour un seul morceau, mais il ne se
-     * déclenche que dans cette fenêtre étroite, et réutiliser le scanner évite de
-     * maintenir une seconde requête en parallèle.
+     * [songById] lit un index peuplé à la publication de la bibliothèque. Le widget, lui,
+     * peut être redessiné avant — il affichait alors « Aucune lecture » alors qu'un morceau
+     * était bien en file. Le repli lit la ligne dans le cache Room, filtrée et enrichie
+     * comme à la publication : plus aucun scan MediaStore ici.
      */
     suspend fun resolveSong(id: Long): Song? {
         findInMemory(id)?.let { return it }
-        // Le scan a eu lieu et ne contient pas ce morceau : le relire avec les mêmes
-        // filtres ne le trouverait pas davantage.
-        if (_library.value.hasScanned) return null
-        // Démarrage à froid avec permission : le scan est déjà en route, on l'attend
-        // plutôt que d'en lancer un second en parallèle.
-        if (permissionGranted) {
-            withTimeoutOrNull(RESOLVE_SCAN_WAIT_MS) { _library.first { it.hasScanned } }
-            if (_library.value.hasScanned) return findInMemory(id)
-        }
-        return withContext(Dispatchers.IO) {
-            val minDurationSec = settingsRepository.settings.first().minDurationSec
-            enricher.prepare()
-            scanner.scan(minDurationSec * 1000L, excludedFolderDao.paths().toSet())
-                .firstOrNull { it.id == id }
-                ?.let(enricher::overlay)
-        }
+        val entity = withContext(Dispatchers.IO) { songDao.byId(id) } ?: return null
+        enricher.prepare()
+        val filters = currentFilters()
+        val lib = LibraryBuilder.build(enricher.overlay(listOf(entity.toSong())), filters)
+        return lib.songs.firstOrNull() ?: lib.podcasts.firstOrNull() ?: lib.audiobooks.firstOrNull()
     }
 
     /** Index des titres, puis podcasts et livres audio, qui n'y figurent pas. */
@@ -515,14 +565,14 @@ class MusicRepository @Inject constructor(
      * versions MediaStore brutes, sinon le résultat précédent serait pris pour un tag.
      */
     suspend fun refetchMetadata(songs: List<Song>, label: String): RefetchResult {
-        val byPath = scannedSongs.associateBy { it.path }
+        val byPath = cachedSongs.associateBy { it.path }
         val raw = songs.mapNotNull { byPath[it.path] }
         if (raw.isEmpty()) return RefetchResult(0, 0, 0, 0, onlineSkipped = true)
         return enricher.refetch(raw, label)
     }
 
     /** Morceaux tels que lus dans MediaStore, avant la cascade : la base de l'atelier des tags. */
-    fun scannedSongs(): List<Song> = scannedSongs
+    fun scannedSongs(): List<Song> = cachedSongs
 
     fun reanalyseMetadata() {
         enricher.reanalyseAll()
@@ -645,12 +695,12 @@ class MusicRepository @Inject constructor(
 
     suspend fun addExcludedFolder(path: String) {
         excludedFolderDao.add(ExcludedFolderEntity(path))
-        refresh()
+        republish()
     }
 
     suspend fun removeExcludedFolder(path: String) {
         excludedFolderDao.remove(path)
-        refresh()
+        republish()
     }
 
     // --- Dossiers de Livres Audio ----------------------------------------------------
@@ -659,12 +709,12 @@ class MusicRepository @Inject constructor(
 
     suspend fun addAudiobookFolder(path: String) {
         audiobookFolderDao.add(AudiobookFolderEntity(path))
-        refresh()
+        republish()
     }
 
     suspend fun removeAudiobookFolder(path: String) {
         audiobookFolderDao.remove(path)
-        refresh()
+        republish()
     }
 
     // --- Recherche -------------------------------------------------------------------

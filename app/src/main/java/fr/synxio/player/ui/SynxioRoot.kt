@@ -254,7 +254,7 @@ fun SynxioRoot(viewModel: AppViewModel, openPlayerRequest: Long, openDriveModeRe
     var permissionAsked by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(permission.status.isGranted) {
-        if (permission.status.isGranted) viewModel.onPermissionGranted()
+        if (permission.status.isGranted) viewModel.onPermissionGranted() else viewModel.onPermissionLost()
     }
 
     // Fond ambiant commun à toute l'app : les écrans sont transparents par-dessus.

@@ -7,6 +7,7 @@ import android.database.ContentObserver
 import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
+import fr.synxio.player.data.db.LibrarySongEntity
 import fr.synxio.player.data.model.Song
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.channels.awaitClose
@@ -59,28 +60,74 @@ class MediaStoreScanner @Inject constructor(
             add(MediaStore.Audio.Media.ALBUM_ARTIST)
             add(MediaStore.Audio.Media.GENRE)
             add(MediaStore.Audio.Media.DISC_NUMBER)
+            add(MediaStore.Audio.Media.GENERATION_MODIFIED)
         }
     }.toTypedArray()
 
-    /**
-     * Charge tous les morceaux.
-     *
-     * @param minDurationMs filtre les bips et notifications indexés comme musique.
-     * @param excludedFolders préfixes de chemins à ignorer.
-     */
-    fun scan(minDurationMs: Long = 30_000L, excludedFolders: Set<String> = emptySet(), audiobookFolders: Set<String> = emptySet()): List<Song> {
-        val selection = buildString {
-            // Inclure MUSIQUE, PODCAST et AUDIOBOOK natifs. Les fichiers vocaux / alarmes sont souvent IS_MUSIC=0
-            append("(${MediaStore.Audio.Media.IS_MUSIC} != 0 OR ${MediaStore.Audio.Media.IS_PODCAST} != 0")
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                append(" OR ${MediaStore.Audio.Media.IS_AUDIOBOOK} != 0")
-            }
-            append(")")
-            append(" AND ${MediaStore.Audio.Media.DURATION} >= ?")
-        }
-        val args = arrayOf(minDurationMs.toString())
+    /** Une page de scan : les lignes lues et la génération MediaStore au moment de la lecture. */
+    data class ScanPage(val songs: List<LibrarySongEntity>, val generation: Long)
 
-        val songs = ArrayList<Song>(512)
+    /** `GENERATION_MODIFIED` et `MediaStore.getGeneration` existent depuis Android 11. */
+    val supportsIncremental: Boolean get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+
+    /**
+     * Toutes les lignes audio utiles, sans filtre utilisateur : durée ≥ [MIN_DURATION_MS]
+     * et liste noire de chemins seulement. Les filtres de l'utilisateur (durée minimale,
+     * dossiers exclus, dossiers livres audio) s'appliquent à la publication, voir
+     * `LibraryBuilder`.
+     */
+    fun scanAll(): ScanPage {
+        val generation = currentGeneration()
+        val songs = readRows(baseSelection(), arrayOf(MIN_DURATION_MS.toString()))
+        return ScanPage(if (supportsIncremental) songs else fillGenresLegacy(songs), generation)
+    }
+
+    /** Lignes ajoutées ou modifiées depuis [generation]. Android 11+ seulement. */
+    fun scanSince(generation: Long): ScanPage {
+        check(supportsIncremental) { "scanSince exige Android 11" }
+        val now = currentGeneration()
+        val songs = readRows(
+            baseSelection() + " AND ${MediaStore.Audio.Media.GENERATION_MODIFIED} > ?",
+            arrayOf(MIN_DURATION_MS.toString(), generation.toString()),
+        )
+        return ScanPage(songs, now)
+    }
+
+    /** Ids présents dans MediaStore, pour détecter les suppressions. Une colonne : quelques ms. */
+    fun currentIds(): LongArray {
+        val ids = ArrayList<Long>(1024)
+        runCatching {
+            context.contentResolver.query(
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                arrayOf(MediaStore.Audio.Media._ID),
+                baseSelection(),
+                arrayOf(MIN_DURATION_MS.toString()),
+                null,
+            )?.use { c -> while (c.moveToNext()) ids += c.getLong(0) }
+        }.onFailure { Log.e(TAG, "Lecture des ids MediaStore impossible", it) }
+        return ids.toLongArray()
+    }
+
+    /** Horloge de MediaStore pour le volume principal ; 0 avant Android 11. */
+    fun currentGeneration(): Long =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            runCatching { MediaStore.getGeneration(context, MediaStore.VOLUME_EXTERNAL_PRIMARY) }.getOrDefault(0L)
+        } else 0L
+
+    fun volumeName(): String = MediaStore.VOLUME_EXTERNAL_PRIMARY
+
+    private fun baseSelection(): String = buildString {
+        // Inclure MUSIQUE, PODCAST et AUDIOBOOK natifs. Les fichiers vocaux / alarmes sont souvent IS_MUSIC=0
+        append("(${MediaStore.Audio.Media.IS_MUSIC} != 0 OR ${MediaStore.Audio.Media.IS_PODCAST} != 0")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            append(" OR ${MediaStore.Audio.Media.IS_AUDIOBOOK} != 0")
+        }
+        append(")")
+        append(" AND ${MediaStore.Audio.Media.DURATION} >= ?")
+    }
+
+    private fun readRows(selection: String, args: Array<String>): List<LibrarySongEntity> {
+        val songs = ArrayList<LibrarySongEntity>(512)
         runCatching {
             context.contentResolver.query(
                 MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
@@ -110,25 +157,15 @@ class MediaStoreScanner @Inject constructor(
                 val audiobookCol = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     cursor.getColumnIndex(MediaStore.Audio.Media.IS_AUDIOBOOK)
                 } else -1
+                val generationCol = if (supportsIncremental) cursor.getColumnIndex(MediaStore.Audio.Media.GENERATION_MODIFIED) else -1
 
                 while (cursor.moveToNext()) {
                     val path = cursor.getString(dataCol) ?: continue
                     
                     // Blacklist Intelligente : Ignorer les notes vocales et appels enregistrés
                     val lowerPath = path.lowercase()
-                    if (lowerPath.contains("whatsapp audio") ||
-                        lowerPath.contains("telegram audio") ||
-                        lowerPath.contains("snapchat") ||
-                        lowerPath.contains("voice recorder") ||
-                        lowerPath.contains("voice_notes") ||
-                        lowerPath.contains("call_rec") ||
-                        lowerPath.contains("recordings")
-                    ) {
-                        continue
-                    }
+                    if (BLACKLIST.any { lowerPath.contains(it) }) continue
                     
-                    if (excludedFolders.any { path.startsWith(it) }) continue
-
                     // MediaStore encode le disque dans TRACK : 1004 = disque 1, piste 4.
                     val rawTrack = cursor.getInt(trackCol)
                     val track = if (rawTrack > 1000) rawTrack % 1000 else rawTrack
@@ -140,7 +177,6 @@ class MediaStoreScanner @Inject constructor(
 
                     val isPodcastFile = (podcastCol >= 0 && cursor.getInt(podcastCol) != 0)
                     val isNativeAudiobook = (audiobookCol >= 0 && cursor.getInt(audiobookCol) != 0)
-                    val isAudiobookFile = isNativeAudiobook || audiobookFolders.any { path.startsWith(it) }
 
                     val rawTitle = cursor.getString(titleCol)?.trim().orEmpty()
                     val rawArtist = cursor.getString(artistCol).orEmpty().trim()
@@ -149,7 +185,7 @@ class MediaStoreScanner @Inject constructor(
                         rawArtist.tidyTag() != rawArtist ||
                         rawAlbum.tidyTag() != rawAlbum
 
-                    songs += Song(
+                    songs += LibrarySongEntity(
                         id = cursor.getLong(idCol),
                         // Les tags rippés traînent souvent des espaces parasites
                         // (« <espace>nos souvenirs ») : on nettoie à la source.
@@ -173,21 +209,21 @@ class MediaStoreScanner @Inject constructor(
                         mimeType = cursor.getString(mimeCol).orEmpty(),
                         path = path,
                         isPodcast = isPodcastFile,
-                        isAudiobook = isAudiobookFile,
+                        isNativeAudiobook = isNativeAudiobook,
                         brokenEncoding = brokenEncoding,
+                        generation = if (generationCol >= 0) cursor.getLong(generationCol) else 0L,
                     )
                 }
             }
         }.onFailure { Log.e(TAG, "Scan MediaStore impossible", it) }
-
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) songs else fillGenresLegacy(songs)
+        return songs
     }
 
     /**
      * Avant Android 11, MediaStore.Audio.Media.GENRE n'existe pas : il faut passer par
      * la table des genres et croiser les ids de morceaux.
      */
-    private fun fillGenresLegacy(songs: List<Song>): List<Song> {
+    private fun fillGenresLegacy(songs: List<LibrarySongEntity>): List<LibrarySongEntity> {
         val genreBySongId = HashMap<Long, String>()
         runCatching {
             context.contentResolver.query(
@@ -283,8 +319,17 @@ class MediaStoreScanner @Inject constructor(
         return DeleteOutcome.Deleted
     }
 
-    private companion object {
-        const val TAG = "MediaStoreScanner"
+    companion object {
+        private const val TAG = "MediaStoreScanner"
+
+        /** À incrémenter quand la projection ou [BLACKLIST] change : force un scan complet au prochain démarrage. */
+        const val SCANNER_VERSION = 1
+
+        /** Plancher fixe : écarte bips et notifications. Le réglage « durée minimale » s'applique à la publication. */
+        const val MIN_DURATION_MS = 5_000L
+
+        /** Notes vocales et appels enregistrés, jamais de la musique. */
+        val BLACKLIST = listOf("whatsapp audio", "telegram audio", "snapchat", "voice recorder", "voice_notes", "call_rec", "recordings")
     }
 }
 

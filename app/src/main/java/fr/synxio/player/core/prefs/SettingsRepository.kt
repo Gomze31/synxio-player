@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -362,8 +363,7 @@ class SettingsRepository @Inject constructor(
         val KARAOKE_ENABLED = booleanPreferencesKey("karaoke_enabled")
         val PARTY_ENABLED = booleanPreferencesKey("party_enabled")
         val AUTO_DJ_ENABLED = booleanPreferencesKey("auto_dj_enabled")
-
-        val LAST_SCAN = longPreferencesKey("last_scan")
+        // `last_scan` (date du dernier scan) a quitté ce DataStore en 6.0 : voir `library_scan_state` (Room).
     }
 
     private val preferences: Flow<Preferences> = context.dataStore.data
@@ -500,7 +500,7 @@ class SettingsRepository @Inject constructor(
                 partyEnabled = p[Keys.PARTY_ENABLED] ?: false,
                 autoDjEnabled = p[Keys.AUTO_DJ_ENABLED] ?: false,
             )
-        }.flowOn(Dispatchers.IO)
+        }.distinctUntilChanged().flowOn(Dispatchers.IO)
 
     private inline fun <reified E : Enum<E>> Preferences.enum(
         key: Preferences.Key<String>,
@@ -586,7 +586,6 @@ class SettingsRepository @Inject constructor(
     suspend fun setVirtualizer(value: Int) = put(Keys.VIRTUALIZER, value)
     suspend fun setReverbPreset(value: Int) = put(Keys.REVERB_PRESET, value)
     suspend fun setLoudnessGain(value: Int) = put(Keys.LOUDNESS, value)
-    suspend fun setLastScan(value: Long) = put(Keys.LAST_SCAN, value)
 
     // Nouvelles options pour la lecture
     suspend fun setResumeAfterCall(value: Boolean) = put(Keys.RESUME_AFTER_CALL, value)

@@ -512,8 +512,12 @@ class AppViewModel @Inject constructor(
 
     fun onPermissionGranted() = musicRepository.onPermissionGranted()
 
+    /** Permission révoquée dans les paramètres Android : cache et bibliothèque vidés. */
+    fun onPermissionLost() = musicRepository.onPermissionLost()
+
+    /** Scan complet explicite : relit toute la musique de l'appareil (pas seulement le différentiel). */
     fun rescan() = viewModelScope.launch {
-        musicRepository.refresh()
+        musicRepository.rescan()
         _messages.emit("Bibliothèque actualisée")
     }
 
