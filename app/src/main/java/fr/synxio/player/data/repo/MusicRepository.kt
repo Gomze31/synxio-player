@@ -284,6 +284,8 @@ class MusicRepository @Inject constructor(
     private val enricher: MetadataEnricher,
     private val songDao: LibrarySongDao,
     private val librarySync: LibrarySync,
+    private val filtersSource: LibraryFiltersSource,
+    private val analysisScheduler: fr.synxio.player.data.analysis.TrackAnalysisScheduler,
     @ApplicationScope private val scope: CoroutineScope,
 ) {
 
@@ -406,6 +408,7 @@ class MusicRepository @Inject constructor(
                 cachedSongs = withContext(Dispatchers.IO) { songDao.all() }.map { it.toSong() }
                 publishBuilt(isRefreshing = false)
                 enricher.onLibraryScanned(cachedSongs)
+                analysisScheduler.enqueueIfOptedIn()
             } else {
                 val lib = _library.value
                 if (lib.isRefreshing || lib.isLoading) {
@@ -432,13 +435,7 @@ class MusicRepository @Inject constructor(
         publish(library)
     }
 
-    private suspend fun currentFilters(): LibraryFilters = withContext(Dispatchers.IO) {
-        LibraryFilters(
-            minDurationMs = settingsRepository.settings.first().minDurationSec * 1000L,
-            excludedFolders = excludedFolderDao.paths().toSet(),
-            audiobookFolders = audiobookFolderDao.paths().toSet(),
-        )
-    }
+    private suspend fun currentFilters(): LibraryFilters = filtersSource.current()
 
     private fun publish(library: Library) {
         // Podcasts et livres audio compris : sans eux, le service ne retrouvait jamais le

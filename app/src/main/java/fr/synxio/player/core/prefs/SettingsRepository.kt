@@ -129,6 +129,8 @@ data class Settings(
      * des fichiers puisse y etre ramenee sans ecretage.
      */
     val normalizeTargetDbfs: Float = -14f,
+    /** Niveau sonore et empreintes : attendre le chargeur (WorkManager `requiresCharging`). */
+    val analyseOnlyWhenCharging: Boolean = false,
 
     /** Ecarte de la lecture aleatoire les titres que l'on coupe systematiquement. */
     val shuffleSkipsDisliked: Boolean = false,
@@ -298,6 +300,7 @@ class SettingsRepository @Inject constructor(
         val HIDE_DUPLICATES = booleanPreferencesKey("hide_duplicates")
         val NORMALIZE_VOLUME = booleanPreferencesKey("normalize_volume")
         val NORMALIZE_TARGET_DBFS = floatPreferencesKey("normalize_target_dbfs")
+        val ANALYSE_ONLY_CHARGING = booleanPreferencesKey("analyse_only_charging")
         val SHUFFLE_SKIPS_DISLIKED = booleanPreferencesKey("shuffle_skips_disliked")
         val AUTO_CHECK_UPDATES = booleanPreferencesKey("auto_check_updates")
         val DISCORD_ENABLED = booleanPreferencesKey("discord_enabled")
@@ -435,6 +438,7 @@ class SettingsRepository @Inject constructor(
                 hideDuplicates = p[Keys.HIDE_DUPLICATES] ?: false,
                 normalizeVolume = p[Keys.NORMALIZE_VOLUME] ?: false,
                 normalizeTargetDbfs = p[Keys.NORMALIZE_TARGET_DBFS] ?: -14f,
+                analyseOnlyWhenCharging = p[Keys.ANALYSE_ONLY_CHARGING] ?: false,
                 shuffleSkipsDisliked = p[Keys.SHUFFLE_SKIPS_DISLIKED] ?: false,
                 autoCheckUpdates = p[Keys.AUTO_CHECK_UPDATES] ?: true,
                 discordEnabled = p[Keys.DISCORD_ENABLED] ?: false,
@@ -605,6 +609,7 @@ class SettingsRepository @Inject constructor(
     suspend fun setHideDuplicates(value: Boolean) = put(Keys.HIDE_DUPLICATES, value)
     suspend fun setNormalizeVolume(value: Boolean) = put(Keys.NORMALIZE_VOLUME, value)
     suspend fun setNormalizeTargetDbfs(value: Float) = put(Keys.NORMALIZE_TARGET_DBFS, value)
+    suspend fun setAnalyseOnlyWhenCharging(value: Boolean) = put(Keys.ANALYSE_ONLY_CHARGING, value)
     suspend fun setShuffleSkipsDisliked(value: Boolean) = put(Keys.SHUFFLE_SKIPS_DISLIKED, value)
     suspend fun setAutoCheckUpdates(value: Boolean) = put(Keys.AUTO_CHECK_UPDATES, value)
     suspend fun setDiscordEnabled(value: Boolean) = put(Keys.DISCORD_ENABLED, value)

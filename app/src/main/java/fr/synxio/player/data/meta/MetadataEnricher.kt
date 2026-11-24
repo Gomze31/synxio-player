@@ -5,14 +5,23 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.util.Log
+import androidx.work.Constraints
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import fr.synxio.player.core.prefs.SettingsRepository
+import fr.synxio.player.data.analysis.MetadataCascadeWorker
+import fr.synxio.player.data.db.LibrarySongDao
 import fr.synxio.player.data.db.OnlineLookupDao
 import fr.synxio.player.data.db.OnlineLookupEntity
 import fr.synxio.player.data.db.TrackMetaDao
 import fr.synxio.player.data.db.TrackMetaEntity
 import fr.synxio.player.data.meta.MusicBrainzClient.Companion.matchKey
+import fr.synxio.player.data.model.LibraryBuilder
 import fr.synxio.player.data.model.Song
+import fr.synxio.player.data.repo.LibraryFiltersSource
+import fr.synxio.player.data.repo.toSong
 import fr.synxio.player.di.ApplicationScope
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -33,7 +42,6 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -104,6 +112,8 @@ class MetadataEnricher @Inject constructor(
     private val artworkStore: ArtworkStore,
     private val musicBrainz: MusicBrainzClient,
     private val settingsRepository: SettingsRepository,
+    private val songDao: LibrarySongDao,
+    private val filtersSource: LibraryFiltersSource,
     @ApplicationScope private val scope: CoroutineScope,
 ) {
     private val cache = ConcurrentHashMap<String, TrackMetaEntity>()
@@ -121,25 +131,52 @@ class MetadataEnricher @Inject constructor(
     val stats: StateFlow<MetadataStats?> = _stats.asStateFlow()
 
     @Volatile private var librarySongs: List<Song> = emptyList()
-    private val autoRequested = AtomicBoolean(false)
     private val wake = Channel<Unit>(Channel.CONFLATED)
     private val manualRequests = Channel<ManualRequest>(Channel.UNLIMITED)
+
+    /** Une passe à la fois (automatique dans le Worker, manuelle ici) : MusicBrainz ne voit qu'un client. */
+    private val passMutex = Mutex()
 
     private class ManualRequest(val songs: List<Song>, val label: String, val result: CompletableDeferred<RefetchResult>)
 
     init {
-        // Un seul travailleur : les passes ne se chevauchent jamais, et MusicBrainz ne voit
-        // qu'un client à la fois.
+        // Les demandes manuelles sont servies ici, en processus : l'utilisateur les attend.
+        // La passe automatique tourne dans `MetadataCascadeWorker` (WorkManager).
         scope.launch(Dispatchers.IO) {
             for (signal in wake) {
-                drainManual()
-                if (autoRequested.getAndSet(false)) {
-                    runCatching { autoPass() }.onFailure { Log.w(TAG, "Passe de métadonnées interrompue", it) }
-                }
                 drainManual()
                 _progress.value = EnrichProgress()
             }
         }
+    }
+
+    /**
+     * Passe automatique complète, appelée par `MetadataCascadeWorker`. Si le processus
+     * vient de renaître, la liste des titres est relue dans le cache Room.
+     */
+    suspend fun runAutoPass() {
+        passMutex.withLock {
+            if (librarySongs.isEmpty()) librarySongs = loadLibrarySongs()
+            try {
+                autoPass()
+            } finally {
+                _progress.value = EnrichProgress()
+            }
+        }
+    }
+
+    private suspend fun loadLibrarySongs(): List<Song> {
+        val library = LibraryBuilder.build(songDao.all().map { it.toSong() }, filtersSource.current())
+        return library.songs + library.podcasts + library.audiobooks
+    }
+
+    private fun enqueueCascade() {
+        val request = OneTimeWorkRequestBuilder<MetadataCascadeWorker>()
+            .setConstraints(Constraints.Builder().setRequiresBatteryNotLow(true).build())
+            .addTag(MetadataCascadeWorker.NAME)
+            .build()
+        WorkManager.getInstance(context)
+            .enqueueUniqueWork(MetadataCascadeWorker.NAME, ExistingWorkPolicy.KEEP, request)
     }
 
     // --- API -----------------------------------------------------------------------------
@@ -199,8 +236,7 @@ class MetadataEnricher @Inject constructor(
     /** Signale un nouveau scan MediaStore : les fichiers nouveaux ou modifiés seront traités. */
     fun onLibraryScanned(songs: List<Song>) {
         librarySongs = songs
-        autoRequested.set(true)
-        wake.trySend(Unit)
+        enqueueCascade()
     }
 
     /**
@@ -222,8 +258,7 @@ class MetadataEnricher @Inject constructor(
         runCatching { onlineLookupDao.clear() }
         cache.clear()
         _revision.value++
-        autoRequested.set(true)
-        wake.trySend(Unit)
+        enqueueCascade()
     }
 
     // --- Passes --------------------------------------------------------------------------
@@ -231,7 +266,7 @@ class MetadataEnricher @Inject constructor(
     private suspend fun drainManual() {
         while (true) {
             val request = manualRequests.tryReceive().getOrNull() ?: return
-            val result = runCatching { manualPass(request) }
+            val result = runCatching { passMutex.withLock { manualPass(request) } }
                 .onFailure { Log.w(TAG, "Récupération manuelle échouée", it) }
                 .getOrDefault(RefetchResult(request.songs.size, 0, 0, 0, onlineSkipped = true))
             request.result.complete(result)

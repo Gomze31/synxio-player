@@ -78,6 +78,10 @@ class SettingsViewModel @Inject constructor(
         settings.setNormalizeTargetDbfs(value)
     }
 
+    fun setAnalyseOnlyWhenCharging(value: Boolean) = viewModelScope.launch {
+        settings.setAnalyseOnlyWhenCharging(value)
+    }
+
     fun analyseLoudness() = loudness.analyseLibrary(music.library.value.songs)
 
     fun cancelLoudnessAnalysis() = loudness.cancel()

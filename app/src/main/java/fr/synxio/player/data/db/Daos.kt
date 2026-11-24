@@ -356,6 +356,9 @@ interface AudioFeatureDao {
     @Query("SELECT * FROM audio_features")
     suspend fun all(): List<AudioFeatureEntity>
 
+    @Query("SELECT COUNT(*) FROM audio_features")
+    suspend fun count(): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun put(entry: AudioFeatureEntity)
 

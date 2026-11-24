@@ -710,6 +710,13 @@ fun SettingsScreen(
                                 onCancel = settingsViewModel::cancelFingerprints,
                                 onReset = settingsViewModel::resetFingerprints,
                             )
+                            GroupDivider()
+                            SwitchSetting(
+                                title = "Analyser seulement en charge",
+                                subtitle = "Niveau sonore et empreintes attendent le chargeur",
+                                checked = settings.analyseOnlyWhenCharging,
+                                onCheckedChange = settingsViewModel::setAnalyseOnlyWhenCharging,
+                            )
                         }
 
                         group(5, "buds", "Galaxy Buds") {

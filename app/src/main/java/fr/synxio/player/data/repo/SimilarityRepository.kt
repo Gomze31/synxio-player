@@ -1,22 +1,17 @@
 package fr.synxio.player.data.repo
 
-import android.util.Log
+import fr.synxio.player.data.analysis.TrackAnalysisScheduler
 import fr.synxio.player.data.db.AudioFeatureDao
-import fr.synxio.player.data.db.AudioFeatureEntity
 import fr.synxio.player.data.media.AudioFeatureAnalyzer
 import fr.synxio.player.data.model.Song
 import fr.synxio.player.di.ApplicationScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.sqrt
@@ -49,14 +44,14 @@ data class AnalysisProgress(
 @Singleton
 class SimilarityRepository @Inject constructor(
     private val dao: AudioFeatureDao,
-    private val analyzer: AudioFeatureAnalyzer,
+    private val scheduler: TrackAnalysisScheduler,
     @ApplicationScope private val scope: CoroutineScope,
 ) {
 
-    private val _progress = MutableStateFlow(AnalysisProgress())
-    val progress: StateFlow<AnalysisProgress> = _progress.asStateFlow()
-
-    private var job: Job? = null
+    /** Progression du Worker d'analyse (commune au niveau sonore et aux empreintes). */
+    val progress: StateFlow<AnalysisProgress> = scheduler.progress
+        .map { run -> AnalysisProgress(run?.done ?: 0, run?.total ?: 0, run?.running == true) }
+        .stateIn(scope, SharingStarted.Eagerly, AnalysisProgress())
 
     /** Empreintes brutes par chemin de fichier. */
     private val vectors: StateFlow<Map<String, FloatArray>> = dao.observeAll()
@@ -82,51 +77,13 @@ class SimilarityRepository @Inject constructor(
     }
 
     /**
-     * Analyse les morceaux dépourvus d'empreinte à jour.
-     *
-     * Séquentiel : chaque analyse instancie un décodeur matériel, et les paralléliser
-     * provoque des échecs d'allocation plutôt qu'un gain de temps.
+     * Lance (ou laisse courir) l'analyse de fond : `TrackAnalysisWorker` calcule les
+     * empreintes manquantes ou périmées, séquentiellement (un décodeur matériel à la fois).
      */
-    fun analyseLibrary(songs: List<Song>) {
-        if (job?.isActive == true) return
-        job = scope.launch {
-            val known = withContext(Dispatchers.IO) { dao.all().associateBy { it.songPath } }
-            val todo = songs.filter { song ->
-                val entry = known[song.path]
-                entry == null ||
-                    entry.fileModifiedSec != song.dateModifiedSec ||
-                    entry.vector.toVector().size != AudioFeatureAnalyzer.DIMENSIONS
-            }
+    @Suppress("UNUSED_PARAMETER")
+    fun analyseLibrary(songs: List<Song>) = scheduler.enqueue()
 
-            _progress.value = AnalysisProgress(0, todo.size, running = true)
-            var failures = 0
-
-            todo.forEachIndexed { index, song ->
-                val features = analyzer.analyse(song.path)
-                if (features != null) {
-                    dao.put(
-                        AudioFeatureEntity(
-                            songPath = song.path,
-                            vector = features.values.joinToString(",") { it.toString() },
-                            fileModifiedSec = song.dateModifiedSec,
-                            analysedAt = System.currentTimeMillis(),
-                        )
-                    )
-                } else {
-                    failures++
-                }
-                _progress.value = AnalysisProgress(index + 1, todo.size, running = true)
-            }
-
-            Log.i(TAG, "Empreintes calculées : ${todo.size - failures}/${todo.size}")
-            _progress.value = AnalysisProgress(todo.size, todo.size, running = false)
-        }
-    }
-
-    fun cancel() {
-        job?.cancel()
-        _progress.value = AnalysisProgress(running = false)
-    }
+    fun cancel() = scheduler.cancel()
 
     suspend fun clear() {
         cancel()
