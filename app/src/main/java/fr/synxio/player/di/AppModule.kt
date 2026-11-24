@@ -85,6 +85,7 @@ object AppModule {
     @Provides fun provideSongRatingDao(db: SynxioDatabase): fr.synxio.player.data.db.SongRatingDao = db.songRatingDao()
     @Provides fun provideShowSpeedDao(db: SynxioDatabase): fr.synxio.player.data.db.ShowSpeedDao = db.showSpeedDao()
     @Provides fun provideBookmarkDao(db: SynxioDatabase): fr.synxio.player.data.db.BookmarkDao = db.bookmarkDao()
+    @Provides fun provideLibrarySongDao(db: SynxioDatabase): fr.synxio.player.data.db.LibrarySongDao = db.librarySongDao()
 
     @Provides
     @Singleton

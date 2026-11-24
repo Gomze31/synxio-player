@@ -48,6 +48,22 @@ class MigrationsTest {
     }
 
     @Test
+    fun `16 vers 17 - cache de bibliotheque et empreinte 2, aucune donnee perdue`() {
+        createFromSchema(16)
+        val before = snapshot()
+        migrate(MIGRATION_16_17)
+        assertSchemaMatches(17)
+        val after = snapshot().filterKeys { it in before }.mapValues { (table, rows) ->
+            // audio_features gagne des colonnes à valeur par défaut : on compare les colonnes d'origine.
+            val kept = before.getValue(table).first().keys
+            if (table == "audio_features") rows.map { row -> row.filterKeys { it in kept } } else rows
+        }
+        assertEquals(before, after)
+        assertEquals(0, rowCount("songs"))
+        assertEquals(0, rowCount("library_scan_state"))
+    }
+
+    @Test
     fun `chaine complete depuis la version 2 - schema conforme a chaque etape, lignes conservees`() {
         createFromSchema(2)
         val seeded = snapshot()
@@ -216,6 +232,6 @@ class MigrationsTest {
 
     private companion object {
         const val SCHEMA_DIR = "schemas/fr.synxio.player.data.db.SynxioDatabase"
-        const val LATEST = 16
+        const val LATEST = 17
     }
 }

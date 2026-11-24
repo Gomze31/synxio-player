@@ -1,5 +1,6 @@
 package fr.synxio.player.data.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -180,6 +181,15 @@ data class AudioFeatureEntity(
     val vector: String,
     val fileModifiedSec: Long,
     val analysedAt: Long,
+    // Empreinte sonore 2 (Synxio 6.0). Valeurs par défaut = « pas encore analysé en v2 ».
+    @ColumnInfo(defaultValue = "0") val bpm: Float = 0f,
+    @ColumnInfo(defaultValue = "0") val bpmConfidence: Float = 0f,
+    @ColumnInfo(defaultValue = "-1") val keyIndex: Int = -1,
+    @ColumnInfo(defaultValue = "0") val keyConfidence: Float = 0f,
+    @ColumnInfo(defaultValue = "0") val energy: Float = 0f,
+    @ColumnInfo(defaultValue = "0") val introMs: Long = 0L,
+    @ColumnInfo(defaultValue = "0") val outroMs: Long = 0L,
+    @ColumnInfo(defaultValue = "1") val analysisVersion: Int = 1,
 )
 
 /**

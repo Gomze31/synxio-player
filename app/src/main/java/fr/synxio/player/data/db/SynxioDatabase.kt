@@ -28,8 +28,10 @@ import androidx.room.RoomDatabase
         SongRatingEntity::class,
         ShowSpeedEntity::class,
         BookmarkEntity::class,
+        LibrarySongEntity::class,
+        LibraryScanStateEntity::class,
     ],
-    version = 16,
+    version = 17,
     exportSchema = true,
 )
 abstract class SynxioDatabase : RoomDatabase() {
@@ -54,6 +56,7 @@ abstract class SynxioDatabase : RoomDatabase() {
     abstract fun songRatingDao(): SongRatingDao
     abstract fun showSpeedDao(): ShowSpeedDao
     abstract fun bookmarkDao(): BookmarkDao
+    abstract fun librarySongDao(): LibrarySongDao
 
     companion object {
         const val NAME = "synxio.db"
