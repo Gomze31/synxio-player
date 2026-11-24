@@ -1,6 +1,8 @@
 package fr.synxio.player
 
 import android.app.Application
+import androidx.hilt.work.HiltWorkerFactory
+import androidx.work.Configuration
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
@@ -18,9 +20,17 @@ import javax.inject.Inject
  * démarrage. `DownloadRepository` les initialise à la demande, sur IO.
  */
 @HiltAndroidApp
-class SynxioApp : Application(), SingletonImageLoader.Factory {
+class SynxioApp : Application(), SingletonImageLoader.Factory, Configuration.Provider {
 
     @Inject lateinit var diagnostics: Diagnostics
+    @Inject lateinit var workerFactory: HiltWorkerFactory
+
+    /** WorkManager à la demande (l'initialiseur du manifeste est retiré) : les Workers sont injectés par Hilt. */
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder()
+            .setWorkerFactory(workerFactory)
+            .setMinimumLoggingLevel(android.util.Log.INFO)
+            .build()
 
     override fun onCreate() {
         super.onCreate()

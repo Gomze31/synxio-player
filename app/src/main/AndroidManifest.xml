@@ -51,6 +51,9 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- Analyses de la bibliothèque (WorkManager) : notification de progression au-delà de 50 titres -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
     <!--
         « Définir comme sonnerie » : RingtoneManager.setActualDefaultRingtoneUri exige
         WRITE_SETTINGS, accordée par l'utilisateur via ACTION_MANAGE_WRITE_SETTINGS.
@@ -268,6 +271,22 @@
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>
         </receiver>
+
+        <!-- WorkManager initialisé à la demande par SynxioApp (Configuration.Provider), pas par androidx.startup. -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
 
     </application>
 
