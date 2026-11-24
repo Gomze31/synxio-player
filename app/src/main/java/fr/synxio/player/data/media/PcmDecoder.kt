@@ -115,7 +115,7 @@ class PcmDecoder @Inject constructor() {
         channels: Int,
     ): ShortArray {
         val info = MediaCodec.BufferInfo()
-        val collected = ArrayList<Short>()
+        val collected = PcmBuffer()
         var inputDone = false
         var outputDone = false
 
@@ -152,37 +152,23 @@ class PcmDecoder @Inject constructor() {
             }
         }
 
-        return ShortArray(collected.size) { collected[it] }
+        return collected.toArray()
     }
 
-    /** Replie les canaux en mono par moyenne, en PCM 16 bits signé. */
+    /** Replie les canaux en mono par moyenne, en PCM 16 bits signé, sans boxing ([PcmBuffer]). */
     private fun appendMono(
         buffer: ByteBuffer,
         offset: Int,
         size: Int,
         channels: Int,
-        out: ArrayList<Short>,
+        out: PcmBuffer,
     ) {
         val shorts = buffer.duplicate()
             .order(ByteOrder.nativeOrder())
             .position(offset)
             .limit(offset + size)
             .let { (it as ByteBuffer).slice().order(ByteOrder.nativeOrder()).asShortBuffer() }
-
-        if (channels <= 1) {
-            while (shorts.hasRemaining()) out.add(shorts.get())
-            return
-        }
-
-        val frame = ShortArray(channels)
-        while (shorts.remaining() >= channels) {
-            var sum = 0
-            for (c in 0 until channels) {
-                frame[c] = shorts.get()
-                sum += frame[c]
-            }
-            out.add((sum / channels).toShort())
-        }
+        out.append(shorts, channels)
     }
 
     private fun MediaExtractor.audioTrackIndex(): Int? {
