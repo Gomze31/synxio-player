@@ -5,8 +5,13 @@ import android.net.Uri
 import android.provider.MediaStore
 import androidx.compose.runtime.Immutable
 
-/** URI de base des pochettes d'album exposées par MediaStore. */
-private val ALBUM_ART_BASE: Uri = Uri.parse("content://media/external/audio/albumart")
+/**
+ * URI de base des pochettes d'album exposées par MediaStore.
+ *
+ * Paresseux : en test JVM, `Uri.parse` rend null et une initialisation au chargement du
+ * fichier ferait échouer toute fonction de haut niveau de ce fichier (`splitArtistTag`).
+ */
+private val ALBUM_ART_BASE: Uri by lazy { Uri.parse("content://media/external/audio/albumart") }
 
 /**
  * Un morceau tel qu'indexé depuis MediaStore.

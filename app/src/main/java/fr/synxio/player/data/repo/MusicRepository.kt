@@ -66,6 +66,8 @@ data class Library(
     val audiobooks: List<Song> = emptyList(),
     val isLoading: Boolean = true,
     val hasScanned: Boolean = false,
+    /** Vrai pendant une synchronisation MediaStore alors que la bibliothèque est déjà publiée depuis le cache. */
+    val isRefreshing: Boolean = false,
 ) {
     val isEmpty: Boolean get() = songs.isEmpty() && podcasts.isEmpty() && audiobooks.isEmpty()
     val totalDurationMs: Long get() = songs.sumOf { it.durationMs } + podcasts.sumOf { it.durationMs } + audiobooks.sumOf { it.durationMs }
