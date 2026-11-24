@@ -1,0 +1,49 @@
+# Baseline profile Synxio — profil manuel (Synxio 6.0, étape 3).
+#
+# Écrit à la main, par paquets : les classes du démarrage (application, activité, racine
+# Compose, bibliothèque, lecture) et les bibliothèques qu'elles traversent. À régénérer
+# avec Macrobenchmark (BaselineProfileRule) quand un appareil géré sera disponible.
+#
+# H = hot, S = startup, P = post-startup. AGP fusionne ce fichier dans l'APK release ;
+# profileinstaller l'installe au premier lancement, y compris pour un APK hors Play.
+
+# Application, activité, racine
+HSPLfr/synxio/player/SynxioApp;->**(**)**
+HSPLfr/synxio/player/MainActivity;->**(**)**
+HSPLfr/synxio/player/ui/**;->**(**)**
+
+# Bibliothèque : cache Room publié au démarrage
+HSPLfr/synxio/player/data/repo/MusicRepository;->**(**)**
+HSPLfr/synxio/player/data/repo/LibrarySync;->**(**)**
+HSPLfr/synxio/player/data/repo/LibraryFiltersSource;->**(**)**
+HSPLfr/synxio/player/data/repo/LibraryMappingKt;->**(**)**
+HSPLfr/synxio/player/data/model/**;->**(**)**
+HSPLfr/synxio/player/data/db/**;->**(**)**
+HSPLfr/synxio/player/data/meta/MetadataEnricher;->**(**)**
+HSPLfr/synxio/player/core/prefs/**;->**(**)**
+
+# Lecture
+HSPLfr/synxio/player/playback/PlaybackService;->**(**)**
+HSPLfr/synxio/player/playback/PlayerConnection;->**(**)**
+HSPLfr/synxio/player/playback/pulse/**;->**(**)**
+
+# Injection
+HSPLfr/synxio/player/di/**;->**(**)**
+HSPLfr/synxio/player/Hilt_**;->**(**)**
+HSPLfr/synxio/player/DaggerSynxioApp_HiltComponents_**;->**(**)**
+HSPLdagger/hilt/**;->**(**)**
+
+# Bibliothèques traversées au démarrage
+HSPLandroidx/compose/runtime/**;->**(**)**
+HSPLandroidx/compose/ui/**;->**(**)**
+HSPLandroidx/compose/foundation/**;->**(**)**
+HSPLandroidx/compose/material3/**;->**(**)**
+HSPLandroidx/compose/animation/**;->**(**)**
+HSPLandroidx/navigation/**;->**(**)**
+HSPLandroidx/room/**;->**(**)**
+HSPLandroidx/datastore/**;->**(**)**
+HSPLandroidx/media3/session/**;->**(**)**
+HSPLkotlinx/coroutines/**;->**(**)**
+
+# Classes à précharger
+Lfr/synxio/player/**;

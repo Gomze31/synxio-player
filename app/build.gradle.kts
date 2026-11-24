@@ -180,6 +180,8 @@ dependencies {
     implementation(libs.androidx.work.runtime)
     implementation(libs.androidx.hilt.work)
     ksp(libs.androidx.hilt.compiler)
+    // Baseline profile (app/src/main/baseline-prof.txt) installé au premier lancement, même hors Play.
+    implementation(libs.androidx.profileinstaller)
 
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.session)
