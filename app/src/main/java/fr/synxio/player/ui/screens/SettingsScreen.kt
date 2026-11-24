@@ -879,9 +879,17 @@ fun SettingsScreen(
                         }
 
                         group(1, "tools", "Outils") {
+                            val scanState by viewModel.scanState.collectAsStateWithLifecycle()
+                            val lastSync = scanState?.lastScanAt?.takeIf { it > 0 }?.let {
+                                java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT)
+                                    .format(java.util.Date(it))
+                            }
                             ClickableSetting(
                                 title = "Relancer le scan",
-                                subtitle = "${library.songs.size.pluralSongs()} · ${library.totalDurationMs.asLongDuration()}",
+                                subtitle = listOfNotNull(
+                                    "${library.songs.size.pluralSongs()} · ${library.totalDurationMs.asLongDuration()}",
+                                    lastSync?.let { "Dernière synchronisation : $it" },
+                                ).joinToString("\n"),
                                 icon = Icons.Rounded.Sync,
                                 onClick = { viewModel.rescan() }
                             )

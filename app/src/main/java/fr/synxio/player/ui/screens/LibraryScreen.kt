@@ -3,6 +3,7 @@ package fr.synxio.player.ui.screens
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
@@ -71,6 +72,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -219,6 +221,20 @@ fun LibraryScreen(
                 }
             },
         )
+
+        // Synchronisation MediaStore en cours alors que le cache est déjà affiché : une
+        // barre fine, pas un squelette, la bibliothèque est déjà utilisable.
+        AnimatedVisibility(visible = library.isRefreshing) {
+            LinearProgressIndicator(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = Space.md)
+                    .height(2.dp)
+                    .semantics { contentDescription = "Synchronisation de la bibliothèque" },
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = Color.Transparent,
+            )
+        }
 
         LibraryTabRow(
             labels = remember(tabs) { tabs.map { it.label } },

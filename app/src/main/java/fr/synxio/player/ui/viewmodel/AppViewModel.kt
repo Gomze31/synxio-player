@@ -303,6 +303,11 @@ class AppViewModel @Inject constructor(
     val rulePlaylists: StateFlow<List<RulePlaylist>> = rulePlaylistRepository.rulePlaylists
 
     val library: StateFlow<Library> = musicRepository.library
+
+    /** Date et génération du dernier scan MediaStore (Réglages → Bibliothèque). */
+    val scanState: StateFlow<fr.synxio.player.data.db.LibraryScanStateEntity?> =
+        musicRepository.scanState.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     val playerState: StateFlow<PlayerUiState> = player.state
 
     /** Position de lecture, à collecter seulement là où elle s'affiche. */
