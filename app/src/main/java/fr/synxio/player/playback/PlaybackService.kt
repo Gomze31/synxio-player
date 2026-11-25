@@ -115,6 +115,7 @@ class PlaybackService : MediaLibraryService() {
     @Inject lateinit var playlists: fr.synxio.player.data.repo.PlaylistRepository
     @Inject lateinit var showSpeedDao: fr.synxio.player.data.db.ShowSpeedDao
     @Inject lateinit var trackTraits: TrackTraitsRepository
+    @Inject lateinit var runSession: RunSession
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -252,6 +253,8 @@ class PlaybackService : MediaLibraryService() {
         override fun onAccuracyChanged(sensor: android.hardware.Sensor?, accuracy: Int) = Unit
     }
     private var stillnessJob: kotlinx.coroutines.Job? = null
+    // Course au tempo : podomètre, cible, titre d'avance (voir RunController).
+    private var runController: RunController? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -352,6 +355,15 @@ class PlaybackService : MediaLibraryService() {
         }
 
         sensorManager = getSystemService(android.content.Context.SENSOR_SERVICE) as android.hardware.SensorManager
+        runController = RunController(
+            sensorManager = sensorManager,
+            player = { activePlayer },
+            session = runSession,
+            musicRepository = musicRepository,
+            trackTraits = trackTraits,
+            scope = serviceScope,
+            onSpeedChanged = ::applySpeed,
+        ).also { it.start() }
         shakeDetector = fr.synxio.player.core.util.ShakeDetector {
             // En veille adaptative, la secousse prolonge la veille au lieu de passer au titre suivant.
             val sleep = sleepTimer.state.value
@@ -495,6 +507,8 @@ class PlaybackService : MediaLibraryService() {
         buttonHandler.removeCallbacksAndMessages(null)
         stopStillnessWatch()
         sleepTimer.cancel()
+        runController?.release()
+        runController = null
         sensorManager?.unregisterListener(shakeDetector)
 
         // Sans cet effacement, le statut Discord resterait figé sur le dernier morceau
@@ -1044,6 +1058,7 @@ class PlaybackService : MediaLibraryService() {
             }
 
             startTracking(mediaItem)
+            runController?.onTransition()
 
             // Reprise d'un podcast ou d'un chapitre de livre audio là où il a été laissé.
             val current = currentSong()
@@ -1360,7 +1375,11 @@ class PlaybackService : MediaLibraryService() {
 
     private fun applySpeed() {
         val s = latestSettings ?: return
-        val params = PlaybackParameters(showSpeed ?: s.playbackSpeed, s.playbackPitch)
+        // Titre choisi par la course : sa vitesse, tonalité intacte ; les réglages de
+        // l'utilisateur ne sont pas touchés et reviennent dès que la course cesse.
+        val runSpeed = runController?.speedOverride
+        val params = if (runSpeed != null) PlaybackParameters(runSpeed, 1f)
+        else PlaybackParameters(showSpeed ?: s.playbackSpeed, s.playbackPitch)
         if (activePlayer.playbackParameters != params) activePlayer.playbackParameters = params
     }
 
