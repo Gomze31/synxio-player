@@ -159,6 +159,7 @@ import fr.synxio.player.ui.screens.EqualizerScreen
 import fr.synxio.player.ui.screens.HistoryScreen
 import fr.synxio.player.ui.screens.HomeScreen
 import fr.synxio.player.ui.screens.LibraryScreen
+import fr.synxio.player.ui.screens.NaturalPlaylistScreen
 import fr.synxio.player.ui.screens.PermissionScreen
 import fr.synxio.player.ui.screens.PlaylistDetailScreen
 import fr.synxio.player.ui.screens.AudiobooksScreen
@@ -212,7 +213,9 @@ object Routes {
     const val DRIVE_MODE = "drive_mode"
     const val SMART = "smart/{smartId}"
     const val RULE = "rule/{ruleId}"
-    const val RULE_EDITOR = "rule_editor/{ruleId}"
+    /** `draft` : nom et règles proposés par « Décris ta playlist », encodés par [ruleEditorDraft]. */
+    const val RULE_EDITOR = "rule_editor/{ruleId}?draft={draft}"
+    const val NATURAL = "natural"
     const val AUDIOBOOKS = "audiobooks"
     const val PARTY_MODE = "party_mode"
     const val TRIM = "trim/{songId}"
@@ -221,6 +224,15 @@ object Routes {
     fun smart(id: SmartPlaylistId) = "smart/${id.name}"
     fun rule(id: Long) = "rule/$id"
     fun ruleEditor(id: Long = -1L) = "rule_editor/$id"
+    /** Éditeur en création, prérempli : première ligne le nom, puis le JSON des règles. */
+    fun ruleEditorDraft(name: String, rules: fr.synxio.player.data.model.RulePlaylistRules) =
+        "rule_editor/-1?draft=${(name + "\n" + rules.toJson()).encode()}"
+
+    fun decodeRuleDraft(raw: String?): Pair<String, fr.synxio.player.data.model.RulePlaylistRules>? {
+        val parts = raw?.let(::decode)?.split("\n", limit = 2) ?: return null
+        if (parts.size != 2) return null
+        return parts[0] to fr.synxio.player.data.model.RulePlaylistRules.fromJson(parts[1])
+    }
     fun artist(name: String) = "artist/${name.encode()}"
     fun genre(name: String) = "genre/${name.encode()}"
     fun folder(path: String) = "folder/${path.encode()}"
@@ -732,6 +744,7 @@ private fun shouldShowBottomBar(navController: NavHostController): Boolean {
             route == Routes.DUPLICATES ||
             route == Routes.RECENTS ||
             route == Routes.DRIVE_MODE ||
+            route == Routes.NATURAL ||
             route == Routes.PARTY_MODE
 
     return !fullScreen
@@ -975,6 +988,15 @@ private fun AppNavHost(
                 onCreateRulePlaylist = { navController.navigate(Routes.ruleEditor()) },
                 onEditRulePlaylist = { navController.navigate(Routes.ruleEditor(it)) },
                 onOpenAudiobooks = { navController.navigate(Routes.AUDIOBOOKS) },
+                onDescribePlaylist = { navController.navigate(Routes.NATURAL) },
+            )
+        }
+
+        screen(Routes.NATURAL) {
+            NaturalPlaylistScreen(
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() },
+                onSave = { name, rules -> navController.navigate(Routes.ruleEditorDraft(name, rules)) },
             )
         }
 
@@ -993,6 +1015,7 @@ private fun AppNavHost(
                 onOpenArtist = { navController.navigate(Routes.artist(it)) },
                 onOpenGenre = { navController.navigate(Routes.genre(it)) },
                 onNavigateToDownload = { navController.navigate(Routes.DOWNLOAD) },
+                onDescribePlaylist = { navController.navigate(Routes.NATURAL) },
             )
         }
 
@@ -1244,12 +1267,19 @@ private fun AppNavHost(
                     type = NavType.LongType
                     defaultValue = -1L
                 },
+                navArgument("draft") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
             ),
         ) { entry ->
             val id = entry.arguments?.getLong("ruleId") ?: -1L
+            val draft = remember(entry) { Routes.decodeRuleDraft(entry.arguments?.getString("draft")) }
             RulePlaylistEditorScreen(
                 ruleId = id,
                 onBack = { navController.popBackStack() },
+                draft = draft,
             )
         }
 

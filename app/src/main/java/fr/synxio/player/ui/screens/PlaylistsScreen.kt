@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.PlaylistPlay
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Favorite
@@ -107,6 +108,7 @@ fun PlaylistsTab(
     onOpenRulePlaylist: (Long) -> Unit,
     onCreateRulePlaylist: () -> Unit,
     onEditRulePlaylist: (Long) -> Unit,
+    onDescribePlaylist: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val playlists by viewModel.playlists.collectAsStateWithLifecycle()
@@ -257,13 +259,36 @@ fun PlaylistsTab(
 
         // --- Playlists à règles --------------------------------------------------------
         item(key = "rules-title", contentType = "section") {
-            SectionHeader(
-                title = "Playlists à règles",
-                modifier = Modifier.padding(top = Space.sm),
-                actionLabel = "Nouvelle règle",
-                onAction = onCreateRulePlaylist,
-                eyebrow = "Toujours à jour",
-            )
+            // « Nouvelle… » ouvre un menu : règle composée à la main, ou décrite en une phrase.
+            var newRuleMenu by remember { mutableStateOf(false) }
+            Box(Modifier.fillMaxWidth()) {
+                SectionHeader(
+                    title = "Playlists à règles",
+                    modifier = Modifier.padding(top = Space.sm),
+                    actionLabel = "Nouvelle…",
+                    onAction = { newRuleMenu = true },
+                    eyebrow = "Toujours à jour",
+                )
+                Box(Modifier.align(Alignment.TopEnd).padding(end = Space.md)) {
+                    DropdownMenu(
+                        expanded = newRuleMenu,
+                        onDismissRequest = { newRuleMenu = false },
+                        shape = SynxioShape.cardSm,
+                        containerColor = scheme.surfaceContainerHigh,
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Nouvelle règle") },
+                            leadingIcon = { Icon(Icons.Rounded.FilterAlt, null) },
+                            onClick = { newRuleMenu = false; onCreateRulePlaylist() },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Nouvelle à partir d'une phrase") },
+                            leadingIcon = { Icon(Icons.Rounded.AutoAwesome, null) },
+                            onClick = { newRuleMenu = false; onDescribePlaylist() },
+                        )
+                    }
+                }
+            }
         }
         if (rulePlaylists.isEmpty()) {
             item(key = "rules-empty", contentType = "empty") {

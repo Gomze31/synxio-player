@@ -180,6 +180,7 @@ fun LibraryScreen(
     onCreateRulePlaylist: () -> Unit,
     onEditRulePlaylist: (Long) -> Unit,
     onOpenAudiobooks: () -> Unit = {},
+    onDescribePlaylist: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val tabs = LibraryTab.entries
@@ -272,6 +273,7 @@ fun LibraryScreen(
                         onOpenRulePlaylist = onOpenRulePlaylist,
                         onCreateRulePlaylist = onCreateRulePlaylist,
                         onEditRulePlaylist = onEditRulePlaylist,
+                        onDescribePlaylist = onDescribePlaylist,
                     )
                 }
             }
