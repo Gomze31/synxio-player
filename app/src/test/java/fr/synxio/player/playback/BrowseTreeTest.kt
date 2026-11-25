@@ -1,7 +1,9 @@
 package fr.synxio.player.playback
 
+import fr.synxio.player.data.db.PlayStatEntity
 import fr.synxio.player.data.db.PodcastProgressEntity
 import fr.synxio.player.data.model.DailyMix
+import fr.synxio.player.data.model.TrackTraits
 import fr.synxio.player.data.model.DailyMixKind
 import fr.synxio.player.data.model.Memory
 import fr.synxio.player.data.model.Album
@@ -59,6 +61,8 @@ class BrowseTreeTest {
         override var memories: List<Memory> = emptyList(),
         override var playCounts: Map<Long, Int> = emptyMap(),
         override var lastQueue: BrowseQueue? = null,
+        override var playStats: Map<Long, PlayStatEntity> = emptyMap(),
+        override var traits: Map<String, TrackTraits> = emptyMap(),
     ) : BrowseSource {
         override fun search(query: String, limitPerSection: Int): SearchResults {
             val q = query.lowercase()
@@ -529,6 +533,30 @@ class BrowseTreeTest {
         assertEquals(listOf(3L, 2L), t.resolveVoice(VoiceRequest("des années 90"))!!.songs.map { it.id })
         assertEquals(listOf(3L, 2L), t.resolveVoice(VoiceRequest("du metal des années 90"))!!.songs.map { it.id })
         assertEquals(listOf(2L), t.resolveVoice(VoiceRequest("de 1995"))!!.songs.map { it.id })
+    }
+
+    @Test
+    fun `voix - une clause hors nom passe par les regles (jamais ecoutes, stats)`() {
+        val source = fullSource().apply {
+            playStats = mapOf(1L to PlayStatEntity(1, "/music/1.mp3", 3, 0, 1_000L, 0), 4L to PlayStatEntity(4, "/music/4.mp3", 1, 0, 1_000L, 0))
+        }
+        val queue = tree(source).resolveVoice(VoiceRequest("mets des titres jamais écoutés"))!!
+        assertEquals(setOf(2L, 3L, 5L), queue.songs.map { it.id }.toSet())
+    }
+
+    @Test
+    fun `voix - du rock calme lit les traits, les non analyses sont exclus`() {
+        fun traits(energy: Float) = TrackTraits(120f, 0.9f, 0, 0.9f, energy, 0, 180_000)
+        val rock1 = s1.copy(genre = "Rock"); val rock2 = s2.copy(genre = "Rock"); val rock3 = s3.copy(genre = "Rock")
+        val source = fullSource().apply {
+            songs = listOf(rock1, rock2, rock3, s4, s5)
+            genres = listOf(Genre("Rock", listOf(rock1, rock2, rock3)), Genre("Électro", listOf(s5)))
+            traits = mapOf("/music/1.mp3" to traits(0.2f), "/music/2.mp3" to traits(0.8f), "/music/5.mp3" to traits(0.1f))
+        }
+        val queue = tree(source).resolveVoice(VoiceRequest("du rock calme"))!!
+        assertEquals(listOf(1L), queue.songs.map { it.id })
+        // Sans clause au-delà du genre, le chemin 5.9 reste : tout le genre, mélangé.
+        assertEquals(setOf(1L, 2L, 3L), tree(source).resolveVoice(VoiceRequest("du rock"))!!.songs.map { it.id }.toSet())
     }
 
     @Test

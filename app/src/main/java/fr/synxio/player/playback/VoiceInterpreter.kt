@@ -1,9 +1,18 @@
 package fr.synxio.player.playback
 
+import fr.synxio.player.data.model.ClauseKind
+import fr.synxio.player.data.model.LibraryVocabulary
+import fr.synxio.player.data.model.NaturalPlaylistParser
+import fr.synxio.player.data.model.RulePlaylistRules
+import fr.synxio.player.data.model.SmartSort
+
 /**
  * Ce qu'une phrase dictée demande : une action, un sujet si la phrase le dit, un nom,
  * une période, un mélange. [text] est le reste de la phrase sans verbe ni mélange,
  * période comprise : une playlist nommée « Années 80 » doit pouvoir y correspondre.
+ * [rules] : la phrase décrit une playlist au-delà d'un nom, d'un genre et d'une période
+ * (« du rock calme », « jamais écoutés », « rock ou métal ») ; `BrowseTree` l'évalue alors
+ * avec `RulePlaylistEngine` plutôt que par les règles de nom.
  */
 data class VoiceIntent(
     val action: Action,
@@ -12,6 +21,7 @@ data class VoiceIntent(
     val years: IntRange?,
     val shuffle: Boolean,
     val text: String?,
+    val rules: RulePlaylistRules? = null,
 ) {
     enum class Action { PLAY, SHUFFLE, RESUME_BOOK, RESUME_LAST }
     enum class Subject { ARTIST, ALBUM, PLAYLIST, GENRE, TITLE, RADIO, MIX, FAVORITES, MEMORY }
@@ -24,10 +34,21 @@ data class VoiceIntent(
  * Ordre : verbes, mélange, reprise, favoris, souvenirs, mixs, radio, période, déterminants.
  * Le focus de l'Assistant, s'il est là, fixe le sujet et le nom ; la grammaire ne lui
  * ajoute que la période et le mélange.
+ *
+ * Depuis la 6.0, c'est un adaptateur de [NaturalPlaylistParser] : la période vient de sa
+ * grammaire partagée, et le reste de la phrase lui est soumis pour les clauses que les
+ * règles de nom ne savent pas lire (énergie, tempo, nouveauté, goût, exclusions, genres
+ * multiples, ordre). [vocabulary] : genres et artistes de la bibliothèque, pour les
+ * reconnaître dans la phrase.
  */
 object VoiceInterpreter {
 
-    fun interpret(query: String, request: VoiceRequest, currentYear: Int): VoiceIntent {
+    fun interpret(
+        query: String,
+        request: VoiceRequest,
+        currentYear: Int,
+        vocabulary: LibraryVocabulary = LibraryVocabulary.EMPTY,
+    ): VoiceIntent {
         var text = query.replace('’', '\'').trim().replace(SPACES, " ")
         text = text.replace(VERBS, "")
 
@@ -60,8 +81,23 @@ object VoiceInterpreter {
             return VoiceIntent(VoiceIntent.Action.PLAY, subject, focusName ?: name, years, shuffle, remainder.ifEmpty { null })
         }
         val action = if (shuffle && name == null && years == null) VoiceIntent.Action.SHUFFLE else VoiceIntent.Action.PLAY
-        return VoiceIntent(action, null, name, years, shuffle, remainder.ifEmpty { null })
+        return VoiceIntent(action, null, name, years, shuffle, remainder.ifEmpty { null }, naturalRules(remainder, vocabulary, currentYear, shuffle))
     }
+
+    /**
+     * Règles de playlist si la phrase va au-delà de ce que les règles de nom résolvent
+     * (artiste, album, playlist, genre seul, période) ; null sinon, pour que le chemin 5.9
+     * garde exactement son comportement.
+     */
+    private fun naturalRules(text: String, vocabulary: LibraryVocabulary, currentYear: Int, shuffle: Boolean): RulePlaylistRules? {
+        if (text.isBlank()) return null
+        val parsed = NaturalPlaylistParser.parse(text, vocabulary, currentYear)
+        val beyondNames = parsed.understood.any { it.kind !in NAME_KINDS } || parsed.rules.anyOf.isNotEmpty()
+        if (!beyondNames) return null
+        return if (shuffle) parsed.rules.copy(sort = SmartSort.RANDOM) else parsed.rules
+    }
+
+    private val NAME_KINDS = setOf(ClauseKind.GENRE, ClauseKind.PERIOD, ClauseKind.ARTIST)
 
     private fun focusedSubject(request: VoiceRequest): Pair<VoiceIntent.Subject, String?>? = when (request.focus) {
         VoiceRequest.FOCUS_ARTIST -> VoiceIntent.Subject.ARTIST to request.artist
@@ -72,29 +108,11 @@ object VoiceInterpreter {
         else -> null
     }
 
-    /** Période trouvée dans [text], et le texte sans elle. */
+    /** Période trouvée dans [text] (grammaire partagée de [NaturalPlaylistParser]), et le texte sans elle. */
     private fun period(text: String, currentYear: Int): Pair<IntRange?, String> {
-        fun decade(raw: String): IntRange {
-            val n = raw.toInt()
-            val start = when {
-                n >= 1000 -> n / 10 * 10
-                n >= 30 -> 1900 + n / 10 * 10
-                else -> 2000 + n / 10 * 10
-            }
-            return start..start + 9
-        }
-        fun cut(m: MatchResult) = (text.substring(0, m.range.first) + " " + text.substring(m.range.last + 1)).trim().replace(SPACES, " ")
-
-        RANGE.find(text)?.let { return it.groupValues[1].toInt()..it.groupValues[2].toInt() to cut(it) }
-        DECADE_WORD.find(text)?.let { return decade(it.groupValues[1]) to cut(it) }
-        DECADE_SUFFIX.find(text)?.let { return decade(it.groupValues[1]) to cut(it) }
-        DECADE_NAME.find(text)?.let { return DECADES.getValue(it.groupValues[1]) to cut(it) }
-        BEFORE.find(text)?.let { return 1900..it.groupValues[1].toInt() - 1 to cut(it) }
-        AFTER.find(text)?.let { return it.groupValues[1].toInt() + 1..currentYear to cut(it) }
-        SINCE.find(text)?.let { return it.groupValues[1].toInt()..currentYear to cut(it) }
-        SINGLE_YEAR.find(text)?.let { return it.groupValues[1].toInt()..it.groupValues[1].toInt() to cut(it) }
-        RECENT.find(text)?.let { return currentYear - 2..currentYear to cut(it) }
-        return null to text
+        val match = NaturalPlaylistParser.period(text, currentYear) ?: return null to text
+        val cut = (text.substring(0, match.matched.first) + " " + text.substring(match.matched.last + 1)).trim().replace(SPACES, " ")
+        return match.range to cut
     }
 
     /** Retire « du », « de la », « un peu de »… devant un mot ; jamais devant un nombre (« de 2015 »). */
@@ -121,17 +139,6 @@ object VoiceInterpreter {
     private val MIX_OF = Regex("(?:le |un |mon )mix (?:de |d'|du |des )?(.+)")
     private val RADIO_BEFORE = Regex("(?:la |une )?(?:web)?radio (.+)")
     private val RADIO_AFTER = Regex("(.+) en (?:web)?radio")
-
-    private val RANGE = Regex("\\bde (\\d{4}) a (\\d{4})\\b")
-    private val DECADE_WORD = Regex("(?:\\b(?:les|des|du|de la|de l'|d')\\s+)?\\bannees? (\\d{4}|\\d{2})\\b")
-    private val DECADE_SUFFIX = Regex("\\b(\\d{4}|\\d{2})s\\b")
-    private val DECADE_NAME = Regex("\\b(sixties|seventies|eighties|nineties)\\b")
-    private val DECADES = mapOf("sixties" to 1960..1969, "seventies" to 1970..1979, "eighties" to 1980..1989, "nineties" to 1990..1999)
-    private val BEFORE = Regex("\\bavant (\\d{4})\\b")
-    private val AFTER = Regex("\\bapres (\\d{4})\\b")
-    private val SINCE = Regex("\\bdepuis (\\d{4})\\b")
-    private val SINGLE_YEAR = Regex("\\b(?:de|en) (\\d{4})\\b")
-    private val RECENT = Regex("\\b(?:recents?|recentes?|nouveautes|nouveaux?|nouvelles?)\\b")
 
     private val LEADING_DETERMINER = Regex("^(?:un peu de |un peu d'|du |de la |de l'|des |de |d'|le |la |les |l'|un |une )(?=[a-z])")
     private val TRAILING_DETERMINER = Regex("\\s+(?:du|de la|de l'|des|de|d')$")
