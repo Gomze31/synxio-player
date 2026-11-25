@@ -1,5 +1,8 @@
 package fr.synxio.player.ui.screens
 
+import android.content.Context
+import android.hardware.Sensor
+import android.hardware.SensorManager
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -22,12 +25,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.DirectionsRun
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Insights
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.NewReleases
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -40,6 +46,8 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -67,6 +75,7 @@ import fr.synxio.player.ui.components.BrandButton
 import fr.synxio.player.ui.components.BrandPlayButton
 import fr.synxio.player.ui.components.BrandProgressBar
 import fr.synxio.player.ui.components.EmptyState
+import fr.synxio.player.ui.components.GlassCard
 import fr.synxio.player.ui.components.LumenChip
 import fr.synxio.player.ui.components.PlayingIndicator
 import fr.synxio.player.ui.components.ScreenHeader
@@ -124,6 +133,8 @@ fun HomeScreen(
     onOpenSmartPlaylist: ((SmartPlaylistId) -> Unit)? = null,
     onOpenBook: ((String) -> Unit)? = null,
     onOpenInsights: (() -> Unit)? = null,
+    onOpenRun: (() -> Unit)? = null,
+    onDescribePlaylist: (() -> Unit)? = null,
 ) {
     val library by viewModel.library.collectAsStateWithLifecycle()
     val bookProgress by viewModel.bookProgress.collectAsStateWithLifecycle()
@@ -135,6 +146,7 @@ fun HomeScreen(
     val dailyMixes by viewModel.dailyMixes.collectAsStateWithLifecycle()
     val memories by viewModel.memories.collectAsStateWithLifecycle()
     val insights by viewModel.insights.collectAsStateWithLifecycle()
+    val runDone by viewModel.runDone.collectAsStateWithLifecycle()
     // Triés par le ViewModel hors du thread principal, jamais pendant la composition.
     val recentAlbums by viewModel.recentAlbums.collectAsStateWithLifecycle()
     val topArtists by viewModel.topArtists.collectAsStateWithLifecycle()
@@ -167,6 +179,13 @@ fun HomeScreen(
     // Le « Flow du jour » a sa propre section : la rangée des mixs ne le montre plus.
     val mixRow = remember(dailyMixes) { dailyMixes.filter { it.kind != DailyMixKind.FLOW } }
     val flowMix = remember(dailyMixes) { dailyMixes.firstOrNull { it.kind == DailyMixKind.FLOW } }
+    // Carte « Course » : podomètre présent et une course déjà lancée (même test que la bibliothèque).
+    val context = LocalContext.current
+    val hasStepDetector = remember(context) {
+        (context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager)
+            ?.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR) != null
+    }
+    val runCard = onOpenRun?.takeIf { showRunCard(hasStepDetector, runDone) }
     // Le titre en cours est cherché dans la bibliothèque à partir de son seul identifiant :
     // lire playerState ici recomposerait l'accueil à chaque tic de position.
     val currentSong = remember(currentSongId, library.songs) {
@@ -345,11 +364,10 @@ fun HomeScreen(
             }
         }
 
-        // Section « Flow » (6.0) : la carte « Flow du jour » (étape 7), puis à l'étape 11 les
-        // cartes « Course » (étape 8 : seulement si le capteur de pas existe et qu'une course a
-        // déjà eu lieu) et « Décris ta playlist » (étape 9). Absente tant qu'elle n'a rien à montrer.
-        // TODO(étape 11) : brancher « Course » et « Décris ta playlist » une fois les branches fusionnées.
-        if (flowMix != null) {
+        // Section « Flow » (6.0) : la carte « Flow du jour » (étape 7, si ≥ 8 titres aimés
+        // analysés), « Course » (étape 8 : seulement si le podomètre existe et qu'une course a
+        // déjà été lancée) et « Décris ta playlist » (étape 9). Absente si elle n'a rien à montrer.
+        if (flowMix != null || runCard != null || onDescribePlaylist != null) {
             val index = order++
             item(key = "s-flow", contentType = "smartSection") {
                 HomeSection(
@@ -361,20 +379,48 @@ fun HomeScreen(
                         contentPadding = PaddingValues(horizontal = Space.gutter),
                         horizontalArrangement = Arrangement.spacedBy(Space.md),
                     ) {
-                        item(key = flowMix.key) {
-                            MosaicCard(
-                                title = flowMix.title,
-                                subtitle = flowMix.subtitle,
-                                artworkUris = flowMix.artworkUris,
-                                onClickLabel = "Lancer le Flow du jour",
-                                onClick = { viewModel.play(flowMix.songs) },
-                                modifier = Modifier
-                                    .animateItem()
-                                    .enterCascade(0, "flow-${flowMix.key}"),
-                            )
+                        if (flowMix != null) {
+                            item(key = flowMix.key) {
+                                MosaicCard(
+                                    title = flowMix.title,
+                                    subtitle = flowMix.subtitle,
+                                    artworkUris = flowMix.artworkUris,
+                                    onClickLabel = "Lancer le Flow du jour",
+                                    onClick = { viewModel.play(flowMix.songs) },
+                                    modifier = Modifier
+                                        .animateItem()
+                                        .enterCascade(0, "flow-${flowMix.key}"),
+                                )
+                            }
                         }
-                        // TODO(étape 11) : item(key = "run") { carte « Course » } — capteur de pas présent et une course déjà faite (étape 8).
-                        // TODO(étape 11) : item(key = "describe") { carte « Décris ta playlist » } — écran de l'étape 9.
+                        if (runCard != null) {
+                            item(key = "run") {
+                                FlowActionCard(
+                                    icon = Icons.Rounded.DirectionsRun,
+                                    title = "Course",
+                                    subtitle = "La musique suit tes pas.",
+                                    onClickLabel = "Ouvrir la course au tempo",
+                                    onClick = runCard,
+                                    modifier = Modifier
+                                        .animateItem()
+                                        .enterCascade(1, "flow-run"),
+                                )
+                            }
+                        }
+                        if (onDescribePlaylist != null) {
+                            item(key = "describe") {
+                                FlowActionCard(
+                                    icon = Icons.Rounded.AutoAwesome,
+                                    title = "Décris ta playlist",
+                                    subtitle = "Une phrase en français, une playlist.",
+                                    onClickLabel = "Décrire une playlist",
+                                    onClick = onDescribePlaylist,
+                                    modifier = Modifier
+                                        .animateItem()
+                                        .enterCascade(2, "flow-describe"),
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -905,6 +951,50 @@ private fun SmartPlaylistCard(
 )
 
 /** Carte de playlist ou de mix : mosaïque de pochettes, titre, sous-titre. */
+/**
+ * Carte d'action de la section « Flow » : même empreinte carrée qu'une mosaïque, verre,
+ * icône en haut, titre et sous-titre en bas. Pas de pochette : elle ouvre un écran.
+ */
+@Composable
+private fun FlowActionCard(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClickLabel: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val scheme = MaterialTheme.colorScheme
+    GlassCard(
+        modifier = modifier
+            .width(SmartCardWidth)
+            .aspectRatio(1f)
+            .semantics { contentDescription = onClickLabel },
+        onClick = onClick,
+        contentPadding = Space.md,
+    ) {
+        Column(Modifier.fillMaxSize()) {
+            Icon(icon, contentDescription = null, tint = scheme.primary, modifier = Modifier.size(28.dp))
+            Spacer(Modifier.weight(1f))
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium,
+                color = scheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(Space.xxs))
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = scheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
 @Composable
 private fun MosaicCard(
     title: String,

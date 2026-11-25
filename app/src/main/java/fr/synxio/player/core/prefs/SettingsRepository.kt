@@ -37,6 +37,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -370,6 +371,8 @@ class SettingsRepository @Inject constructor(
         val SHAKE_TO_SKIP = booleanPreferencesKey("shake_to_skip")
         val KARAOKE_ENABLED = booleanPreferencesKey("karaoke_enabled")
         val PARTY_ENABLED = booleanPreferencesKey("party_enabled")
+        /** Une course au tempo a déjà été lancée (carte « Course » de l'accueil, 6.0). */
+        val RUN_DONE = booleanPreferencesKey("run_done")
         val AUTO_DJ_ENABLED = booleanPreferencesKey("auto_dj_enabled")
         // `last_scan` (date du dernier scan) a quitté ce DataStore en 6.0 : voir `library_scan_state` (Room).
     }
@@ -511,6 +514,12 @@ class SettingsRepository @Inject constructor(
                 autoDjEnabled = p[Keys.AUTO_DJ_ENABLED] ?: false,
             )
         }.distinctUntilChanged().flowOn(Dispatchers.IO)
+
+    /**
+     * `true` dès qu'une course au tempo a été lancée une fois ; jamais remis à `false`.
+     * Hors de [Settings] : ce n'est pas un réglage, seulement un souvenir pour l'accueil.
+     */
+    val runDone: Flow<Boolean> = preferences.map { it[Keys.RUN_DONE] ?: false }.distinctUntilChanged()
 
     private inline fun <reified E : Enum<E>> Preferences.enum(
         key: Preferences.Key<String>,
@@ -671,6 +680,7 @@ class SettingsRepository @Inject constructor(
     suspend fun setShakeToSkip(value: Boolean) = put(Keys.SHAKE_TO_SKIP, value)
     suspend fun setKaraokeEnabled(value: Boolean) = put(Keys.KARAOKE_ENABLED, value)
     suspend fun setPartyEnabled(value: Boolean) = put(Keys.PARTY_ENABLED, value)
+    suspend fun markRunDone() = put(Keys.RUN_DONE, true)
     suspend fun setAutoDj(value: Boolean) = put(Keys.AUTO_DJ_ENABLED, value)
 
     /**

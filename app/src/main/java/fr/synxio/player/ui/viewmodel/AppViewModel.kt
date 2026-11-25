@@ -374,7 +374,13 @@ class AppViewModel @Inject constructor(
 
     // --- Course au tempo : l'écran commande, le service mesure et choisit (RunController).
     val runState: StateFlow<fr.synxio.player.playback.RunState> = runSession.state
-    fun startRun(sensorAllowed: Boolean) = runSession.start(sensorAllowed)
+    /** `true` dès qu'une course a été lancée une fois : conditionne la carte « Course » de l'accueil. */
+    val runDone: StateFlow<Boolean> = settingsRepository.runDone
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    fun startRun(sensorAllowed: Boolean) {
+        runSession.start(sensorAllowed)
+        viewModelScope.launch { settingsRepository.markRunDone() }
+    }
     fun stopRun() = runSession.stop()
     fun lockRun(bpm: Float) = runSession.lock(bpm)
     fun lockRunToCadence() = runSession.lockToCadence()

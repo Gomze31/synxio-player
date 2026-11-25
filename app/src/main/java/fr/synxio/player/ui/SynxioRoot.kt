@@ -985,6 +985,8 @@ private fun AppNavHost(
                 onOpenSmartPlaylist = { navController.navigate(Routes.smart(it)) },
                 onOpenBook = { navController.navigate(Routes.folder(it)) },
                 onOpenInsights = { navController.navigate(Routes.stats(StatsTab.INSIGHTS)) },
+                onOpenRun = { navController.navigate(Routes.RUN_MODE) },
+                onDescribePlaylist = { navController.navigate(Routes.NATURAL) },
             )
         }
 
