@@ -1,5 +1,8 @@
 package fr.synxio.player.ui.screens
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.snap
@@ -9,7 +12,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -42,10 +49,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -86,6 +95,7 @@ import fr.synxio.player.ui.theme.Space
 import fr.synxio.player.ui.theme.SynxioShape
 import fr.synxio.player.ui.theme.SynxioTheme
 import fr.synxio.player.ui.theme.TabularNumbers
+import fr.synxio.player.ui.theme.glass
 import fr.synxio.player.ui.theme.glowShadow
 import fr.synxio.player.ui.theme.synxioTopBarColors
 import fr.synxio.player.ui.viewmodel.AppViewModel
@@ -117,8 +127,12 @@ fun StatsScreen(
     onOpenAlbum: (Long) -> Unit,
     onPlaySong: (List<Song>, Int) -> Unit,
     onOpenRecap: (() -> Unit)? = null,
+    initialTab: StatsTab = StatsTab.SUMMARY,
 ) {
     val statsViewModel: StatsViewModel = hiltViewModel()
+    // Le volet choisi survit à la rotation ; l'accueil ouvre directement « Insights ».
+    var tab by rememberSaveable { mutableStateOf(initialTab) }
+    val insights by statsViewModel.insights.collectAsStateWithLifecycle()
 
     val statsSummary by statsViewModel.statsSummary.collectAsStateWithLifecycle()
     val periodStats by statsViewModel.periodStats.collectAsStateWithLifecycle()
@@ -185,6 +199,25 @@ fun StatsScreen(
         ) {
             // Rang d'apparition des blocs, remis à zéro à chaque passage du constructeur.
             var order = 0
+
+            val tabsIndex = order++
+            item(key = "tabs", contentType = "tabs") {
+                SegmentedSwitch(
+                    selected = tab,
+                    onSelect = { tab = it },
+                    modifier = Modifier.enterCascade(tabsIndex, "stats-tabs"),
+                )
+            }
+
+            if (tab == StatsTab.INSIGHTS) {
+                insightsItems(
+                    insights = insights,
+                    currentSongId = currentSongId,
+                    isPlaying = isPlaying,
+                    onPlaySong = onPlaySong,
+                )
+                return@LazyColumn
+            }
 
             val periodsIndex = order++
             item(key = "periods", contentType = "periods") {
@@ -325,6 +358,63 @@ fun StatsScreen(
 }
 
 private const val SONG_PREVIEW = 5
+
+/** Les deux volets de l'écran : le résumé par période, et les insights de l'année. */
+enum class StatsTab(val label: String) { SUMMARY("Résumé"), INSIGHTS("Insights") }
+
+private val SegmentHeight = 40.dp
+
+/**
+ * Sélecteur à deux segments dans une capsule de verre. La capsule du segment actif porte la
+ * signature et glisse d'un segment à l'autre, comme l'onglet actif de la barre de navigation.
+ */
+@Composable
+private fun SegmentedSwitch(selected: StatsTab, onSelect: (StatsTab) -> Unit, modifier: Modifier = Modifier) {
+    val reduce = LocalReduceMotion.current
+    val colors = SynxioTheme.colors
+    val scheme = MaterialTheme.colorScheme
+    BoxWithConstraints(
+        modifier
+            .padding(horizontal = Space.gutter, vertical = Space.sm)
+            .fillMaxWidth()
+            .clip(SynxioShape.pill)
+            .glass(SynxioShape.pill, strength = 0.7f)
+            .padding(Space.xs)
+            .selectableGroup(),
+    ) {
+        val segmentWidth = maxWidth / StatsTab.entries.size
+        val spec: AnimationSpec<Dp> = if (reduce) snap() else Motion.spatial()
+        val indicatorOffset by animateDpAsState(segmentWidth * selected.ordinal, spec, label = "segment")
+        Box(
+            Modifier
+                .offset(x = indicatorOffset)
+                .width(segmentWidth)
+                .height(SegmentHeight)
+                .clip(SynxioShape.pill)
+                .background(colors.brandBrush),
+        )
+        Row(Modifier.fillMaxWidth()) {
+            StatsTab.entries.forEach { segment ->
+                val active = segment == selected
+                val color by animateColorAsState(
+                    targetValue = if (active) colors.onBrand else scheme.onSurface,
+                    animationSpec = tween(if (reduce) 0 else Motion.SHORT),
+                    label = "segmentText",
+                )
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .height(SegmentHeight)
+                        .clip(SynxioShape.pill)
+                        .selectable(selected = active, role = Role.Tab, onClick = { onSelect(segment) }),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(segment.label, style = MaterialTheme.typography.labelLarge, color = color, maxLines = 1)
+                }
+            }
+        }
+    }
+}
 
 /** Choix exclusif de la période, toujours visible (l'ancien menu caché était peu découvrable). */
 @Composable
