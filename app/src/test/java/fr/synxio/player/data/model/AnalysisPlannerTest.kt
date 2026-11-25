@@ -19,8 +19,26 @@ class AnalysisPlannerTest {
             featureModified = mapOf(s.path to 100L),
             featureDimensions = mapOf(s.path to dims),
             expectedDimensions = dims,
+            traitsVersion = mapOf(s.path to TrackTraits.VERSION),
         )
         assertTrue(plan.isEmpty())
+    }
+
+    @Test
+    fun `empreinte 2 absente - traits seuls a calculer`() {
+        val s = song(id = 1, dateAddedSec = 100)
+        val plan = AnalysisPlanner.plan(
+            songs = listOf(s),
+            loudnessModified = mapOf(s.path to 100L),
+            featureModified = mapOf(s.path to 100L),
+            featureDimensions = mapOf(s.path to dims),
+            expectedDimensions = dims,
+            traitsVersion = mapOf(s.path to 1),
+        )
+        val item = plan.single()
+        assertFalse(item.needsLoudness)
+        assertFalse(item.needsFeatures)
+        assertTrue(item.needsTraits)
     }
 
     @Test

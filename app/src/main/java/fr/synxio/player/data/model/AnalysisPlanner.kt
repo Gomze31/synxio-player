@@ -1,7 +1,13 @@
 package fr.synxio.player.data.model
 
 /** Un titre à analyser et ce qui lui manque. */
-data class AnalysisItem(val song: Song, val needsLoudness: Boolean, val needsFeatures: Boolean)
+data class AnalysisItem(
+    val song: Song,
+    val needsLoudness: Boolean,
+    val needsFeatures: Boolean,
+    /** Empreinte 2 (tempo, tonalité, énergie) absente ou d'une version antérieure. */
+    val needsTraits: Boolean = false,
+)
 
 /**
  * Décide quels titres le Worker d'analyse doit traiter, et dans quel ordre.
@@ -19,13 +25,16 @@ object AnalysisPlanner {
         featureDimensions: Map<String, Int>,
         expectedDimensions: Int,
         priorityPaths: Set<String> = emptySet(),
+        traitsVersion: Map<String, Int> = emptyMap(),
+        expectedTraitsVersion: Int = TrackTraits.VERSION,
     ): List<AnalysisItem> {
         val items = songs.mapNotNull { song ->
             val needsLoudness = loudnessModified[song.path] != song.dateModifiedSec
             val wantsFeatures = !song.isPodcast && !song.isAudiobook
             val needsFeatures = wantsFeatures &&
                 (featureModified[song.path] != song.dateModifiedSec || featureDimensions[song.path] != expectedDimensions)
-            if (needsLoudness || needsFeatures) AnalysisItem(song, needsLoudness, needsFeatures) else null
+            val needsTraits = wantsFeatures && (needsFeatures || (traitsVersion[song.path] ?: 0) < expectedTraitsVersion)
+            if (needsLoudness || needsFeatures || needsTraits) AnalysisItem(song, needsLoudness, needsFeatures, needsTraits) else null
         }
         if (priorityPaths.isEmpty()) return items
         val (first, rest) = items.partition { it.song.path in priorityPaths }

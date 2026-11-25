@@ -22,7 +22,9 @@ import fr.synxio.player.data.db.LoudnessDao
 import fr.synxio.player.data.db.LoudnessEntity
 import fr.synxio.player.data.media.AudioFeatureAnalyzer
 import fr.synxio.player.data.media.LoudnessAnalyzer
+import fr.synxio.player.data.media.TrackTraitsAnalyzer
 import fr.synxio.player.data.model.AnalysisItem
+import fr.synxio.player.data.model.TrackTraits
 import fr.synxio.player.data.model.AnalysisPlanner
 import fr.synxio.player.data.model.LibraryBuilder
 import fr.synxio.player.data.repo.LibraryFiltersSource
@@ -50,7 +52,11 @@ class TrackAnalysisWorker @AssistedInject constructor(
     private val audioFeatureDao: AudioFeatureDao,
     private val loudnessAnalyzer: LoudnessAnalyzer,
     private val featureAnalyzer: AudioFeatureAnalyzer,
+    private val traitsAnalyzer: TrackTraitsAnalyzer,
 ) : CoroutineWorker(appContext, params) {
+
+    /** Entités `audio_features` connues, mises à jour au fil des écritures. */
+    private val featureByPath = HashMap<String, AudioFeatureEntity>()
 
     override suspend fun doWork(): Result {
         val priority = inputData.getStringArray(KEY_PRIORITY)?.toSet().orEmpty()
@@ -59,6 +65,8 @@ class TrackAnalysisWorker @AssistedInject constructor(
 
         val loudness = loudnessDao.all().associate { it.songPath to it.fileModifiedSec }
         val features = audioFeatureDao.all()
+        featureByPath.clear()
+        features.associateByTo(featureByPath) { it.songPath }
         val plan = AnalysisPlanner.plan(
             songs = songs,
             loudnessModified = loudness,
@@ -66,6 +74,7 @@ class TrackAnalysisWorker @AssistedInject constructor(
             featureDimensions = features.associate { it.songPath to it.vector.split(',').size },
             expectedDimensions = AudioFeatureAnalyzer.DIMENSIONS,
             priorityPaths = priority,
+            traitsVersion = features.associate { it.songPath to it.analysisVersion },
         )
         if (plan.isEmpty()) return Result.success()
         Log.i(TAG, "Analyse : ${plan.size} titre(s) à traiter")
@@ -106,15 +115,32 @@ class TrackAnalysisWorker @AssistedInject constructor(
         }
         if (item.needsFeatures) {
             featureAnalyzer.analyse(song.path)?.let { features ->
-                audioFeatureDao.put(
-                    AudioFeatureEntity(
-                        songPath = song.path,
-                        vector = features.values.joinToString(",") { it.toString() },
-                        fileModifiedSec = song.dateModifiedSec,
-                        analysedAt = now,
-                    )
+                val entity = AudioFeatureEntity(
+                    songPath = song.path,
+                    vector = features.values.joinToString(",") { it.toString() },
+                    fileModifiedSec = song.dateModifiedSec,
+                    analysedAt = now,
                 )
+                audioFeatureDao.put(entity)
+                featureByPath[song.path] = entity
             }
+        }
+        if (item.needsTraits) {
+            // Les traits se greffent sur l'entité du vecteur : sans vecteur (fichier illisible), rien à écrire.
+            val base = featureByPath[song.path] ?: return
+            val traits = traitsAnalyzer.analyse(song.path, song.durationMs) ?: return
+            val entity = base.copy(
+                bpm = traits.bpm,
+                bpmConfidence = traits.bpmConfidence,
+                keyIndex = traits.keyIndex,
+                keyConfidence = traits.keyConfidence,
+                energy = traits.energy,
+                introMs = traits.introMs,
+                outroMs = traits.outroMs,
+                analysisVersion = TrackTraits.VERSION,
+            )
+            audioFeatureDao.put(entity)
+            featureByPath[song.path] = entity
         }
     }
 

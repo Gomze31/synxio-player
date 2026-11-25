@@ -49,6 +49,32 @@ class PcmDecoder @Inject constructor() {
         path: String,
         windowCount: Int,
         windowMs: Long,
+    ): List<PcmWindow> = decodeAt(path) { durationUs -> starts(durationUs, windowCount, windowMs).map { it to it + windowMs * 1000L } }
+
+    /** Décode une plage précise, pour la tête ou la queue d'un titre (intro, outro). */
+    suspend fun decodeRange(path: String, startMs: Long, endMs: Long): PcmWindow? =
+        decodeAt(path) { durationUs ->
+            val start = (startMs * 1000L).coerceIn(0L, durationUs)
+            val end = (endMs * 1000L).coerceIn(start, durationUs)
+            if (end > start) listOf(start to end) else emptyList()
+        }.firstOrNull()
+
+    /** Durée du fichier en ms, ou null si illisible. */
+    fun durationMs(path: String): Long? = runCatching {
+        MediaExtractor().run {
+            try {
+                setDataSource(path)
+                val index = audioTrackIndex() ?: return@run null
+                getTrackFormat(index).takeIf { it.containsKey(MediaFormat.KEY_DURATION) }?.getLong(MediaFormat.KEY_DURATION)?.div(1000L)
+            } finally {
+                release()
+            }
+        }
+    }.getOrNull()
+
+    private suspend fun decodeAt(
+        path: String,
+        ranges: (durationUs: Long) -> List<Pair<Long, Long>>,
     ): List<PcmWindow> = withContext(Dispatchers.Default) {
         var extractor: MediaExtractor? = null
         var codec: MediaCodec? = null
@@ -72,12 +98,12 @@ class PcmDecoder @Inject constructor() {
                 start()
             }
 
-            starts(durationUs, windowCount, windowMs).map { start ->
+            ranges(durationUs).map { (start, end) ->
                 coroutineContext.ensureActive()
                 extractor.seekTo(start, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
                 codec.flush()
                 PcmWindow(
-                    samples = decodeWindow(extractor, codec, start + windowMs * 1000L, channels),
+                    samples = decodeWindow(extractor, codec, end, channels),
                     sampleRate = sampleRate,
                 )
             }.filter { it.samples.isNotEmpty() }
