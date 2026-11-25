@@ -15,9 +15,14 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionToken
 import dagger.hilt.android.qualifiers.ApplicationContext
+import fr.synxio.player.data.model.FlowArc
+import fr.synxio.player.data.model.FlowEngine
+import fr.synxio.player.data.model.FlowTrack
 import fr.synxio.player.data.model.RepeatMode
 import fr.synxio.player.data.model.Song
+import fr.synxio.player.data.model.toFlowTrack
 import fr.synxio.player.data.repo.MusicRepository
+import fr.synxio.player.data.repo.TrackTraitsRepository
 import fr.synxio.player.di.ApplicationScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -76,6 +81,11 @@ data class PlayerUiState(
     val loopStartMs: Long? = null,
     /** Fin de la boucle A-B, null tant que le second point n'est pas posé. */
     val loopEndMs: Long? = null,
+    /** La file après le titre courant a été ordonnée par le Flow ; voir [PlayerConnection.toggleFlow]. */
+    val flowActive: Boolean = false,
+    val flowArc: FlowArc = FlowArc.STEADY,
+    /** « 127 → 129 BPM · 8A → 9A, voisines · énergie +0,1 » : pourquoi le titre suivant, en Flow. */
+    val flowReason: String? = null,
 ) {
     val loopState: AbLoopState
         get() = when {
@@ -98,9 +108,24 @@ enum class AbLoopState { OFF, START_SET, LOOPING }
 class PlayerConnection @Inject constructor(
     @ApplicationContext private val context: Context,
     private val musicRepository: MusicRepository,
+    private val trackTraits: TrackTraitsRepository,
     @ApplicationScope private val scope: CoroutineScope,
     pulseSource: fr.synxio.player.playback.pulse.PulseSource,
 ) {
+
+    /**
+     * Flow en cours : l'arc, l'ordre d'avant (pour le second appui) et l'instantané des
+     * identifiants de la file tel que le Flow l'a laissée. En mémoire seulement : après un
+     * redémarrage du processus la file restaurée garde l'ordre, pas l'explication.
+     */
+    private class FlowState(
+        val arc: FlowArc,
+        val start: Int,
+        val previous: List<MediaItem>?,
+        val ids: List<String>,
+    )
+
+    private var flow: FlowState? = null
 
     private val _state = MutableStateFlow(PlayerUiState())
     val state: StateFlow<PlayerUiState> = _state.asStateFlow()
@@ -383,6 +408,9 @@ class PlayerConnection @Inject constructor(
         val c = controller ?: return
         val previous = _state.value
         val queue = if (rebuildQueue || previous.queue.size != c.mediaItemCount) {
+            // La file a changé autrement que par le Flow (ajout, retrait, nouvelle liste) :
+            // l'ordre mémorisé ne vaut plus rien, l'explication non plus.
+            flow?.let { if (queueIds(c) != it.ids) flow = null }
             (0 until c.mediaItemCount).mapNotNull {
                 val item = c.getMediaItemAt(it)
                 musicRepository.songById(item.songId) ?: item.toSynthesizedSong()
@@ -419,6 +447,9 @@ class PlayerConnection @Inject constructor(
             hasPrevious = c.hasPreviousMediaItem(),
             loopStartMs = previous.loopStartMs.takeIf { sameTrack },
             loopEndMs = previous.loopEndMs.takeIf { sameTrack },
+            flowActive = flow != null,
+            flowArc = flow?.arc ?: FlowArc.STEADY,
+            flowReason = flow?.let { flowReason(c.currentMediaItemIndex, queue) },
         )
         _position.value = PlayerPosition(
             positionMs = c.currentPosition.coerceAtLeast(0),
@@ -647,6 +678,62 @@ class PlayerConnection @Inject constructor(
     }
 
     fun clearQueue() { controller?.clearMediaItems() }
+
+    /**
+     * Flow (6.0, étape 7) : réordonne les titres **après** le courant par tempo, tonalité et
+     * énergie ([FlowEngine]).
+     *
+     * [arc] null = bascule : active en « Stable », ou désactive et rétablit l'ordre d'avant si
+     * la file n'a pas bougé depuis. [arc] donné = active ou change l'arc, en gardant l'ordre
+     * d'origine en mémoire. Le réordonnancement passe par `replaceMediaItems` sur la seule
+     * plage après le courant : la lecture ne s'interrompt pas, un seul événement de timeline.
+     * Le mode aléatoire est coupé : un ordre calculé n'a pas de sens mélangé.
+     */
+    fun toggleFlow(arc: FlowArc? = null) {
+        val c = controller ?: return
+        val active = flow
+        if (arc == null && active != null) {
+            flow = null
+            if (active.previous != null && queueIds(c) == active.ids && active.start <= c.mediaItemCount) {
+                c.replaceMediaItems(active.start, c.mediaItemCount, active.previous)
+            } else {
+                syncState(rebuildQueue = false)
+            }
+            return
+        }
+        val start = c.currentMediaItemIndex + 1
+        val items = (start until c.mediaItemCount).map { c.getMediaItemAt(it) }
+        if (items.size < 2) return
+        val tracks = items.mapIndexed { index, item ->
+            val song = musicRepository.songById(item.songId)
+            song?.toFlowTrack(index.toLong(), trackTraits.traitsFor(song)) ?: FlowTrack(index.toLong(), "", 0f, -1, 0f)
+        }
+        if (tracks.count { it.hasData } < 2) {
+            _errors.tryEmit("Flow : pas assez de titres analysés dans la file. L'analyse du son continue en arrière-plan.")
+            return
+        }
+        val currentSong = c.currentMediaItem?.let { musicRepository.songById(it.songId) }
+        val head = currentSong?.toFlowTrack(-1L, trackTraits.traitsFor(currentSong))
+        val chosen = arc ?: FlowArc.STEADY
+        val order = FlowEngine.order(listOfNotNull(head) + tracks, startId = head?.id, arc = chosen).filter { it >= 0 }
+        val reordered = order.map { items[it.toInt()] }
+        val before = (0 until start).map { c.getMediaItemAt(it).mediaId }
+        if (c.shuffleModeEnabled) c.shuffleModeEnabled = false
+        flow = FlowState(chosen, start, active?.previous ?: items, before + reordered.map { it.mediaId })
+        c.replaceMediaItems(start, c.mediaItemCount, reordered)
+    }
+
+    private fun queueIds(c: MediaController): List<String> =
+        (0 until c.mediaItemCount).map { c.getMediaItemAt(it).mediaId }
+
+    private fun flowReason(index: Int, queue: List<Song>): String? {
+        val current = queue.getOrNull(index) ?: return null
+        val next = queue.getOrNull(index + 1) ?: return null
+        return FlowEngine.explain(
+            current.toFlowTrack(0L, trackTraits.traitsFor(current)),
+            next.toFlowTrack(1L, trackTraits.traitsFor(next)),
+        ).summary
+    }
 
     fun setSpeedAndPitch(speed: Float, pitch: Float) {
         controller?.playbackParameters = PlaybackParameters(speed, pitch)

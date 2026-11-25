@@ -19,6 +19,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -453,6 +454,8 @@ fun GlassButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
+    /** Appui long, quand le bouton cache un second choix (ex. l'arc du Flow). */
+    onLongClick: (() -> Unit)? = null,
 ) {
     Row(
         modifier
@@ -460,7 +463,10 @@ fun GlassButton(
             .heightIn(min = Space.touchTarget)
             .clip(SynxioShape.pill)
             .glass(SynxioShape.pill, strength = 0.8f)
-            .clickable(role = Role.Button, onClick = onClick)
+            .then(
+                if (onLongClick != null) Modifier.combinedClickable(role = Role.Button, onClick = onClick, onLongClick = onLongClick)
+                else Modifier.clickable(role = Role.Button, onClick = onClick),
+            )
             .padding(horizontal = Space.xl, vertical = Space.md),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,

@@ -573,6 +573,9 @@ class AppViewModel @Inject constructor(
     fun skipToQueueIndex(index: Int) = player.skipTo(index)
     fun removeFromQueue(index: Int) = player.removeFromQueue(index)
     fun moveInQueue(from: Int, to: Int) = player.moveInQueue(from, to)
+    /** Flow (étape 7) : bascule l'enchaînement par tempo et tonalité sur ce qui suit le titre courant. */
+    fun toggleFlow() = player.toggleFlow()
+    fun setFlowArc(arc: fr.synxio.player.data.model.FlowArc) = player.toggleFlow(arc)
     fun clearQueue() = player.clearQueue()
 
     fun playNext(songs: List<Song>) {

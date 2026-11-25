@@ -461,6 +461,19 @@ fun NowPlayingScreen(
                     onEqualizer = onOpenEqualizer,
                 )
 
+                // Flow (6.0, étape 7) : pourquoi le titre suivant vient là.
+                if (state.flowActive && state.flowReason != null) {
+                    Spacer(Modifier.height(Space.xs))
+                    Text(
+                        text = "Pourquoi ce titre : ${state.flowReason}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        maxLines = 2,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = Space.xl),
+                    )
+                }
+
                 AudioOutputPill(output = audioOutput, buds = buds)
             }
         }
@@ -477,6 +490,11 @@ fun NowPlayingScreen(
             onClear = { viewModel.clearQueue(); showQueue = false },
             onSaveAsPlaylist = viewModel::saveQueueAsPlaylist,
             onDismiss = { showQueue = false },
+            flowActive = state.flowActive,
+            flowArc = state.flowArc,
+            flowReason = state.flowReason,
+            onToggleFlow = viewModel::toggleFlow,
+            onFlowArc = viewModel::setFlowArc,
         )
     }
 

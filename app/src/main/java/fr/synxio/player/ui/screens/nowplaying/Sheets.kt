@@ -51,6 +51,9 @@ import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Bedtime
+import androidx.compose.material.icons.automirrored.rounded.Undo
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCut
 import androidx.compose.material.icons.rounded.Delete
@@ -108,6 +111,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import fr.synxio.player.core.util.RingtoneHelper
 import fr.synxio.player.core.util.asDuration
+import fr.synxio.player.data.model.FlowArc
 import fr.synxio.player.data.model.LyricLine
 import fr.synxio.player.data.model.Lyrics
 import fr.synxio.player.data.model.Song
@@ -381,6 +385,11 @@ fun QueueSheet(
     onClear: () -> Unit,
     onSaveAsPlaylist: (String) -> Unit,
     onDismiss: () -> Unit,
+    flowActive: Boolean = false,
+    flowArc: FlowArc = FlowArc.STEADY,
+    flowReason: String? = null,
+    onToggleFlow: () -> Unit = {},
+    onFlowArc: (FlowArc) -> Unit = {},
 ) {
     val reduceMotion = LocalReduceMotion.current
     var naming by remember { mutableStateOf(false) }
@@ -426,6 +435,55 @@ fun QueueSheet(
                     )
                     Spacer(Modifier.width(Space.xs))
                     GlassButton(text = "Vider", onClick = onClear, icon = Icons.Rounded.Close)
+                }
+            }
+
+            // Flow (6.0, étape 7) : réordonne ce qui suit le titre courant par tempo et
+            // tonalité. Appui = bascule (second appui : ordre d'avant), appui long = l'arc.
+            if (queue.size - currentIndex - 1 >= 2) {
+                var arcMenu by remember { mutableStateOf(false) }
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(start = Space.xl, end = Space.md, bottom = Space.sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            text = if (flowActive) "Flow · ${flowArc.label}" else "Flow",
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        Text(
+                            text = when {
+                                flowActive && flowReason != null -> "Pourquoi ce titre : $flowReason"
+                                flowActive -> "Enchaînement par tempo et tonalité"
+                                else -> "Enchaîne par tempo et tonalité. Appui long : l'arc."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                        )
+                    }
+                    Spacer(Modifier.width(Space.sm))
+                    Box {
+                        GlassButton(
+                            text = if (flowActive) "Rétablir" else "Flow",
+                            onClick = onToggleFlow,
+                            icon = if (flowActive) Icons.AutoMirrored.Rounded.Undo else Icons.Rounded.AutoAwesome,
+                            onLongClick = { arcMenu = true },
+                        )
+                        DropdownMenu(expanded = arcMenu, onDismissRequest = { arcMenu = false }) {
+                            FlowArc.entries.forEach { arc ->
+                                DropdownMenuItem(
+                                    text = { Text(arc.label) },
+                                    leadingIcon = if (flowActive && arc == flowArc) {
+                                        { Icon(Icons.Rounded.Check, contentDescription = null) }
+                                    } else null,
+                                    onClick = { arcMenu = false; onFlowArc(arc) },
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
