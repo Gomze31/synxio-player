@@ -107,6 +107,7 @@ import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SmartDisplay
 import androidx.compose.material.icons.rounded.Speaker
@@ -182,6 +183,9 @@ import fr.synxio.player.ui.components.ScreenHeader
 import fr.synxio.player.ui.components.SynxioDialog
 import fr.synxio.player.ui.components.enterCascade
 import fr.synxio.player.ui.components.pressBounce
+import fr.synxio.player.ui.screens.settings.SettingEntry
+import fr.synxio.player.ui.screens.settings.SettingsCatalog
+import fr.synxio.player.ui.screens.settings.SettingsSearch
 import fr.synxio.player.ui.theme.EyebrowTextStyle
 import fr.synxio.player.ui.theme.LocalReduceMotion
 import fr.synxio.player.ui.theme.Motion
@@ -367,6 +371,9 @@ fun SettingsScreen(
     // Conservé hors de l'animation : revenir au hub retrouve la position de défilement.
     val hubState = rememberLazyListState()
 
+    // Résultat de recherche choisi : la sous-page défile jusqu'à son groupe et le surligne.
+    var pendingTarget by remember { mutableStateOf<SettingEntry?>(null) }
+
     BackHandler(enabled = currentSubMenu != null) {
         currentSubMenu = null
     }
@@ -396,9 +403,23 @@ fun SettingsScreen(
                 listState = hubState,
                 onOpenEqualizer = onOpenEqualizer,
                 onOpen = { currentSubMenu = it },
+                onJump = { entry ->
+                    pendingTarget = entry
+                    currentSubMenu = entry.menu
+                },
             )
         } else {
+            val subState = rememberLazyListState()
+            LaunchedEffect(pendingTarget) {
+                val target = pendingTarget?.takeIf { it.menu == menu } ?: return@LaunchedEffect
+                subState.animateScrollToItem(SettingsCatalog.indexOfGroup(menu, target.group))
+                highlightedGroup.value = target.group
+                kotlinx.coroutines.delay(1_800)
+                highlightedGroup.value = null
+                pendingTarget = null
+            }
             LazyColumn(
+                state = subState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = Space.xxl + Space.bottomInset),
             ) {
@@ -1119,7 +1140,12 @@ private fun SettingsHub(
     listState: androidx.compose.foundation.lazy.LazyListState,
     onOpenEqualizer: () -> Unit,
     onOpen: (SettingsSubMenu) -> Unit,
+    onJump: (SettingEntry) -> Unit,
 ) {
+    var query by rememberSaveable { mutableStateOf("") }
+    val results = remember(query) {
+        if (query.isBlank()) emptyList() else SettingsSearch.search(query, SettingsCatalog.entries)
+    }
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
@@ -1137,7 +1163,50 @@ private fun SettingsHub(
                 },
             )
         }
-        HubGroups.forEachIndexed { index, (title, menus) ->
+        item(key = "hub-search") {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = Space.gutter)
+                    .padding(top = Space.sm),
+                placeholder = { Text("Rechercher un réglage") },
+                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (query.isNotEmpty()) {
+                        IconButton(onClick = { query = "" }) {
+                            Icon(Icons.Rounded.Close, contentDescription = "Effacer la recherche")
+                        }
+                    }
+                },
+                singleLine = true,
+                shape = SynxioShape.pill,
+            )
+        }
+        if (query.isNotBlank()) {
+            item(key = "hub-results") {
+                SettingsGroup(title = if (results.isEmpty()) "Aucun réglage" else "Résultats") {
+                    if (results.isEmpty()) {
+                        Text(
+                            "Essaie « fondu », « casque », « widget » ou « sauvegarde ».",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(Space.md),
+                        )
+                    }
+                    results.forEachIndexed { i, entry ->
+                        if (i > 0) GroupDivider()
+                        ClickableSetting(
+                            title = entry.title,
+                            subtitle = "${entry.menu.title} › ${SettingsCatalog.groupTitle(entry.menu, entry.group)}",
+                            icon = entry.menu.icon,
+                            onClick = { onJump(entry) },
+                        )
+                    }
+                }
+            }
+        } else HubGroups.forEachIndexed { index, (title, menus) ->
             item(key = "hub-$title") {
                 SettingsGroup(
                     title = title,
@@ -1231,6 +1300,9 @@ private val IconIndent = IconTileSize + Space.md
 /** Retrait total d'un contenu aligné sur le texte des lignes (marge + pastille). */
 private val RowStartIndent = Space.md + IconIndent
 
+/** Groupe à surligner après un saut depuis la recherche ; null sinon. */
+private val highlightedGroup = mutableStateOf<String?>(null)
+
 /** Ajoute un groupe de verre comme élément de liste, avec son apparition en cascade. */
 private fun LazyListScope.group(
     index: Int,
@@ -1242,6 +1314,7 @@ private fun LazyListScope.group(
         SettingsGroup(
             title = title,
             modifier = Modifier.enterCascade(index, key = key),
+            highlighted = highlightedGroup.value == key,
             content = content,
         )
     }
@@ -1256,8 +1329,11 @@ private fun LazyListScope.group(
 private fun SettingsGroup(
     title: String,
     modifier: Modifier = Modifier,
+    highlighted: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    // Surlignage après un saut depuis la recherche : liseré accent qui s'estompe.
+    val pulse by animateFloatAsState(if (highlighted) 1f else 0f, label = "settingGroupHighlight")
     Column(
         modifier
             .fillMaxWidth()
@@ -1272,7 +1348,15 @@ private fun SettingsGroup(
                 .padding(start = Space.xs, bottom = Space.sm)
                 .semantics { heading() },
         )
-        GlassCard(modifier = Modifier.fillMaxWidth(), contentPadding = Space.xs) {
+        GlassCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(
+                    if (pulse > 0.01f) Modifier.border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = pulse), SynxioShape.card)
+                    else Modifier
+                ),
+            contentPadding = Space.xs,
+        ) {
             Column(content = content)
         }
     }
