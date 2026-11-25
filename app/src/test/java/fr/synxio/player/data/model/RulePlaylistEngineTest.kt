@@ -242,4 +242,56 @@ class RulePlaylistEngineTest {
     fun `un json corrompu retombe sur des regles vides`() {
         assertEquals(RulePlaylistRules(), RulePlaylistRules.fromJson("{pas du json"))
     }
+
+    @Test
+    fun `anyOf vaut OU a l'interieur du ET`() {
+        val songs = listOf(
+            song(id = 1, genre = "Rock", year = 1995),
+            song(id = 2, genre = "Métal", year = 1995),
+            song(id = 3, genre = "Pop", year = 1995),
+            song(id = 4, genre = "Rock", year = 2010),
+        )
+        val result = RulePlaylistEngine.evaluate(
+            RulePlaylistRules(
+                rules = listOf(SmartRule(RuleField.YEAR, RuleOperator.EQUALS, "1995")),
+                anyOf = listOf(
+                    SmartRule(RuleField.GENRE, RuleOperator.CONTAINS, "rock"),
+                    SmartRule(RuleField.GENRE, RuleOperator.CONTAINS, "metal"),
+                ),
+            ),
+            songs, emptyMap(), emptySet(), now,
+        )
+        assertEquals(listOf(1L, 2L), result.map { it.id }.sorted())
+    }
+
+    @Test
+    fun `anyOf seul filtre, anyOf vide ne filtre rien`() {
+        val songs = listOf(song(id = 1, genre = "Rock"), song(id = 2, genre = "Pop"))
+        val alone = RulePlaylistEngine.evaluate(
+            RulePlaylistRules(anyOf = listOf(SmartRule(RuleField.GENRE, RuleOperator.CONTAINS, "rock"))),
+            songs, emptyMap(), emptySet(), now,
+        )
+        assertEquals(listOf(1L), alone.map { it.id })
+        assertEquals(2, RulePlaylistEngine.evaluate(RulePlaylistRules(), songs, emptyMap(), emptySet(), now).size)
+    }
+
+    @Test
+    fun `contains ignore les accents`() {
+        val songs = listOf(song(id = 1, genre = "Metal"), song(id = 2, genre = "Métal"), song(id = 3, genre = "Pop"))
+        val result = RulePlaylistEngine.evaluate(
+            rules(SmartRule(RuleField.GENRE, RuleOperator.CONTAINS, "métal")),
+            songs, emptyMap(), emptySet(), now,
+        )
+        assertEquals(listOf(1L, 2L), result.map { it.id }.sorted())
+    }
+
+    @Test
+    fun `un json 5_x sans anyOf se lit, anyOf fait l'aller-retour`() {
+        val old = """{"rules":[{"field":"GENRE","operator":"CONTAINS","value":"rock"}],"matchAll":true,"sort":"TITLE","descending":false,"limit":null}"""
+        val parsed = RulePlaylistRules.fromJson(old)
+        assertEquals(1, parsed.rules.size)
+        assertTrue(parsed.anyOf.isEmpty())
+        val withGroup = RulePlaylistRules(anyOf = listOf(SmartRule(RuleField.GENRE, RuleOperator.CONTAINS, "rock")))
+        assertEquals(withGroup, RulePlaylistRules.fromJson(withGroup.toJson()))
+    }
 }

@@ -68,6 +68,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.synxio.player.core.util.pluralSongs
 import fr.synxio.player.data.model.RuleField
 import fr.synxio.player.data.model.RuleOperator
+import fr.synxio.player.data.model.RulePlaylistRules
 import fr.synxio.player.data.model.SmartRule
 import fr.synxio.player.data.model.SmartSort
 import fr.synxio.player.ui.components.BrandButton
@@ -124,18 +125,20 @@ fun RulePlaylistEditorScreen(
     ruleId: Long,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Nom et règles proposés (écran « Décris ta playlist ») ; création seulement. */
+    draft: Pair<String, RulePlaylistRules>? = null,
 ) {
     val viewModel: RulePlaylistEditorViewModel = hiltViewModel()
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showErrors by rememberSaveable { mutableStateOf(false) }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
 
-    LaunchedEffect(ruleId) { viewModel.load(ruleId) }
+    LaunchedEffect(ruleId) { viewModel.load(ruleId, draft) }
     LaunchedEffect(state.saved) { if (state.saved) onBack() }
 
     val nameError = if (showErrors && state.name.isBlank()) "Donne un nom à ta playlist." else null
-    val rulesError = if (showErrors && state.rules.isEmpty()) "Ajoute au moins un critère." else null
-    val formValid = state.canSave && state.rules.all { it.error() == null }
+    val rulesError = if (showErrors && state.rules.isEmpty() && state.anyOf.isEmpty()) "Ajoute au moins un critère." else null
+    val formValid = state.canSave && (state.rules + state.anyOf).all { it.error() == null }
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -225,9 +228,10 @@ fun RulePlaylistEditorScreen(
                 }
             }
 
-            itemsIndexed(state.rules) { index, rule ->
+            itemsIndexed(state.rules, key = { index, _ -> "rule-$index" }) { index, rule ->
                 RuleCard(
-                    index = index,
+                    badge = "${index + 1}",
+                    title = "Critère ${index + 1}",
                     rule = rule,
                     error = if (showErrors) rule.error() else null,
                     onFieldChange = { viewModel.updateField(index, it) },
@@ -242,6 +246,43 @@ fun RulePlaylistEditorScreen(
                 GlassButton(
                     text = "Ajouter un critère",
                     onClick = viewModel::addRule,
+                    icon = Icons.Rounded.Add,
+                    modifier = Modifier
+                        .animateItem()
+                        .fillMaxWidth(),
+                )
+            }
+
+            item(key = "anyof-title") {
+                Column(Modifier.animateItem()) {
+                    FormSectionTitle("L'un de", eyebrow = "Au moins une alternative")
+                    Text(
+                        text = "Un titre passe s'il remplit l'une de ces alternatives, en plus des critères. Pratique pour « rock ou métal ».",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            itemsIndexed(state.anyOf, key = { index, _ -> "anyof-$index" }) { index, rule ->
+                val letter = ('A' + index).toString()
+                RuleCard(
+                    badge = letter,
+                    title = "Alternative $letter",
+                    rule = rule,
+                    error = if (showErrors) rule.error() else null,
+                    onFieldChange = { viewModel.updateField(index, it, group = true) },
+                    onOperatorChange = { viewModel.updateOperator(index, it, group = true) },
+                    onValueChange = { viewModel.updateValue(index, it, group = true) },
+                    onRemove = { viewModel.removeAnyOf(index) },
+                    modifier = Modifier.animateItem(),
+                )
+            }
+
+            item(key = "add-anyof") {
+                GlassButton(
+                    text = "Ajouter une alternative",
+                    onClick = viewModel::addAnyOf,
                     icon = Icons.Rounded.Add,
                     modifier = Modifier
                         .animateItem()
@@ -413,7 +454,8 @@ private fun <T> ChoiceRow(
  */
 @Composable
 private fun RuleCard(
-    index: Int,
+    badge: String,
+    title: String,
     rule: SmartRule,
     error: String?,
     onFieldChange: (RuleField) -> Unit,
@@ -434,19 +476,19 @@ private fun RuleCard(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        "${index + 1}",
+                        badge,
                         style = MaterialTheme.typography.labelLarge.merge(TabularNumbers),
                         color = colors.onBrand,
                     )
                 }
                 Spacer(Modifier.size(Space.md))
                 Text(
-                    text = "Critère ${index + 1}",
+                    text = title,
                     style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier.weight(1f),
                 )
                 IconButton(onClick = onRemove) {
-                    Icon(Icons.Rounded.Close, contentDescription = "Retirer le critère ${index + 1}")
+                    Icon(Icons.Rounded.Close, contentDescription = "Retirer : $title")
                 }
             }
             Spacer(Modifier.height(Space.xs))

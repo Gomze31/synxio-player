@@ -1,5 +1,6 @@
 package fr.synxio.player.data.model
 
+import fr.synxio.player.core.util.normalizeForSearch
 import fr.synxio.player.data.db.PlayStatEntity
 import kotlin.random.Random
 
@@ -25,14 +26,15 @@ object RulePlaylistEngine {
         ratings: Map<Long, Int> = emptyMap(),
         traits: Map<String, TrackTraits> = emptyMap(),
     ): List<Song> {
-        val matching = when {
-            rules.rules.isEmpty() -> songs
-            rules.matchAll -> songs.filter { s ->
-                rules.rules.all { matches(it, s, stats[s.id], s.id in favorites, ratings[s.id] ?: 0, now, traits[s.path]) }
+        val matching = if (rules.rules.isEmpty() && rules.anyOf.isEmpty()) songs else songs.filter { s ->
+            fun test(rule: SmartRule) = matches(rule, s, stats[s.id], s.id in favorites, ratings[s.id] ?: 0, now, traits[s.path])
+            val main = when {
+                rules.rules.isEmpty() -> true
+                rules.matchAll -> rules.rules.all(::test)
+                else -> rules.rules.any(::test)
             }
-            else -> songs.filter { s ->
-                rules.rules.any { matches(it, s, stats[s.id], s.id in favorites, ratings[s.id] ?: 0, now, traits[s.path]) }
-            }
+            // « L'un de » : un OU à l'intérieur du ET général, quelle que soit matchAll.
+            main && (rules.anyOf.isEmpty() || rules.anyOf.any(::test))
         }
         val sorted = sort(matching, rules, stats, now, traits)
         return rules.limit?.takeIf { it > 0 }?.let(sorted::take) ?: sorted
@@ -98,9 +100,10 @@ object RulePlaylistEngine {
         }
     }
 
+    /** Insensible à la casse et aux accents : « métal » attrape « Metal » comme « Métal ». */
     private fun text(rule: SmartRule, actual: String): Boolean {
-        val a = actual.lowercase()
-        val b = rule.value.trim().lowercase()
+        val a = actual.normalizeForSearch()
+        val b = rule.value.trim().normalizeForSearch()
         return when (rule.operator) {
             RuleOperator.CONTAINS -> a.contains(b)
             RuleOperator.NOT_CONTAINS -> !a.contains(b)

@@ -107,6 +107,13 @@ data class RulePlaylistRules(
     val sort: SmartSort = SmartSort.TITLE,
     val descending: Boolean = false,
     val limit: Int? = null,
+    /**
+     * Groupe « l'un de » : un titre passe s'il remplit au moins une de ces alternatives,
+     * en plus des [rules]. Vide = pas de contrainte. Sert aux genres multiples dictés
+     * (« rock ou métal ») comme à l'éditeur manuel. Absent des JSON 5.x : défaut vide ;
+     * dernier paramètre pour garder les constructions positionnelles existantes.
+     */
+    val anyOf: List<SmartRule> = emptyList(),
 ) {
     fun toJson(): String = JSON.encodeToString(serializer(), this)
 
