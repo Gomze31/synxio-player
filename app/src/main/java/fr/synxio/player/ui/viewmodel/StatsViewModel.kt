@@ -5,9 +5,11 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import fr.synxio.player.data.model.Album
 import fr.synxio.player.data.model.Artist
+import fr.synxio.player.data.model.Insights
 import fr.synxio.player.data.model.Song
 import fr.synxio.player.data.model.StatsPeriod
 import fr.synxio.player.data.model.StatsSummary
+import fr.synxio.player.data.repo.InsightsRepository
 import fr.synxio.player.data.repo.StatsRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,13 +33,17 @@ import javax.inject.Inject
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class StatsViewModel @Inject constructor(
-    private val statsRepository: StatsRepository
+    private val statsRepository: StatsRepository,
+    insightsRepository: InsightsRepository,
 ) : ViewModel() {
 
     /**
      * Flux du résumé des statistiques.
      */
     val statsSummary: StateFlow<StatsSummary> = statsRepository.statsSummary
+
+    /** Volet « Insights » : `null` tant que le premier calcul n'a pas abouti. */
+    val insights: StateFlow<Insights?> = insightsRepository.insights
 
     /**
      * Période de statistiques sélectionnée.
