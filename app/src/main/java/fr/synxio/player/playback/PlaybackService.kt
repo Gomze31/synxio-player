@@ -50,6 +50,11 @@ import fr.synxio.player.data.discord.DiscordPresenceRepository
 import fr.synxio.player.data.repo.DiscordRepository
 import fr.synxio.player.data.repo.LoudnessRepository
 import fr.synxio.player.data.repo.MusicRepository
+import fr.synxio.player.data.repo.TrackTraitsRepository
+import fr.synxio.player.playback.engine.AudioFocusGate
+import fr.synxio.player.playback.engine.CrossfadePlayer
+import fr.synxio.player.playback.engine.DualDeckScheduler
+import fr.synxio.player.playback.engine.GatedBufferSink
 import fr.synxio.player.widget.WidgetSnapshot
 import fr.synxio.player.widget.WidgetUpdater
 import kotlinx.coroutines.CoroutineScope
@@ -109,6 +114,7 @@ class PlaybackService : MediaLibraryService() {
     @Inject lateinit var carDetector: fr.synxio.player.core.car.CarDetector
     @Inject lateinit var playlists: fr.synxio.player.data.repo.PlaylistRepository
     @Inject lateinit var showSpeedDao: fr.synxio.player.data.db.ShowSpeedDao
+    @Inject lateinit var trackTraits: TrackTraitsRepository
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -136,11 +142,14 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
-    private lateinit var player: ExoPlayer
+    /**
+     * Lecteur à deux platines : seul lecteur vu par la session, les contrôleurs et ce
+     * service. Il possède les deux ExoPlayer et le focus audio.
+     */
+    private lateinit var player: CrossfadePlayer
     private lateinit var session: MediaLibrarySession
     private var castPlayer: androidx.media3.cast.CastPlayer? = null
     private val activePlayer: Player get() = session.player
-    private lateinit var fade: FadeController
 
     /**
      * Réveil en cours : la lecture passe sur le flux « alarme » le temps qu'il sonne.
@@ -154,7 +163,8 @@ class PlaybackService : MediaLibraryService() {
     private var alarmActive = false
     private var alarmHasPlayed = false
 
-    val vocalRemover = fr.synxio.player.playback.effects.VocalRemoverAudioProcessor()
+    /** Un suppresseur de voix par deck : un processeur audio a un état, il ne se partage pas. */
+    private val vocalRemovers = ArrayList<fr.synxio.player.playback.effects.VocalRemoverAudioProcessor>(2)
     private var partyServer: PartyServer? = null
     private var castServer: CastMediaServer? = null
 
@@ -256,37 +266,53 @@ class PlaybackService : MediaLibraryService() {
         val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(this)
             .setDataSourceFactory(dataSourceFactory)
 
-        val renderersFactory = object : androidx.media3.exoplayer.DefaultRenderersFactory(this) {
-            override fun buildAudioSink(
-                context: android.content.Context,
-                enableFloatOutput: Boolean,
-                enableAudioTrackPlaybackParams: Boolean
-            ): androidx.media3.exoplayer.audio.AudioSink? {
-                return androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
-                    // Le tee copie le PCM pour le pouls de la scène et le laisse passer tel quel.
-                    // Ni offload ni tunneling ici : les activer couperait ce tee.
-                    .setAudioProcessors(arrayOf(vocalRemover, androidx.media3.exoplayer.audio.TeeAudioProcessor(pulseSource.sink)))
-                    .build()
+        // Deux platines identiques ; chacune a son suppresseur de voix et sa porte vers le
+        // pouls (seule celle du deck actif est ouverte).
+        fun buildDeck(): CrossfadePlayer.Deck {
+            val vocalRemover = fr.synxio.player.playback.effects.VocalRemoverAudioProcessor()
+            vocalRemovers += vocalRemover
+            val pulseGate = GatedBufferSink(pulseSource.sink)
+            val renderersFactory = object : androidx.media3.exoplayer.DefaultRenderersFactory(this) {
+                override fun buildAudioSink(
+                    context: android.content.Context,
+                    enableFloatOutput: Boolean,
+                    enableAudioTrackPlaybackParams: Boolean
+                ): androidx.media3.exoplayer.audio.AudioSink? {
+                    return androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context)
+                        // Le tee copie le PCM pour le pouls de la scène et le laisse passer tel quel.
+                        // Ni offload ni tunneling ici : les activer couperait ce tee.
+                        .setAudioProcessors(arrayOf(vocalRemover, androidx.media3.exoplayer.audio.TeeAudioProcessor(pulseGate)))
+                        .build()
+                }
             }
+            val deck = ExoPlayer.Builder(this)
+                .setRenderersFactory(renderersFactory)
+                .setMediaSourceFactory(mediaSourceFactory)
+                // Le focus est tenu une seule fois par CrossfadePlayer : deux lecteurs qui le
+                // géreraient chacun se le voleraient pendant le chevauchement.
+                .setAudioAttributes(mediaAttributes(spatial = true), /* handleAudioFocus = */ false)
+                // Coupe la lecture quand on débranche le casque, comme tout lecteur sérieux.
+                .setHandleAudioBecomingNoisy(true)
+                // NETWORK et non LOCAL : webradios et podcasts sont lus en flux, et le Wi-Fi
+                // se mettait en veille écran éteint jusqu'à faire caler le flux. Les verrous ne
+                // sont tenus que pendant la lecture.
+                .setWakeMode(C.WAKE_MODE_NETWORK)
+                .setSeekBackIncrementMs(10_000)
+                .setSeekForwardIncrementMs(30_000)
+                .build()
+            return CrossfadePlayer.Deck(deck, pulseGate)
         }
 
-        player = ExoPlayer.Builder(this)
-            .setRenderersFactory(renderersFactory)
-            .setMediaSourceFactory(mediaSourceFactory)
-            .setAudioAttributes(mediaAttributes(spatial = true), /* handleAudioFocus = */ true)
-            // Coupe la lecture quand on débranche le casque, comme tout lecteur sérieux.
-            .setHandleAudioBecomingNoisy(true)
-            // NETWORK et non LOCAL : webradios et podcasts sont lus en flux, et le Wi-Fi
-            // se mettait en veille écran éteint jusqu'à faire caler le flux. Les verrous ne
-            // sont tenus que pendant la lecture.
-            .setWakeMode(C.WAKE_MODE_NETWORK)
-            .setSeekBackIncrementMs(10_000)
-            .setSeekForwardIncrementMs(30_000)
-            .build()
-
-        fade = FadeController(player, serviceScope)
+        val focusGate = AudioFocusGate(this, Handler(Looper.getMainLooper())).apply {
+            setAudioAttributes(mediaAttributes(spatial = true))
+        }
+        player = CrossfadePlayer(Looper.getMainLooper(), listOf(buildDeck(), buildDeck()), focusGate)
+        player.traitsFor = { item ->
+            item.mediaId.toLongOrNull()?.let(musicRepository::songById)?.let(trackTraits::traitsFor)
+                ?.let { DualDeckScheduler.Traits(introMs = it.introMs, outroMs = it.outroMs) }
+        }
         player.addListener(PlayerListener())
-        player.addAnalyticsListener(AudioSessionListener())
+        player.addDeckAnalyticsListener(AudioSessionListener())
 
         // On impose notre propre identifiant de session audio au lieu d'attendre
         // onAudioSessionIdChanged : sur cet appareil le callback ne se déclenchait
@@ -317,7 +343,7 @@ class PlaybackService : MediaLibraryService() {
         serviceScope.launch {
             var adaptiveOn = false
             sleepTimer.state.collect { state ->
-                fade.sleepGain = state.fadeMultiplier
+                player.gains.sleep = state.fadeMultiplier
                 val wantSensor = state.active && state.adaptive
                 if (wantSensor && !adaptiveOn) startStillnessWatch()
                 if (!wantSensor && adaptiveOn) stopStillnessWatch()
@@ -424,6 +450,12 @@ class PlaybackService : MediaLibraryService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession =
         session
 
+    /** Mémoire basse : la réserve rend ses décodeurs tout de suite au lieu d'attendre 30 s. */
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (::player.isInitialized) player.trimReserve()
+    }
+
     override fun onTaskRemoved(rootIntent: Intent?) {
         // Si rien ne joue quand l'utilisateur balaie l'app, inutile de garder le service.
         // shouldShowPlayButton couvre aussi la fin de file et l'erreur, où
@@ -461,7 +493,6 @@ class PlaybackService : MediaLibraryService() {
         }
         headsetCallback = null
         buttonHandler.removeCallbacksAndMessages(null)
-        fade.release()
         stopStillnessWatch()
         sleepTimer.cancel()
         sensorManager?.unregisterListener(shakeDetector)
@@ -488,10 +519,12 @@ class PlaybackService : MediaLibraryService() {
             .onEach { s ->
                 val previous = latestSettings
                 latestSettings = s
-                player.skipSilenceEnabled = s.skipSilence
+                player.setSkipSilenceEnabled(s.skipSilence)
                 applySpeed()
-                // 0 ms = gapless natif d'ExoPlayer, sans manipulation de volume.
-                fade.durationMs = if (s.gaplessEnabled) s.crossfadeMs else s.crossfadeMs.coerceAtLeast(300)
+                // 0 ms = gapless natif d'ExoPlayer, la réserve dort.
+                player.curve = s.crossfadeCurve
+                player.energyAligned = s.crossfadeEnergyAligned
+                player.fadeMs = s.crossfadeMs
 
                 equalizer.setEnabled(s.equalizerEnabled)
                 if (s.equalizerEnabled) {
@@ -521,13 +554,13 @@ class PlaybackService : MediaLibraryService() {
                 }
 
                 if (previous != null && previous.themeMode != s.themeMode) refreshWidgetSoon()
-                vocalRemover.setEnabled(s.karaokeEnabled)
+                vocalRemovers.forEach { it.setEnabled(s.karaokeEnabled) }
                 mediaButtons.gesturesEnabled = s.headsetMultiClick
                 // Pas pendant un réveil : il impose ses propres attributs (usage alarme).
                 if (previous != null && previous.spatialAudio != s.spatialAudio && !alarmActive) {
                     player.setAudioAttributes(mediaAttributes(s.spatialAudio), /* handleAudioFocus = */ true)
                 }
-                fade.volumeCap = if (s.maxVolumeLimit) s.maxVolumeValue else 1f
+                player.gains.volumeCap = if (s.maxVolumeLimit) s.maxVolumeValue else 1f
 
                 if (s.partyEnabled && partyServer == null) {
                     partyServer = runCatching { PartyServer(8080).apply { start() } }.getOrNull()
@@ -802,21 +835,22 @@ class PlaybackService : MediaLibraryService() {
     // --- Réveil en musique ---------------------------------------------------------------
 
     private fun enterAlarmMode(rampSeconds: Int) {
-        if (activePlayer !== player) return
+        // Pas de réveil en Cast : les attributs « alarme » visent les deux decks locaux.
+        if (activePlayer !is CrossfadePlayer) return
         alarmActive = true
         alarmHasPlayed = false
         player.setAudioAttributes(ALARM_ATTRIBUTES, /* handleAudioFocus = */ true)
         alarmRamp?.cancel()
         if (rampSeconds <= 0) {
-            fade.alarmGain = 1f
+            player.gains.alarm = 1f
             return
         }
-        fade.alarmGain = ALARM_START_GAIN
+        player.gains.alarm = ALARM_START_GAIN
         alarmRamp = serviceScope.launch {
             val steps = rampSeconds * 1_000L / ALARM_RAMP_TICK_MS
             for (step in 1..steps) {
                 delay(ALARM_RAMP_TICK_MS)
-                fade.alarmGain = ALARM_START_GAIN + (1f - ALARM_START_GAIN) * step / steps
+                player.gains.alarm = ALARM_START_GAIN + (1f - ALARM_START_GAIN) * step / steps
             }
         }
     }
@@ -824,7 +858,7 @@ class PlaybackService : MediaLibraryService() {
     private fun exitAlarmMode() {
         alarmActive = false
         alarmRamp?.cancel()
-        fade.alarmGain = 1f
+        player.gains.alarm = 1f
         player.setAudioAttributes(mediaAttributes(latestSettings?.spatialAudio ?: true), /* handleAudioFocus = */ true)
         // Pause depuis le casque, l'écran de verrouillage ou l'appli : la notification
         // « Arrêter / Répéter » n'a plus d'objet.
@@ -909,8 +943,8 @@ class PlaybackService : MediaLibraryService() {
     /**
      * Fin de la minuterie de veille.
      *
-     * Le fondu est déjà fait : `sleepGain` descend à 0 sur la dernière minute via
-     * [FadeController]. Un second fondu ici écrasait `player.volume` hors de ce contrôleur.
+     * Le fondu est déjà fait : `gains.sleep` descend à 0 sur la dernière minute via
+     * [CrossfadePlayer]. Un second fondu ici écrasait `player.volume` hors de ce contrôleur.
      */
     private fun pauseForSleepTimer() {
         serviceScope.launch { activePlayer.pause() }
@@ -950,11 +984,16 @@ class PlaybackService : MediaLibraryService() {
     private fun applyNormalization() {
         val settings = latestSettings ?: return
         if (!settings.normalizeVolume) {
-            fade.normalizationGain = 1f
+            player.gains.normalizationFor = { 1f }
             return
         }
-        val song = currentSong() ?: return
-        fade.normalizationGain = loudnessRepository.gainFor(song, settings.normalizeTargetDbfs)
+        // Par titre et non pour le seul titre courant : pendant un fondu, la réserve joue
+        // déjà le suivant avec son propre gain.
+        val target = settings.normalizeTargetDbfs
+        player.gains.normalizationFor = { item ->
+            val song = item?.mediaId?.toLongOrNull()?.let(musicRepository::songById)
+            if (song == null) 1f else loudnessRepository.gainFor(song, target)
+        }
     }
 
     private fun currentSong(): Song? {
@@ -1040,7 +1079,6 @@ class PlaybackService : MediaLibraryService() {
             }
 
             applyNormalization()
-            fade.resetVolume()
             persistQueue()
             updatePartyServerState()
             refreshCustomLayout()
@@ -1153,7 +1191,6 @@ class PlaybackService : MediaLibraryService() {
             // Position exacte du morceau que l'on quitte, avant que le lecteur passe au suivant.
             tracker.notePosition(oldPosition.mediaItem?.songId, oldPosition.positionMs)
             if (reason == Player.DISCONTINUITY_REASON_SEEK) {
-                fade.resetVolume()
                 // Une recherche manuelle est un point de reprise que l'on veut retrouver.
                 if (oldPosition.mediaItemIndex == newPosition.mediaItemIndex) persistQueueSoon()
             }
@@ -1219,15 +1256,15 @@ class PlaybackService : MediaLibraryService() {
      * tirés avant lui, soit en moyenne la moitié de la sélection.
      */
     private fun anchorShuffleOrderOnCurrent() {
-        if (activePlayer !== player) return
-        val count = player.mediaItemCount
+        val p = activePlayer as? CrossfadePlayer ?: return
+        val count = p.mediaItemCount
         if (count < 2) return
-        val current = player.currentMediaItemIndex.coerceIn(0, count - 1)
+        val current = p.currentMediaItemIndex.coerceIn(0, count - 1)
         val rest = (0 until count).filter { it != current }.shuffled()
         val order = IntArray(count)
         order[0] = current
         rest.forEachIndexed { i, index -> order[i + 1] = index }
-        player.setShuffleOrder(DefaultShuffleOrder(order, Random.nextLong()))
+        p.setShuffleOrder(DefaultShuffleOrder(order, Random.nextLong()))
     }
 
     /** Vrai s'il reste au plus un morceau à jouer, dans l'ordre réel (aléatoire compris). */
@@ -1601,7 +1638,7 @@ class PlaybackService : MediaLibraryService() {
         val sessionId = runCatching { audioManager.generateAudioSessionId() }.getOrNull()
         if (sessionId == null || sessionId == AudioManager.ERROR) return
 
-        runCatching { player.audioSessionId = sessionId }
+        runCatching { player.setAudioSessionId(sessionId) }
             .onFailure { return }
 
         equalizer.attach(sessionId)
