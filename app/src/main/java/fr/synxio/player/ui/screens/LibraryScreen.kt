@@ -1,5 +1,8 @@
 package fr.synxio.player.ui.screens
 
+import android.content.Context
+import android.hardware.Sensor
+import android.hardware.SensorManager
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
@@ -56,6 +59,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.DirectionsRun
 import androidx.compose.material.icons.rounded.FitnessCenter
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.LibraryMusic
@@ -100,6 +104,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -180,6 +185,7 @@ fun LibraryScreen(
     onCreateRulePlaylist: () -> Unit,
     onEditRulePlaylist: (Long) -> Unit,
     onOpenAudiobooks: () -> Unit = {},
+    onOpenRun: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val tabs = LibraryTab.entries
@@ -264,7 +270,7 @@ fun LibraryScreen(
                     LibraryTab.GENRES -> GenresTab(viewModel, onOpenGenre)
                     LibraryTab.FOLDERS -> FoldersTab(viewModel, onOpenFolder)
                     LibraryTab.PODCASTS -> PodcastsTab(viewModel, onOpenAlbum, onOpenArtist, onEditTags)
-                    LibraryTab.RADIOS -> RadiosTab(viewModel)
+                    LibraryTab.RADIOS -> RadiosTab(viewModel, onOpenRun)
                     LibraryTab.PLAYLISTS -> PlaylistsTab(
                         viewModel = viewModel,
                         onOpenPlaylist = onOpenPlaylist,
@@ -493,7 +499,7 @@ private val Mood.description: String
 private const val MOOD_ANALYSIS_THRESHOLD = 0.9f
 
 @Composable
-private fun RadiosTab(viewModel: AppViewModel) {
+private fun RadiosTab(viewModel: AppViewModel, onOpenRun: () -> Unit) {
     val progress by viewModel.similarityProgress.collectAsStateWithLifecycle()
     val analysedCount by viewModel.similarityAnalysedCount.collectAsStateWithLifecycle()
     val library by viewModel.library.collectAsStateWithLifecycle()
@@ -523,6 +529,7 @@ private fun RadiosTab(viewModel: AppViewModel) {
             totalSongs = totalSongs,
             onMood = { viewModel.playMoodRadio(it) },
             onAnalyse = { viewModel.analyseLibrary() },
+            onOpenRun = onOpenRun,
         )
     }
 }
@@ -622,7 +629,14 @@ private fun MoodGrid(
     totalSongs: Int,
     onMood: (Mood) -> Unit,
     onAnalyse: () -> Unit,
+    onOpenRun: () -> Unit,
 ) {
+    // La course n'a de sens qu'avec un podomètre ; sans lui la carte n'apparaît pas.
+    val context = LocalContext.current
+    val hasStepDetector = remember(context) {
+        (context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager)
+            ?.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR) != null
+    }
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
         modifier = Modifier.fillMaxSize(),
@@ -657,6 +671,12 @@ private fun MoodGrid(
             }
         }
 
+        if (hasStepDetector) {
+            item(key = "run", span = { GridItemSpan(maxLineSpan) }, contentType = "run") {
+                RunCard(onClick = onOpenRun, modifier = Modifier.enterCascade(0, "run"))
+            }
+        }
+
         itemsIndexed(Mood.entries, key = { _, it -> it.name }, contentType = { _, _ -> "mood" }) { index, mood ->
             MoodCard(
                 mood = mood,
@@ -683,6 +703,36 @@ private fun MoodGrid(
                     )
                     TextButton(onClick = onAnalyse, shape = SynxioShape.pill) { Text("Compléter") }
                 }
+            }
+        }
+    }
+}
+
+/** Carte « Course » : la musique suit tes pas (étape 8 de la 6.0), au-dessus des ambiances. */
+@Composable
+private fun RunCard(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val scheme = MaterialTheme.colorScheme
+    GlassCard(
+        modifier = modifier
+            .fillMaxWidth()
+            .semantics { contentDescription = "Ouvrir la course au tempo" },
+        onClick = onClick,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Rounded.DirectionsRun,
+                contentDescription = null,
+                tint = scheme.primary,
+                modifier = Modifier.size(32.dp),
+            )
+            Spacer(Modifier.width(Space.md))
+            Column(Modifier.weight(1f)) {
+                Text("Course au tempo", style = MaterialTheme.typography.titleLarge, color = scheme.onSurface)
+                Text(
+                    "La musique suit tes pas : des titres au rythme de ta cadence.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = scheme.onSurfaceVariant,
+                )
             }
         }
     }

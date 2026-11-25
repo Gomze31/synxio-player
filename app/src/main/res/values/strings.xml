@@ -25,5 +25,7 @@
     <string name="shortcut_favorites_long">Lire mes favoris</string>
     <string name="shortcut_resume_short">Reprendre</string>
     <string name="shortcut_resume_long">Reprendre la lecture</string>
+    <string name="shortcut_run_short">Course</string>
+    <string name="shortcut_run_long">Courir au tempo</string>
 
 </resources>

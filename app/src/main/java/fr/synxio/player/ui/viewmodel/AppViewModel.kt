@@ -95,6 +95,7 @@ class AppViewModel @Inject constructor(
     private val bookmarkDao: fr.synxio.player.data.db.BookmarkDao,
     private val diagnostics: fr.synxio.player.core.diag.Diagnostics,
     carDetector: fr.synxio.player.core.car.CarDetector,
+    private val runSession: fr.synxio.player.playback.RunSession,
 ) : ViewModel() {
 
     /** Voiture Bluetooth connectée, pour le mode voiture. */
@@ -367,6 +368,15 @@ class AppViewModel @Inject constructor(
     val mostPlayed: StateFlow<List<Song>> = musicRepository.mostPlayed
     val recentlyPlayed: StateFlow<List<Song>> = musicRepository.recentlyPlayed
     val sleepTimerState: StateFlow<SleepTimerState> = sleepTimer.state
+
+    // --- Course au tempo : l'écran commande, le service mesure et choisit (RunController).
+    val runState: StateFlow<fr.synxio.player.playback.RunState> = runSession.state
+    fun startRun(sensorAllowed: Boolean) = runSession.start(sensorAllowed)
+    fun stopRun() = runSession.stop()
+    fun lockRun(bpm: Float) = runSession.lock(bpm)
+    fun lockRunToCadence() = runSession.lockToCadence()
+    fun followRun() = runSession.follow()
+    fun setRunSensorAllowed(allowed: Boolean) = runSession.setSensorAllowed(allowed)
     val pulse: StateFlow<fr.synxio.player.playback.pulse.AudioPulse> = player.pulse
 
     val settings: StateFlow<Settings> = settingsRepository.settings

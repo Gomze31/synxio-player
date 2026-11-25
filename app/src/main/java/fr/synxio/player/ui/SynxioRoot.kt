@@ -210,6 +210,7 @@ object Routes {
     const val DUPLICATES = "duplicates"
     const val RECENTS = "recents"
     const val DRIVE_MODE = "drive_mode"
+    const val RUN_MODE = "run_mode"
     const val SMART = "smart/{smartId}"
     const val RULE = "rule/{ruleId}"
     const val RULE_EDITOR = "rule_editor/{ruleId}"
@@ -242,7 +243,7 @@ object Routes {
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
-fun SynxioRoot(viewModel: AppViewModel, openPlayerRequest: Long, openDriveModeRequest: Long = 0L) {
+fun SynxioRoot(viewModel: AppViewModel, openPlayerRequest: Long, openDriveModeRequest: Long = 0L, openRunRequest: Long = 0L) {
     val permission = rememberPermissionState(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             Manifest.permission.READ_MEDIA_AUDIO
@@ -292,7 +293,7 @@ fun SynxioRoot(viewModel: AppViewModel, openPlayerRequest: Long, openDriveModeRe
             LocalSceneUniforms provides sceneUniforms,
         ) {
         if (permission.status.isGranted) {
-            MainScaffold(viewModel, openPlayerRequest, openDriveModeRequest, onSurfaceVisible = { surfaceVisible = it })
+            MainScaffold(viewModel, openPlayerRequest, openDriveModeRequest, openRunRequest, onSurfaceVisible = { surfaceVisible = it })
         } else {
             PermissionScreen(
                 // Après « Ne plus demander », la demande système ne s'affiche plus : le
@@ -309,7 +310,7 @@ fun SynxioRoot(viewModel: AppViewModel, openPlayerRequest: Long, openDriveModeRe
 }
 
 @Composable
-private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long, openDriveModeRequest: Long, onSurfaceVisible: (Boolean) -> Unit) {
+private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long, openDriveModeRequest: Long, openRunRequest: Long, onSurfaceVisible: (Boolean) -> Unit) {
     val navController = rememberNavController()
     val showBottomBar = shouldShowBottomBar(navController)
     val snackbarHost = remember { SnackbarHostState() }
@@ -367,6 +368,14 @@ private fun MainScaffold(viewModel: AppViewModel, openPlayerRequest: Long, openD
         if (openDriveModeRequest > 0L && navController.currentDestination?.route != Routes.DRIVE_MODE) {
             closePlayer()
             navController.navigate(Routes.DRIVE_MODE)
+        }
+    }
+
+    // Raccourci « Course » de l'écran d'accueil : un jeton par demande.
+    LaunchedEffect(openRunRequest) {
+        if (openRunRequest > 0L && navController.currentDestination?.route != Routes.RUN_MODE) {
+            closePlayer()
+            navController.navigate(Routes.RUN_MODE)
         }
     }
 
@@ -732,6 +741,7 @@ private fun shouldShowBottomBar(navController: NavHostController): Boolean {
             route == Routes.DUPLICATES ||
             route == Routes.RECENTS ||
             route == Routes.DRIVE_MODE ||
+            route == Routes.RUN_MODE ||
             route == Routes.PARTY_MODE
 
     return !fullScreen
@@ -975,6 +985,7 @@ private fun AppNavHost(
                 onCreateRulePlaylist = { navController.navigate(Routes.ruleEditor()) },
                 onEditRulePlaylist = { navController.navigate(Routes.ruleEditor(it)) },
                 onOpenAudiobooks = { navController.navigate(Routes.AUDIOBOOKS) },
+                onOpenRun = { navController.navigate(Routes.RUN_MODE) },
             )
         }
 
@@ -1136,6 +1147,13 @@ private fun AppNavHost(
 
         screen(Routes.DRIVE_MODE) {
             fr.synxio.player.ui.screens.DriveModeScreen(
+                viewModel = viewModel,
+                onExit = { navController.popBackStack() }
+            )
+        }
+
+        screen(Routes.RUN_MODE) {
+            fr.synxio.player.ui.screens.RunScreen(
                 viewModel = viewModel,
                 onExit = { navController.popBackStack() }
             )

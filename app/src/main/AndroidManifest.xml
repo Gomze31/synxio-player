@@ -26,6 +26,13 @@
         android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!--
+        Course au tempo : podomètre (TYPE_STEP_DETECTOR). Demandée seulement à l'ouverture de
+        l'écran Course, jamais au démarrage ; sans localisation. Refusée, la cible se choisit
+        à la main.
+    -->
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+
     <!-- Égaliseur / effets audio -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
@@ -150,6 +157,7 @@
                 <action android:name="fr.synxio.player.SHUFFLE_ALL" />
                 <action android:name="fr.synxio.player.PLAY_FAVORITES" />
                 <action android:name="fr.synxio.player.RESUME" />
+                <action android:name="fr.synxio.player.RUN_MODE" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
 

@@ -119,6 +119,7 @@ class MainActivity : AppCompatActivity() {
             var showOnboarding by rememberSaveable { mutableStateOf(!hasSeenOnboarding(this@MainActivity)) }
             var openPlayerRequest by remember { mutableLongStateOf(0L) }
             var openDriveModeRequest by remember { mutableLongStateOf(0L) }
+            var openRunRequest by remember { mutableLongStateOf(0L) }
 
             // Le splash dure le temps utile, plus le geste de marque : il se lève dès que
             // la bibliothèque est prête, au plus tard au bout de SPLASH_MAX_MS. Les 2 s
@@ -138,6 +139,7 @@ class MainActivity : AppCompatActivity() {
                 when (current.action) {
                     ACTION_SHOW_PLAYER -> openPlayerRequest = System.nanoTime()
                     ACTION_DRIVE_MODE -> openDriveModeRequest = System.nanoTime()
+                    ACTION_RUN_MODE -> openRunRequest = System.nanoTime()
                     Intent.ACTION_VIEW -> current.data?.let { uri ->
                         playerConnection.playExternalUri(uri, displayNameOf(uri))
                         openPlayerRequest = System.nanoTime()
@@ -204,6 +206,7 @@ class MainActivity : AppCompatActivity() {
                             viewModel = viewModel,
                             openPlayerRequest = openPlayerRequest,
                             openDriveModeRequest = openDriveModeRequest,
+                            openRunRequest = openRunRequest,
                         )
                     }
                 }
@@ -239,6 +242,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         const val ACTION_SHOW_PLAYER = "fr.synxio.player.SHOW_PLAYER"
         const val ACTION_DRIVE_MODE = "fr.synxio.player.DRIVE_MODE"
+        const val ACTION_RUN_MODE = "fr.synxio.player.RUN_MODE"
         const val ACTION_SHUFFLE_ALL = "fr.synxio.player.SHUFFLE_ALL"
         const val ACTION_PLAY_FAVORITES = "fr.synxio.player.PLAY_FAVORITES"
         const val ACTION_RESUME = "fr.synxio.player.RESUME"
