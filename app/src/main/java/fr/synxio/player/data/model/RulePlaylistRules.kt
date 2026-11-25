@@ -88,6 +88,8 @@ enum class SmartSort(val label: String) {
     RANDOM("Aléatoire"),
     BPM("Tempo"),
     ENERGY("Énergie"),
+    /** Enchaînement Flow (tempo, tonalité, énergie) après filtrage ; `descending` ignoré. */
+    FLOW("Flow"),
 }
 
 /**

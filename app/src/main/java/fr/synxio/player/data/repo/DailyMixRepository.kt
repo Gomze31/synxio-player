@@ -4,6 +4,7 @@ import fr.synxio.player.data.db.PlayStatEntity
 import fr.synxio.player.data.model.DailyMix
 import fr.synxio.player.data.model.DailyMixEngine
 import fr.synxio.player.data.model.Song
+import fr.synxio.player.data.model.TrackTraits
 import fr.synxio.player.di.ApplicationScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,29 +34,38 @@ import javax.inject.Singleton
 class DailyMixRepository @Inject constructor(
     private val musicRepository: MusicRepository,
     private val similarity: SimilarityRepository,
+    ratingRepository: RatingRepository,
+    trackTraits: TrackTraitsRepository,
     @ApplicationScope private val scope: CoroutineScope,
 ) {
 
     val mixes: StateFlow<List<DailyMix>> = combine(
-        musicRepository.library.map { it.songs }.distinctUntilChanged { a, b -> a === b },
-        musicRepository.allStats,
-        musicRepository.favoriteIds,
-        similarity.analysedCount,
-        localDays(),
-    ) { songs, stats, favorites, _, day -> Inputs(songs, stats, favorites, day) }
+        combine(
+            musicRepository.library.map { it.songs }.distinctUntilChanged { a, b -> a === b },
+            musicRepository.allStats,
+            musicRepository.favoriteIds,
+            similarity.analysedCount,
+            localDays(),
+        ) { songs, stats, favorites, _, day -> Inputs(songs, stats, favorites, day) },
+        ratingRepository.ratings,
+        trackTraits.traits,
+    ) { inputs, ratings, traits -> inputs.copy(ratings = ratings, traits = traits) }
         // Une écoute met à jour les stats ; inutile de tout recalculer à la milliseconde.
         .debounce(500)
-        .mapLatest { (songs, stats, favorites, day) ->
+        .mapLatest { inputs ->
+            val songs = inputs.songs
             if (songs.isEmpty()) return@mapLatest emptyList()
-            val seed = weeklyFavourite(songs, stats)
+            val seed = weeklyFavourite(songs, inputs.stats)
             val similar = seed?.let { similarity.similarTo(it, songs, limit = DailyMixEngine.MIX_SIZE) }.orEmpty()
             DailyMixEngine.build(
                 songs = songs,
-                stats = stats,
-                favoriteIds = favorites,
-                day = day,
+                stats = inputs.stats,
+                favoriteIds = inputs.favorites,
+                day = inputs.day,
                 similarSeed = seed?.takeIf { similar.isNotEmpty() },
                 similar = similar,
+                ratings = inputs.ratings,
+                traits = inputs.traits,
             )
         }
         .flowOn(Dispatchers.Default)
@@ -89,6 +99,8 @@ class DailyMixRepository @Inject constructor(
         val stats: Map<Long, PlayStatEntity>,
         val favorites: Set<Long>,
         val day: Long,
+        val ratings: Map<Long, Int> = emptyMap(),
+        val traits: Map<String, TrackTraits> = emptyMap(),
     )
 
     private companion object {

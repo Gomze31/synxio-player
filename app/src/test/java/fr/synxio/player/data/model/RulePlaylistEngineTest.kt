@@ -211,6 +211,24 @@ class RulePlaylistEngineTest {
     }
 
     @Test
+    fun `le tri flow enchaine par tempo et rejette les titres non analyses en fin`() {
+        val songs = (1L..6L).map { song(id = it, artist = "Artiste $it") }
+        fun traits(bpm: Float) = TrackTraits(bpm, 0.9f, KeyNames.parse("8A")!!, 0.9f, 0.5f, 0, 180_000)
+        val traits = mapOf(
+            "/music/1.mp3" to traits(120f),
+            "/music/2.mp3" to traits(121f),
+            "/music/3.mp3" to traits(160f),
+            "/music/4.mp3" to traits(122f),
+        )
+        val result = RulePlaylistEngine.evaluate(rules(sort = SmartSort.FLOW), songs, emptyMap(), emptySet(), now, traits = traits)
+        assertEquals(listOf(1L, 2L, 4L, 3L), result.take(4).map { it.id })
+        assertEquals(setOf(5L, 6L), result.drop(4).map { it.id }.toSet())
+        // `descending` n'a pas de sens en Flow : même ordre.
+        val reversed = RulePlaylistEngine.evaluate(rules(sort = SmartSort.FLOW, descending = true), songs, emptyMap(), emptySet(), now, traits = traits)
+        assertEquals(result, reversed)
+    }
+
+    @Test
     fun `les regles survivent a un aller-retour json`() {
         val original = rules(
             SmartRule(RuleField.ARTIST, RuleOperator.CONTAINS, "Damso"),

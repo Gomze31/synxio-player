@@ -150,6 +150,7 @@ object RulePlaylistEngine {
             // au lieu de se réordonner à chaque recomposition.
             return songs.shuffled(Random(now / DAY_MS))
         }
+        if (rules.sort == SmartSort.FLOW) return flowOrder(songs, traits)
         val comparator: Comparator<Song> = when (rules.sort) {
             SmartSort.TITLE -> compareBy { it.title.lowercase() }
             SmartSort.ARTIST -> compareBy { it.artist.lowercase() }
@@ -160,8 +161,20 @@ object RulePlaylistEngine {
             SmartSort.LAST_PLAYED -> compareBy { stats[it.id]?.lastPlayedAt ?: 0L }
             SmartSort.BPM -> compareBy { traits[it.path]?.bpm ?: 0f }
             SmartSort.ENERGY -> compareBy { traits[it.path]?.energy ?: 0f }
-            SmartSort.RANDOM -> compareBy { it.id }   // inatteignable, exhaustivité du when
+            SmartSort.RANDOM, SmartSort.FLOW -> compareBy { it.id }   // inatteignables, exhaustivité du when
         }
         return songs.sortedWith(if (rules.descending) comparator.reversed() else comparator)
+    }
+
+    /**
+     * Ordre Flow : départ sur le premier titre analysé, puis plus proche voisin et 2-opt
+     * (`FlowEngine`). Les titres non analysés se retrouvent en fin. Un même titre peut
+     * apparaître une seule fois dans une playlist à règles : la position sert d'identifiant.
+     */
+    private fun flowOrder(songs: List<Song>, traits: Map<String, TrackTraits>): List<Song> {
+        if (songs.size < 3) return songs
+        val tracks = songs.mapIndexed { index, song -> song.toFlowTrack(index.toLong(), traits[song.path]) }
+        val start = tracks.firstOrNull { it.hasData }?.id
+        return FlowEngine.order(tracks, startId = start).map { songs[it.toInt()] }
     }
 }

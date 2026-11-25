@@ -2,9 +2,10 @@ package fr.synxio.player.data.model
 
 import androidx.compose.runtime.Immutable
 import fr.synxio.player.data.db.PlayStatEntity
+import kotlin.math.roundToInt
 import kotlin.random.Random
 
-enum class DailyMixKind { DAILY, SIMILAR, ARTIST, DISCOVERY }
+enum class DailyMixKind { DAILY, SIMILAR, ARTIST, DISCOVERY, FLOW }
 
 /**
  * Un mix renouvelé chaque jour.
@@ -40,10 +41,13 @@ object DailyMixEngine {
     private const val FAMILIAR_SHARE = 15
     private const val ARTIST_OWN_SONGS = 10
     private const val ARTIST_MIXES = 3
+    private const val FLOW_DAYS = 90L
+    private const val GOOD_RATING = 4
 
     /**
      * [similarSeed] et [similar] : titre de départ et voisins sonores déjà calculés par
      * l'analyse du son. Sans eux, le mix « Dans la lignée de… » est simplement absent.
+     * [ratings] et [traits] (empreinte 2) nourrissent le « Flow du jour », absent sans eux.
      */
     fun build(
         songs: List<Song>,
@@ -52,11 +56,14 @@ object DailyMixEngine {
         day: Long,
         similarSeed: Song? = null,
         similar: List<Song> = emptyList(),
+        ratings: Map<Long, Int> = emptyMap(),
+        traits: Map<String, TrackTraits> = emptyMap(),
     ): List<DailyMix> {
         val pool = songs.filterNot { stats[it.id].isDisliked() }
         if (pool.isEmpty()) return emptyList()
         return buildList {
             add(daily(pool, stats, favoriteIds, day))
+            add(flow(pool, stats, favoriteIds, ratings, traits, day))
             if (similarSeed != null) add(similarMix(similarSeed, similar, stats, day))
             addAll(artistMixes(pool, stats, day))
             add(discovery(pool, stats, day))
@@ -83,6 +90,45 @@ object DailyMixEngine {
             title = "Ton mix du jour",
             subtitle = "Tes classiques et quelques titres à redécouvrir",
             songs = picker.result.shuffled(random).spreadArtists(),
+        )
+    }
+
+    /**
+     * « Flow du jour » : ce que l'utilisateur aime (favoris, bien notés, écoutés ces
+     * [FLOW_DAYS] derniers jours) parmi les titres analysés, enchaîné en vague par
+     * [FlowEngine]. Filtré par [build] sous [MIN_SIZE] titres analysés.
+     */
+    private fun flow(
+        pool: List<Song>,
+        stats: Map<Long, PlayStatEntity>,
+        favoriteIds: Set<Long>,
+        ratings: Map<Long, Int>,
+        traits: Map<String, TrackTraits>,
+        day: Long,
+    ): DailyMix {
+        val cutoff = (day - FLOW_DAYS) * DAY_MS
+        val candidates = pool.filter { song ->
+            val t = traits[song.path] ?: return@filter false
+            t.hasBpm && t.hasKey && (
+                song.id in favoriteIds ||
+                    (ratings[song.id] ?: 0) >= GOOD_RATING ||
+                    (stats[song.id]?.lastPlayedAt ?: 0L) >= cutoff
+                )
+        }
+        val picker = Picker()
+        picker.takeFrom(candidates.shuffled(Random(seed(day, 3))), MIX_SIZE)
+        val picked = picker.result
+        val tracks = picked.mapIndexed { index, song -> song.toFlowTrack(index.toLong(), traits[song.path]) }
+        val ordered = FlowEngine.order(tracks, startId = 0L, arc = FlowArc.WAVE).map { picked[it.toInt()] }
+        val bpms = ordered.map { traits.getValue(it.path).bpm.roundToInt() }
+        val subtitle = if (bpms.isEmpty()) "" else
+            "${ordered.size} titres qui s'enchaînent, ${bpms.first()} → ${bpms.max()} → ${bpms.last()} BPM"
+        return DailyMix(
+            key = "flow",
+            kind = DailyMixKind.FLOW,
+            title = "Flow du jour",
+            subtitle = subtitle,
+            songs = ordered,
         )
     }
 
