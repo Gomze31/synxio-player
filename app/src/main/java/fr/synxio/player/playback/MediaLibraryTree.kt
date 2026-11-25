@@ -27,6 +27,8 @@ import fr.synxio.player.data.repo.MemoryRepository
 import fr.synxio.player.data.repo.MusicRepository
 import fr.synxio.player.data.repo.PlaylistRepository
 import fr.synxio.player.data.repo.RadioRepository
+import fr.synxio.player.data.repo.RatingRepository
+import fr.synxio.player.data.repo.TrackTraitsRepository
 import fr.synxio.player.data.repo.SearchResults
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -56,6 +58,8 @@ class MediaLibraryTree @Inject constructor(
     private val radios: RadioRepository,
     private val dailyMixes: DailyMixRepository,
     private val memories: MemoryRepository,
+    private val ratings: RatingRepository,
+    private val trackTraits: TrackTraitsRepository,
     queueDao: QueueDao,
     podcastProgressDao: fr.synxio.player.data.db.PodcastProgressDao,
     @fr.synxio.player.di.ApplicationScope scope: kotlinx.coroutines.CoroutineScope,
@@ -101,6 +105,9 @@ class MediaLibraryTree @Inject constructor(
         override val memories: List<Memory> get() = this@MediaLibraryTree.memories.memories.value
         override val playCounts: Map<Long, Int> get() = music.allStats.value.mapValues { it.value.playCount }
         override val lastQueue: BrowseQueue? get() = this@MediaLibraryTree.lastQueue.value
+        override val playStats get() = music.allStats.value
+        override val ratings: Map<Long, Int> get() = this@MediaLibraryTree.ratings.ratings.value
+        override val traits get() = trackTraits.traits.value
         override fun search(query: String, limitPerSection: Int): SearchResults = music.search(query, limitPerSection)
     }
 

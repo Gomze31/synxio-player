@@ -3,8 +3,12 @@ package fr.synxio.player.playback
 import fr.synxio.player.core.util.fuzzyScore
 import fr.synxio.player.core.util.asLongDuration
 import fr.synxio.player.core.util.normalizeForSearch
+import fr.synxio.player.data.db.PlayStatEntity
 import fr.synxio.player.data.db.PodcastProgressEntity
 import fr.synxio.player.data.model.Album
+import fr.synxio.player.data.model.LibraryVocabulary
+import fr.synxio.player.data.model.RulePlaylistEngine
+import fr.synxio.player.data.model.TrackTraits
 import fr.synxio.player.data.model.Artist
 import fr.synxio.player.data.model.BookProgress
 import fr.synxio.player.data.model.DailyMix
@@ -174,6 +178,10 @@ interface BrowseSource {
     val playCounts: Map<Long, Int> get() = emptyMap()
     /** File sauvegardée au dernier arrêt, avec son index et sa position. Null sans file. */
     val lastQueue: BrowseQueue? get() = null
+    /** Statistiques, notes et traits par titre : une phrase dictée « jamais écoutés », « calme » les lit. */
+    val playStats: Map<Long, PlayStatEntity> get() = emptyMap()
+    val ratings: Map<Long, Int> get() = emptyMap()
+    val traits: Map<String, TrackTraits> get() = emptyMap()
     fun search(query: String, limitPerSection: Int): SearchResults
 }
 
@@ -241,6 +249,8 @@ class BrowseTree(
     private val shuffle: (List<Song>) -> List<Song> = { it.shuffled() },
     /** Numéro du jour : graine de « Surprends-moi », stable jusqu'à minuit. */
     private val today: () -> Long = { java.time.LocalDate.now().toEpochDay() },
+    /** Horloge en millisecondes pour les règles « pas écouté depuis N jours » d'une phrase dictée. */
+    private val now: () -> Long = { System.currentTimeMillis() },
 ) {
 
     fun root(): List<BrowseNode> = listOf(
@@ -376,8 +386,8 @@ class BrowseTree(
             .map { radioNode(it).copy(groupTitle = "Radios") }
         val songs = results.songs.take(SEARCH_LIMIT).map { songNode(parent, it).copy(groupTitle = "Titres") }
 
-        val intent = VoiceInterpreter.interpret(q.normalizeForSearch(), VoiceRequest(q), currentYear())
-        val playAll = if (intent.years != null || bestGenre(q) != null) {
+        val intent = VoiceInterpreter.interpret(q.normalizeForSearch(), VoiceRequest(q), currentYear(), vocabulary())
+        val playAll = if (intent.years != null || intent.rules != null || bestGenre(q) != null) {
             songsOf(BrowseIds.SEARCH_ALL_PREFIX + q)?.let { all ->
                 listOf(BrowseNode(BrowseIds.SEARCH_ALL_PREFIX + q, "Tout lire", titles(all.size), NodeKind.FOLDER_PLAYABLE,
                     NodeArt.Icon(BrowseIcon.SHUFFLE), playableStyle = ChildStyle.LIST, actions = CONTAINER_ACTIONS))
@@ -399,7 +409,7 @@ class BrowseTree(
      */
     fun resolveVoice(request: VoiceRequest): BrowseQueue? {
         if (!source.hasPermission || source.songs.isEmpty()) return null
-        val intent = VoiceInterpreter.interpret(request.query.normalizeForSearch(), request, currentYear())
+        val intent = VoiceInterpreter.interpret(request.query.normalizeForSearch(), request, currentYear(), vocabulary())
         val years = intent.years
         fun queue(songs: List<Song>) = BrowseQueue(if (intent.shuffle) shuffle(songs) else songs)
 
@@ -412,6 +422,14 @@ class BrowseTree(
             VoiceIntent.Action.RESUME_LAST -> source.lastQueue?.takeIf { it.songs.isNotEmpty() }?.let { return it }
             VoiceIntent.Action.SHUFFLE -> return BrowseQueue(shuffle(source.songs))
             VoiceIntent.Action.PLAY -> Unit
+        }
+
+        // Une playlist décrite (« du rock calme », « jamais écoutés », « rock ou métal ») : les
+        // mêmes règles que l'écran « Décris ta playlist », évaluées sur la bibliothèque.
+        intent.rules?.let { rules ->
+            RulePlaylistEngine.evaluate(rules, source.songs, source.playStats, source.favoriteIds, now(), source.ratings, source.traits)
+                .takeIf { it.isNotEmpty() }
+                ?.let { return BrowseQueue(it) }
         }
 
         val name = intent.name
@@ -464,6 +482,12 @@ class BrowseTree(
     }
 
     private fun currentYear(): Int = java.time.LocalDate.ofEpochDay(today()).year
+
+    /** Genres et artistes de la bibliothèque, pour que la phrase dictée les reconnaisse. */
+    private fun vocabulary() = LibraryVocabulary(
+        genres = source.genres.map { it.name },
+        artists = source.artists.map { it.name },
+    )
 
     // --- Onglets --------------------------------------------------------------------
 

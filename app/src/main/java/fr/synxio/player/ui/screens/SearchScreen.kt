@@ -34,6 +34,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.History
@@ -75,6 +77,7 @@ import fr.synxio.player.ui.components.AlbumCard
 import fr.synxio.player.ui.components.ArtistCard
 import fr.synxio.player.ui.components.EmptyState
 import fr.synxio.player.ui.components.GenreRow
+import fr.synxio.player.ui.components.GlassCard
 import fr.synxio.player.ui.components.LumenChip
 import fr.synxio.player.ui.components.ScreenHeader
 import fr.synxio.player.ui.components.SectionHeader
@@ -96,6 +99,34 @@ import kotlinx.coroutines.delay
  * pas assez pour repousser artistes et albums hors de l'écran.
  */
 private const val SONG_PREVIEW_COUNT = 6
+
+/** Ligne « Décris ta playlist… » : une phrase en français plutôt qu'un mot-clé. */
+@Composable
+private fun DescribePlaylistRow(onClick: () -> Unit) {
+    GlassCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Space.gutter, vertical = Space.xs),
+        onClick = onClick,
+        contentPadding = Space.md,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(Space.md))
+            Column(Modifier.weight(1f)) {
+                Text("Décris ta playlist…", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "« Une heure de rock calme des années 90 »",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
 
 /** Recherches récentes gardées : au-delà, la rangée devient une liste qu'on ne lit plus. */
 private const val MAX_RECENT_QUERIES = 8
@@ -127,6 +158,7 @@ fun SearchScreen(
     onOpenArtist: (String) -> Unit,
     onOpenGenre: (String) -> Unit,
     onNavigateToDownload: () -> Unit,
+    onDescribePlaylist: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val query by viewModel.query.collectAsStateWithLifecycle()
@@ -229,6 +261,9 @@ fun SearchScreen(
             },
             focusRequester = focusRequester,
         )
+
+        // Sous le champ, tant qu'on ne cherche rien : l'autre façon de trouver, en décrivant.
+        if (query.isBlank()) DescribePlaylistRow(onClick = onDescribePlaylist)
 
         AnimatedContent(
             targetState = pane,

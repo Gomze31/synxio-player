@@ -21,14 +21,16 @@ data class RulePlaylistEditorState(
     val name: String = "",
     val rules: List<SmartRule> = emptyList(),
     val matchAll: Boolean = true,
+    /** Alternatives « l'un de » : un titre passe s'il en remplit au moins une, en plus des [rules]. */
+    val anyOf: List<SmartRule> = emptyList(),
     val sort: SmartSort = SmartSort.TITLE,
     val descending: Boolean = false,
     val limitText: String = "",
     val matchCount: Int = 0,
     val saved: Boolean = false,
 ) {
-    /** Enregistrement désactivé tant qu'il manque un nom ou qu'aucun critère n'est posé. */
-    val canSave: Boolean get() = name.isNotBlank() && rules.isNotEmpty()
+    /** Enregistrement désactivé tant qu'il manque un nom ou qu'aucun critère ni alternative n'est posé. */
+    val canSave: Boolean get() = name.isNotBlank() && (rules.isNotEmpty() || anyOf.isNotEmpty())
 }
 
 /**
@@ -55,36 +57,38 @@ class RulePlaylistEditorViewModel @Inject constructor(
         viewModelScope.launch { repository.rulePlaylists.collect {} }
     }
 
-    fun load(id: Long) {
+    /**
+     * [draft] : nom et règles proposés par l'écran « Décris ta playlist » ; ne vaut qu'en
+     * création ([id] à 0 ou moins) et préremplit l'éditeur comme si l'utilisateur les avait tapés.
+     */
+    fun load(id: Long, draft: Pair<String, RulePlaylistRules>? = null) {
         if (loadedFor == id) return
         loadedFor = id
         editingId = id
 
         if (id <= 0) {
-            _state.value = RulePlaylistEditorState(loading = false)
+            _state.value = draft?.let { (name, rules) -> stateOf(name, rules) } ?: RulePlaylistEditorState(loading = false)
             recount()
             return
         }
 
         viewModelScope.launch {
             val loaded = repository.load(id)
-            _state.value = if (loaded != null) {
-                val (name, rules) = loaded
-                RulePlaylistEditorState(
-                    loading = false,
-                    name = name,
-                    rules = rules.rules,
-                    matchAll = rules.matchAll,
-                    sort = rules.sort,
-                    descending = rules.descending,
-                    limitText = rules.limit?.toString().orEmpty(),
-                )
-            } else {
-                RulePlaylistEditorState(loading = false)
-            }
+            _state.value = loaded?.let { (name, rules) -> stateOf(name, rules) } ?: RulePlaylistEditorState(loading = false)
             recount()
         }
     }
+
+    private fun stateOf(name: String, rules: RulePlaylistRules) = RulePlaylistEditorState(
+        loading = false,
+        name = name,
+        rules = rules.rules,
+        matchAll = rules.matchAll,
+        anyOf = rules.anyOf,
+        sort = rules.sort,
+        descending = rules.descending,
+        limitText = rules.limit?.toString().orEmpty(),
+    )
 
     fun setName(value: String) {
         _state.value = _state.value.copy(name = value)
@@ -109,18 +113,20 @@ class RulePlaylistEditorViewModel @Inject constructor(
         }
     }
 
-    fun addRule() {
+    fun addRule() = edit(group = false) { it + newRule() }
+    fun removeRule(index: Int) = edit(group = false) { it.toMutableList().apply { removeAt(index) } }
+    fun addAnyOf() = edit(group = true) { it + newRule() }
+    fun removeAnyOf(index: Int) = edit(group = true) { it.toMutableList().apply { removeAt(index) } }
+
+    private fun newRule(): SmartRule {
         val field = RuleField.entries.first()
-        _state.value = _state.value.copy(
-            rules = _state.value.rules + SmartRule(field, field.operators.first(), ""),
-        )
-        recount()
+        return SmartRule(field, field.operators.first(), "")
     }
 
-    fun removeRule(index: Int) {
-        _state.value = _state.value.copy(
-            rules = _state.value.rules.toMutableList().apply { removeAt(index) },
-        )
+    /** Les critères et les alternatives « l'un de » se modifient de la même façon : [group] choisit la liste. */
+    private fun edit(group: Boolean, transform: (List<SmartRule>) -> List<SmartRule>) {
+        val current = _state.value
+        _state.value = if (group) current.copy(anyOf = transform(current.anyOf)) else current.copy(rules = transform(current.rules))
         recount()
     }
 
@@ -131,41 +137,24 @@ class RulePlaylistEditorViewModel @Inject constructor(
      * un champ passé de texte à booléen), on retombe sur le premier opérateur valable.
      * La valeur est vidée pour [RuleField.FAVORITE] : ses opérateurs ne l'utilisent pas.
      */
-    fun updateField(index: Int, field: RuleField) {
-        _state.value = _state.value.copy(
-            rules = _state.value.rules.toMutableList().apply {
-                val current = this[index]
-                val operator = if (current.operator in field.operators) {
-                    current.operator
-                } else {
-                    field.operators.first()
-                }
-                this[index] = current.copy(
-                    field = field,
-                    operator = operator,
-                    value = if (field == RuleField.FAVORITE) "" else current.value,
-                )
-            },
-        )
-        recount()
+    fun updateField(index: Int, field: RuleField, group: Boolean = false) = edit(group) { list ->
+        list.toMutableList().apply {
+            val current = this[index]
+            val operator = if (current.operator in field.operators) current.operator else field.operators.first()
+            this[index] = current.copy(
+                field = field,
+                operator = operator,
+                value = if (field == RuleField.FAVORITE) "" else current.value,
+            )
+        }
     }
 
-    fun updateOperator(index: Int, operator: RuleOperator) {
-        _state.value = _state.value.copy(
-            rules = _state.value.rules.toMutableList().apply {
-                this[index] = this[index].copy(operator = operator)
-            },
-        )
-        recount()
+    fun updateOperator(index: Int, operator: RuleOperator, group: Boolean = false) = edit(group) { list ->
+        list.toMutableList().apply { this[index] = this[index].copy(operator = operator) }
     }
 
-    fun updateValue(index: Int, value: String) {
-        _state.value = _state.value.copy(
-            rules = _state.value.rules.toMutableList().apply {
-                this[index] = this[index].copy(value = value)
-            },
-        )
-        recount()
+    fun updateValue(index: Int, value: String, group: Boolean = false) = edit(group) { list ->
+        list.toMutableList().apply { this[index] = this[index].copy(value = value) }
     }
 
     private fun currentRules(): RulePlaylistRules = with(_state.value) {
@@ -175,6 +164,7 @@ class RulePlaylistEditorViewModel @Inject constructor(
             sort = sort,
             descending = descending,
             limit = limitText.toIntOrNull(),
+            anyOf = anyOf,
         )
     }
 

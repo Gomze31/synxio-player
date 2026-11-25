@@ -3,6 +3,7 @@ package fr.synxio.player.data.repo
 import fr.synxio.player.data.db.PlayStatEntity
 import fr.synxio.player.data.db.RulePlaylistDao
 import fr.synxio.player.data.db.RulePlaylistEntity
+import fr.synxio.player.data.model.LibraryVocabulary
 import fr.synxio.player.data.model.RulePlaylistEngine
 import fr.synxio.player.data.model.RulePlaylistRules
 import fr.synxio.player.data.model.Song
@@ -100,6 +101,27 @@ class RulePlaylistRepository @Inject constructor(
             now = System.currentTimeMillis(),
             ratings = current.ratings,
             traits = current.traits,
+        )
+    }
+
+    /**
+     * Les titres qu'un jeu de règles attrape aujourd'hui, limite comprise : compteur, aperçu
+     * et lecture de l'écran « Décris ta playlist ».
+     */
+    fun evaluateNow(rules: RulePlaylistRules): List<Song> {
+        val current = snapshot
+        return RulePlaylistEngine.evaluate(
+            rules, current.songs, current.stats, current.favorites, System.currentTimeMillis(), current.ratings, current.traits,
+        )
+    }
+
+    /** Genres, artistes et décennies présents, pour que l'analyseur de phrases les reconnaisse. */
+    fun vocabulary(): LibraryVocabulary {
+        val songs = snapshot.songs
+        return LibraryVocabulary(
+            genres = songs.mapNotNull { it.genre?.takeIf(String::isNotBlank) }.distinct(),
+            artists = songs.map { it.artist }.filter { it.isNotBlank() }.distinct(),
+            decades = songs.map { it.year / 10 * 10 }.filter { it > 0 }.distinct().sorted(),
         )
     }
 
