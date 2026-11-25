@@ -28,12 +28,18 @@ enum class RuleField(val label: String) {
     DATE_ADDED("Date d'ajout"),
     FAVORITE("Favori"),
     /** Note de 0 (aucune) à 5 étoiles. */
-    RATING("Note (étoiles)");
+    RATING("Note (étoiles)"),
+    /** Tempo mesuré par l'analyse de fond (empreinte 2) ; titres non analysés exclus. */
+    BPM("Tempo (BPM)"),
+    /** Énergie 0–100 (empreinte 2). */
+    ENERGY("Énergie (0–100)"),
+    /** Tonalité : « la mineur », « 8A », ou « mineur » / « majeur » avec « contient ». */
+    KEY("Tonalité");
 
     val operators: List<RuleOperator>
         get() = when (this) {
-            TITLE, ARTIST, ALBUM, ALBUM_ARTIST, GENRE, FOLDER, FORMAT -> TEXT_OPS
-            YEAR, DURATION, PLAY_COUNT, SKIP_COUNT, BITRATE, RATING -> NUMBER_OPS
+            TITLE, ARTIST, ALBUM, ALBUM_ARTIST, GENRE, FOLDER, FORMAT, KEY -> TEXT_OPS
+            YEAR, DURATION, PLAY_COUNT, SKIP_COUNT, BITRATE, RATING, BPM, ENERGY -> NUMBER_OPS
             LAST_PLAYED, DATE_ADDED -> DATE_OPS
             FAVORITE -> BOOL_OPS
         }
@@ -80,6 +86,8 @@ enum class SmartSort(val label: String) {
     PLAY_COUNT("Nombre de lectures"),
     LAST_PLAYED("Dernière écoute"),
     RANDOM("Aléatoire"),
+    BPM("Tempo"),
+    ENERGY("Énergie"),
 }
 
 /**

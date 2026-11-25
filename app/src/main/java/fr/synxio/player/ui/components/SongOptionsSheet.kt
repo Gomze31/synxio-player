@@ -325,6 +325,9 @@ fun SongDetailsDialog(song: Song, onDismiss: () -> Unit) {
                     insights.lastPlayedLabel?.let { DetailLine("Dernière écoute", it) }
                 }
                 insights.loudnessLabel?.let { DetailLine("Niveau mesuré", it) }
+                insights.bpmLabel?.let { DetailLine("Tempo", it) }
+                insights.keyLabel?.let { DetailLine("Tonalité", it) }
+                insights.energyLabel?.let { DetailLine("Énergie", it) }
 
                 DetailLine("Titre", song.title)
                 DetailLine("Artiste", song.displayArtist)

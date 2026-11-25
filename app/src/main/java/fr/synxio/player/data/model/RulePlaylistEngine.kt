@@ -23,17 +23,18 @@ object RulePlaylistEngine {
         favorites: Set<Long>,
         now: Long,
         ratings: Map<Long, Int> = emptyMap(),
+        traits: Map<String, TrackTraits> = emptyMap(),
     ): List<Song> {
         val matching = when {
             rules.rules.isEmpty() -> songs
             rules.matchAll -> songs.filter { s ->
-                rules.rules.all { matches(it, s, stats[s.id], s.id in favorites, ratings[s.id] ?: 0, now) }
+                rules.rules.all { matches(it, s, stats[s.id], s.id in favorites, ratings[s.id] ?: 0, now, traits[s.path]) }
             }
             else -> songs.filter { s ->
-                rules.rules.any { matches(it, s, stats[s.id], s.id in favorites, ratings[s.id] ?: 0, now) }
+                rules.rules.any { matches(it, s, stats[s.id], s.id in favorites, ratings[s.id] ?: 0, now, traits[s.path]) }
             }
         }
-        val sorted = sort(matching, rules, stats, now)
+        val sorted = sort(matching, rules, stats, now, traits)
         return rules.limit?.takeIf { it > 0 }?.let(sorted::take) ?: sorted
     }
 
@@ -45,7 +46,8 @@ object RulePlaylistEngine {
         favorites: Set<Long>,
         now: Long,
         ratings: Map<Long, Int> = emptyMap(),
-    ): Int = evaluate(rules.copy(limit = null), songs, stats, favorites, now, ratings).size
+        traits: Map<String, TrackTraits> = emptyMap(),
+    ): Int = evaluate(rules.copy(limit = null), songs, stats, favorites, now, ratings, traits).size
 
     private fun matches(
         rule: SmartRule,
@@ -54,7 +56,13 @@ object RulePlaylistEngine {
         isFavorite: Boolean,
         stars: Int,
         now: Long,
+        traits: TrackTraits?,
     ): Boolean = when (rule.field) {
+        // Empreinte 2 : un titre non analysé ne correspond jamais (plutôt que « 0 BPM »).
+        RuleField.BPM -> traits?.takeIf { it.hasBpm }?.let { number(rule, it.bpm.toLong()) } ?: false
+        RuleField.ENERGY -> traits?.let { number(rule, (it.energy * 100).toLong()) } ?: false
+        RuleField.KEY -> traits?.takeIf { it.hasKey }?.let { key(rule, it) } ?: false
+
         RuleField.TITLE -> text(rule, song.title)
         RuleField.ARTIST -> text(rule, song.artist)
         RuleField.ALBUM -> text(rule, song.album)
@@ -77,6 +85,16 @@ object RulePlaylistEngine {
             RuleOperator.IS_TRUE -> isFavorite
             RuleOperator.IS_FALSE -> !isFavorite
             else -> false
+        }
+    }
+
+    /** « est 8A » / « est la mineur » comparent la tonalité ; « contient mineur » filtre le mode. */
+    private fun key(rule: SmartRule, traits: TrackTraits): Boolean {
+        val wanted = KeyNames.parse(rule.value)
+        return when (rule.operator) {
+            RuleOperator.EQUALS -> wanted != null && wanted == traits.keyIndex
+            RuleOperator.NOT_EQUALS -> wanted != null && wanted != traits.keyIndex
+            else -> text(rule, "${traits.keyName} ${traits.camelot}")
         }
     }
 
@@ -125,6 +143,7 @@ object RulePlaylistEngine {
         rules: RulePlaylistRules,
         stats: Map<Long, PlayStatEntity>,
         now: Long,
+        traits: Map<String, TrackTraits> = emptyMap(),
     ): List<Song> {
         if (rules.sort == SmartSort.RANDOM) {
             // Graine sur le jour courant : la playlist reste stable pendant la session
@@ -139,6 +158,8 @@ object RulePlaylistEngine {
             SmartSort.DATE_ADDED -> compareBy { it.dateAddedSec }
             SmartSort.PLAY_COUNT -> compareBy { stats[it.id]?.playCount ?: 0 }
             SmartSort.LAST_PLAYED -> compareBy { stats[it.id]?.lastPlayedAt ?: 0L }
+            SmartSort.BPM -> compareBy { traits[it.path]?.bpm ?: 0f }
+            SmartSort.ENERGY -> compareBy { traits[it.path]?.energy ?: 0f }
             SmartSort.RANDOM -> compareBy { it.id }   // inatteignable, exhaustivité du when
         }
         return songs.sortedWith(if (rules.descending) comparator.reversed() else comparator)

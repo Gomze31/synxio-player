@@ -25,7 +25,16 @@ data class SongInsights(
     val completion: Float?,
     /** Niveau mesuré en dBFS, ou null si le morceau n'a pas été analysé. */
     val loudnessDbfs: Float?,
+    /** Empreinte 2 (tempo, tonalité, énergie), ou null si pas encore calculée. */
+    val traits: fr.synxio.player.data.model.TrackTraits? = null,
 ) {
+    val bpmLabel: String? get() = traits?.takeIf { it.hasBpm }?.let { "${it.bpm.roundToInt()} BPM" }
+    val keyLabel: String? get() = traits?.takeIf { it.hasKey }?.let { "${it.keyName} (${it.camelot})" }
+    val energyLabel: String? get() = traits?.let { t ->
+        val filled = (t.energy * 5).roundToInt().coerceIn(0, 5)
+        "●".repeat(filled) + "○".repeat(5 - filled)
+    }
+
     val hasHistory: Boolean get() = playCount > 0 || skipCount > 0
 
     val lastPlayedLabel: String?
@@ -44,6 +53,7 @@ data class SongInsights(
 class SongInsightsViewModel @Inject constructor(
     private val music: MusicRepository,
     private val loudness: LoudnessRepository,
+    private val traits: fr.synxio.player.data.repo.TrackTraitsRepository,
 ) : ViewModel() {
 
     fun insightsFor(song: Song): SongInsights {
@@ -62,6 +72,7 @@ class SongInsightsViewModel @Inject constructor(
             lastPlayedAt = stat?.lastPlayedAt ?: 0L,
             completion = completion,
             loudnessDbfs = level,
+            traits = traits.traitsFor(song),
         )
     }
 }

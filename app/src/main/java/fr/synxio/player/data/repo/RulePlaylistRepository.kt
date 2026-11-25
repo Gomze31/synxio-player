@@ -40,6 +40,7 @@ private data class LibrarySnapshot(
     val stats: Map<Long, PlayStatEntity>,
     val favorites: Set<Long>,
     val ratings: Map<Long, Int>,
+    val traits: Map<String, fr.synxio.player.data.model.TrackTraits> = emptyMap(),
 )
 
 /**
@@ -53,6 +54,7 @@ class RulePlaylistRepository @Inject constructor(
     private val dao: RulePlaylistDao,
     private val musicRepository: MusicRepository,
     ratingRepository: RatingRepository,
+    traitsRepository: TrackTraitsRepository,
     @ApplicationScope private val scope: CoroutineScope,
 ) {
 
@@ -62,14 +64,16 @@ class RulePlaylistRepository @Inject constructor(
     @Volatile
     private var snapshot = LibrarySnapshot(emptyList(), emptyMap(), emptySet(), emptyMap())
 
-    val rulePlaylists: StateFlow<List<RulePlaylist>> = combine(
+    private val librarySnapshot = combine(
         musicRepository.library.map { it.songs },
         musicRepository.allStats,
         musicRepository.favoriteIds,
         ratingRepository.ratings,
-        dao.observeAll(),
-    ) { songs, stats, favoriteIds, ratings, stored ->
-        snapshot = LibrarySnapshot(songs, stats, favoriteIds, ratings)
+        traitsRepository.traits,
+    ) { songs, stats, favoriteIds, ratings, traits -> LibrarySnapshot(songs, stats, favoriteIds, ratings, traits) }
+
+    val rulePlaylists: StateFlow<List<RulePlaylist>> = combine(librarySnapshot, dao.observeAll()) { snap, stored ->
+        snapshot = snap
         val now = System.currentTimeMillis()
         stored.map { entity ->
             val rules = RulePlaylistRules.fromJson(entity.rulesJson)
@@ -77,7 +81,7 @@ class RulePlaylistRepository @Inject constructor(
                 id = entity.id,
                 name = entity.name,
                 rules = rules,
-                songs = RulePlaylistEngine.evaluate(rules, songs, stats, favoriteIds, now, ratings),
+                songs = RulePlaylistEngine.evaluate(rules, snap.songs, snap.stats, snap.favorites, now, snap.ratings, snap.traits),
             )
         }
     }.stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -95,6 +99,7 @@ class RulePlaylistRepository @Inject constructor(
             favorites = current.favorites,
             now = System.currentTimeMillis(),
             ratings = current.ratings,
+            traits = current.traits,
         )
     }
 
