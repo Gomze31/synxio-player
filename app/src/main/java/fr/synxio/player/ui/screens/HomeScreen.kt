@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.Insights
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.NewReleases
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -49,6 +50,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import fr.synxio.player.core.util.asLongDuration
 import fr.synxio.player.core.util.pluralSongs
 import fr.synxio.player.data.model.BookProgress
+import fr.synxio.player.data.model.DailyMixKind
+import fr.synxio.player.data.model.Insights
 import fr.synxio.player.data.model.Song
 import fr.synxio.player.data.model.bookToResume
 import fr.synxio.player.data.model.chapterLabel
@@ -120,6 +123,7 @@ fun HomeScreen(
     modifier: Modifier = Modifier,
     onOpenSmartPlaylist: ((SmartPlaylistId) -> Unit)? = null,
     onOpenBook: ((String) -> Unit)? = null,
+    onOpenInsights: (() -> Unit)? = null,
 ) {
     val library by viewModel.library.collectAsStateWithLifecycle()
     val bookProgress by viewModel.bookProgress.collectAsStateWithLifecycle()
@@ -130,6 +134,7 @@ fun HomeScreen(
     val smartPlaylists by viewModel.smartPlaylists.collectAsStateWithLifecycle()
     val dailyMixes by viewModel.dailyMixes.collectAsStateWithLifecycle()
     val memories by viewModel.memories.collectAsStateWithLifecycle()
+    val insights by viewModel.insights.collectAsStateWithLifecycle()
     // Triés par le ViewModel hors du thread principal, jamais pendant la composition.
     val recentAlbums by viewModel.recentAlbums.collectAsStateWithLifecycle()
     val topArtists by viewModel.topArtists.collectAsStateWithLifecycle()
@@ -159,6 +164,9 @@ fun HomeScreen(
 
     val resumeSongs = remember(recentlyPlayed) { recentlyPlayed.take(CAROUSEL_SIZE) }
     val topSongs = remember(mostPlayed) { mostPlayed.take(CAROUSEL_SIZE) }
+    // Le « Flow du jour » a sa propre section : la rangée des mixs ne le montre plus.
+    val mixRow = remember(dailyMixes) { dailyMixes.filter { it.kind != DailyMixKind.FLOW } }
+    val flowMix = remember(dailyMixes) { dailyMixes.firstOrNull { it.kind == DailyMixKind.FLOW } }
     // Le titre en cours est cherché dans la bibliothèque à partir de son seul identifiant :
     // lire playerState ici recomposerait l'accueil à chaque tic de position.
     val currentSong = remember(currentSongId, library.songs) {
@@ -200,6 +208,8 @@ fun HomeScreen(
                 // La puce ouvre l'écran des ajouts récents au lieu de lancer la lecture :
                 // « qu'est-ce qui est arrivé ? » est une question, pas une commande.
                 onRecent = onSeeRecents,
+                insightsLabel = insights?.let(::insightsChipLabel),
+                onInsights = onOpenInsights,
                 modifier = Modifier.enterCascade(quickIndex, "home-quick"),
             )
         }
@@ -304,7 +314,7 @@ fun HomeScreen(
             }
         }
 
-        if (dailyMixes.isNotEmpty()) {
+        if (mixRow.isNotEmpty()) {
             val index = order++
             item(key = "s-mixes", contentType = "smartSection") {
                 HomeSection(
@@ -316,7 +326,7 @@ fun HomeScreen(
                         contentPadding = PaddingValues(horizontal = Space.gutter),
                         horizontalArrangement = Arrangement.spacedBy(Space.md),
                     ) {
-                        itemsIndexed(dailyMixes, key = { _, it -> it.key }) { i, mix ->
+                        itemsIndexed(mixRow, key = { _, it -> it.key }) { i, mix ->
                             MosaicCard(
                                 title = mix.title,
                                 subtitle = mix.subtitle,
@@ -330,6 +340,41 @@ fun HomeScreen(
                                     .enterCascade(i, "mix-${mix.key}"),
                             )
                         }
+                    }
+                }
+            }
+        }
+
+        // Section « Flow » (6.0) : la carte « Flow du jour » (étape 7), puis à l'étape 11 les
+        // cartes « Course » (étape 8 : seulement si le capteur de pas existe et qu'une course a
+        // déjà eu lieu) et « Décris ta playlist » (étape 9). Absente tant qu'elle n'a rien à montrer.
+        // TODO(étape 11) : brancher « Course » et « Décris ta playlist » une fois les branches fusionnées.
+        if (flowMix != null) {
+            val index = order++
+            item(key = "s-flow", contentType = "smartSection") {
+                HomeSection(
+                    title = "Flow",
+                    eyebrow = "Ta musique en mouvement",
+                    modifier = Modifier.enterCascade(index, "home-flow"),
+                ) {
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = Space.gutter),
+                        horizontalArrangement = Arrangement.spacedBy(Space.md),
+                    ) {
+                        item(key = flowMix.key) {
+                            MosaicCard(
+                                title = flowMix.title,
+                                subtitle = flowMix.subtitle,
+                                artworkUris = flowMix.artworkUris,
+                                onClickLabel = "Lancer le Flow du jour",
+                                onClick = { viewModel.play(flowMix.songs) },
+                                modifier = Modifier
+                                    .animateItem()
+                                    .enterCascade(0, "flow-${flowMix.key}"),
+                            )
+                        }
+                        // TODO(étape 11) : item(key = "run") { carte « Course » } — capteur de pas présent et une course déjà faite (étape 8).
+                        // TODO(étape 11) : item(key = "describe") { carte « Décris ta playlist » } — écran de l'étape 9.
                     }
                 }
             }
@@ -487,12 +532,27 @@ private fun QuickActions(
     onFavorites: () -> Unit,
     onRecent: () -> Unit,
     modifier: Modifier = Modifier,
+    insightsLabel: String? = null,
+    onInsights: (() -> Unit)? = null,
 ) {
     LazyRow(
         modifier = modifier,
         contentPadding = PaddingValues(horizontal = Space.gutter, vertical = Space.xs),
         horizontalArrangement = Arrangement.spacedBy(Space.sm),
     ) {
+        // « 9 jours d'affilée · 3 h 20 cette semaine » : ouvre Statistiques › Insights. Absente
+        // tant que les insights ne sont pas calculés ou que rien ne permet d'y aller.
+        if (insightsLabel != null && onInsights != null) {
+            item(key = "insights") {
+                LumenChip(
+                    label = insightsLabel,
+                    selected = false,
+                    onClick = onInsights,
+                    icon = Icons.Rounded.Insights,
+                    modifier = Modifier.animateItem(),
+                )
+            }
+        }
         if (canShuffle) {
             item(key = "shuffle") {
                 LumenChip(label = "Tout mélanger", selected = false, onClick = onShuffleAll, icon = Icons.Rounded.Shuffle)
@@ -514,6 +574,19 @@ private fun QuickActions(
             LumenChip(label = "Ajouts récents", selected = false, onClick = onRecent, icon = Icons.Rounded.NewReleases)
         }
     }
+}
+
+/**
+ * Libellé de la puce Insights : la série puis la semaine, réduit à ce qui existe
+ * (« 3 h 20 cette semaine » sans série ; « Insights » sans écoute du tout).
+ */
+private fun insightsChipLabel(insights: Insights): String {
+    val parts = buildList {
+        val streak = insights.streak.current
+        if (streak > 0) add("$streak jour${if (streak > 1) "s" else ""} d'affilée")
+        if (insights.weekMinutes > 0) add("${formatMinutes(insights.weekMinutes)} cette semaine")
+    }
+    return if (parts.isEmpty()) "Insights" else parts.joinToString(" · ")
 }
 
 /**

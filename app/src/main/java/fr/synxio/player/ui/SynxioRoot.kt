@@ -169,6 +169,7 @@ import fr.synxio.player.ui.screens.SearchScreen
 import fr.synxio.player.ui.screens.SettingsScreen
 import fr.synxio.player.ui.screens.SongListScreen
 import fr.synxio.player.ui.screens.StatsScreen
+import fr.synxio.player.ui.screens.StatsTab
 import fr.synxio.player.ui.screens.RecapScreen
 import fr.synxio.player.ui.screens.AlarmsScreen
 import fr.synxio.player.ui.screens.TagEditorScreen
@@ -201,7 +202,8 @@ object Routes {
     const val REPAIR = "repair"
     const val DOWNLOAD = "download"
     const val TAGS = "tags/{songId}"
-    const val STATS = "stats"
+    /** `tab` facultatif : `stats` ouvre le résumé, `stats?tab=INSIGHTS` le volet Insights. */
+    const val STATS = "stats?tab={tab}"
     const val RECAP = "recap"
     const val ALARMS = "alarms"
     const val HISTORY = "history"
@@ -222,6 +224,7 @@ object Routes {
     const val TRIM = "trim/{songId}"
 
     fun album(id: Long) = "album/$id"
+    fun stats(tab: StatsTab? = null) = if (tab == null) "stats" else "stats?tab=${tab.name}"
     fun smart(id: SmartPlaylistId) = "smart/${id.name}"
     fun rule(id: Long) = "rule/$id"
     fun ruleEditor(id: Long = -1L) = "rule_editor/$id"
@@ -981,6 +984,7 @@ private fun AppNavHost(
                 onSeeRecents = { navController.navigate(Routes.RECENTS) },
                 onOpenSmartPlaylist = { navController.navigate(Routes.smart(it)) },
                 onOpenBook = { navController.navigate(Routes.folder(it)) },
+                onOpenInsights = { navController.navigate(Routes.stats(StatsTab.INSIGHTS)) },
             )
         }
 
@@ -1042,7 +1046,7 @@ private fun AppNavHost(
                 onOpenEqualizer = { navController.navigate(Routes.EQUALIZER) },
                 onOpenRepair = { navController.navigate(Routes.REPAIR) },
                 onOpenDuplicates = { navController.navigate(Routes.DUPLICATES) },
-                onNavigateToStats = { navController.navigate(Routes.STATS) },
+                onNavigateToStats = { navController.navigate(Routes.stats()) },
                 onNavigateToHistory = { navController.navigate(Routes.HISTORY) },
                 onNavigateToBackup = { navController.navigate(Routes.BACKUP) },
                 onNavigateToAbout = { navController.navigate(Routes.ABOUT) },
@@ -1314,9 +1318,22 @@ private fun AppNavHost(
         // NOUVELLES ROUTES
         // ========================================================================
 
-        screen(Routes.STATS) {
+        screen(
+            route = Routes.STATS,
+            arguments = listOf(
+                navArgument("tab") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) { entry ->
+            val initialTab = entry.arguments?.getString("tab")
+                ?.let { name -> StatsTab.entries.firstOrNull { it.name == name } }
+                ?: StatsTab.SUMMARY
             StatsScreen(
                 viewModel = viewModel,
+                initialTab = initialTab,
                 onBack = { navController.popBackStack() },
                 onOpenArtist = { navController.navigate(Routes.artist(it)) },
                 onOpenAlbum = { navController.navigate(Routes.album(it)) },
