@@ -105,8 +105,9 @@ object SettingsCatalog {
         add(e(a, "widgets", "Ajouter le grand widget", "widget", "écran d'accueil"))
 
         val p = SettingsSubMenu.PLAYBACK
-        add(e(p, "transitions", "Fondu entre les morceaux", "crossfade", "fondu enchaîné", "transition"))
-        add(e(p, "transitions", "Enchaînement gapless", "gapless", "sans blanc", "album live"))
+        add(e(p, "transitions", "Fondu entre les morceaux", "crossfade", "fondu enchaîné", "transition", "gapless", "sans blanc"))
+        add(e(p, "transitions", "Courbe du fondu", "crossfade", "equal-power", "linéaire", "douce", "courbe"))
+        add(e(p, "transitions", "Caler sur l'énergie", "crossfade", "intro", "outro", "énergie", "silence"))
         add(e(p, "transitions", "Ignorer les silences", "silence", "skip silence"))
         add(e(p, "queue", "Auto-DJ", "file", "suivants", "automatique"))
         add(e(p, "queue", "Aléatoire sans les titres zappés", "shuffle", "aléatoire", "zappés"))

@@ -38,6 +38,7 @@ class SettingsViewModel @Inject constructor(
     private val budsMonitor: fr.synxio.player.buds.BudsMonitor,
     private val carDetector: fr.synxio.player.core.car.CarDetector,
     private val playlistRepository: fr.synxio.player.data.repo.PlaylistRepository,
+    private val trackTraits: fr.synxio.player.data.repo.TrackTraitsRepository,
 ) : ViewModel() {
 
     // ========================================================================
@@ -139,7 +140,11 @@ class SettingsViewModel @Inject constructor(
     // ========================================================================
 
     fun setCrossfade(ms: Int) = update { settings.setCrossfadeMs(ms) }
-    fun setGapless(value: Boolean) = update { settings.setGapless(value) }
+    fun setCrossfadeCurve(value: fr.synxio.player.playback.engine.CrossfadeCurve) = update { settings.setCrossfadeCurve(value) }
+    fun setCrossfadeEnergyAligned(value: Boolean) = update { settings.setCrossfadeEnergyAligned(value) }
+
+    /** Vrai dès qu'un titre a ses bornes de son (intro/outro) : « Caler sur l'énergie » a alors un effet. */
+    fun hasAnalysedTraits(): Boolean = trackTraits.traits.value.isNotEmpty()
     fun setSkipSilence(value: Boolean) = update { settings.setSkipSilence(value) }
     fun setAutoDj(value: Boolean) = update { settings.setAutoDj(value) }
     fun setRememberQueue(value: Boolean) = update { settings.setRememberQueue(value) }

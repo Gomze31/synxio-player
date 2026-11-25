@@ -63,7 +63,10 @@ data class Settings(
     val textSize: String = TextSize.NORMAL.name,
 
     val crossfadeMs: Int = 0,
-    val gaplessEnabled: Boolean = true,
+    /** Forme du fondu entre deux morceaux. */
+    val crossfadeCurve: fr.synxio.player.playback.engine.CrossfadeCurve = fr.synxio.player.playback.engine.CrossfadeCurve.EQUAL_POWER,
+    /** Fondu calé sur la fin réelle du son et le vrai début du suivant (titres analysés). */
+    val crossfadeEnergyAligned: Boolean = false,
     val skipSilence: Boolean = false,
     val playbackSpeed: Float = 1f,
     val playbackPitch: Float = 1f,
@@ -253,7 +256,9 @@ class SettingsRepository @Inject constructor(
         val TEXT_SIZE = stringPreferencesKey("text_size")
 
         val CROSSFADE_MS = intPreferencesKey("crossfade_ms")
-        val GAPLESS = booleanPreferencesKey("gapless")
+        // L'ancienne clé « gapless » n'est plus lue : à 0 ms le lecteur est gapless natif.
+        val CROSSFADE_CURVE = stringPreferencesKey("crossfade_curve")
+        val CROSSFADE_ENERGY_ALIGNED = booleanPreferencesKey("crossfade_energy_aligned")
         val SKIP_SILENCE = booleanPreferencesKey("skip_silence")
         val SPEED = floatPreferencesKey("speed")
         val PITCH = floatPreferencesKey("pitch")
@@ -393,7 +398,8 @@ class SettingsRepository @Inject constructor(
                 textSize = p[Keys.TEXT_SIZE] ?: TextSize.NORMAL.name,
 
                 crossfadeMs = p[Keys.CROSSFADE_MS] ?: 0,
-                gaplessEnabled = p[Keys.GAPLESS] ?: true,
+                crossfadeCurve = fr.synxio.player.playback.engine.CrossfadeCurve.fromName(p[Keys.CROSSFADE_CURVE]),
+                crossfadeEnergyAligned = p[Keys.CROSSFADE_ENERGY_ALIGNED] ?: false,
                 skipSilence = p[Keys.SKIP_SILENCE] ?: false,
                 playbackSpeed = p[Keys.SPEED] ?: 1f,
                 playbackPitch = p[Keys.PITCH] ?: 1f,
@@ -518,7 +524,8 @@ class SettingsRepository @Inject constructor(
     suspend fun setShowVisualizer(value: Boolean) = put(Keys.SHOW_VISUALIZER, value)
 
     suspend fun setCrossfadeMs(value: Int) = put(Keys.CROSSFADE_MS, value)
-    suspend fun setGapless(value: Boolean) = put(Keys.GAPLESS, value)
+    suspend fun setCrossfadeCurve(value: fr.synxio.player.playback.engine.CrossfadeCurve) = put(Keys.CROSSFADE_CURVE, value.name)
+    suspend fun setCrossfadeEnergyAligned(value: Boolean) = put(Keys.CROSSFADE_ENERGY_ALIGNED, value)
     suspend fun setSkipSilence(value: Boolean) = put(Keys.SKIP_SILENCE, value)
     suspend fun setSpeed(value: Float) = put(Keys.SPEED, value)
     suspend fun setPitch(value: Float) = put(Keys.PITCH, value)

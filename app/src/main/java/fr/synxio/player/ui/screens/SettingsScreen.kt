@@ -292,7 +292,7 @@ private fun SettingsSubMenu.getSummary(
     SettingsSubMenu.APPEARANCE ->
         "${settings.themeMode.label} • ${ThemePreset.fromName(settings.themePreset).label} • ${settings.nowPlayingSkin.label}"
     SettingsSubMenu.PLAYBACK ->
-        "Gapless ${if (settings.gaplessEnabled) "Actif" else "Désactivé"} • Fondu ${settings.crossfadeMs / 1000}s • ${if (settings.autoRewindSec > 0) "Rembobinage ${settings.autoRewindSec}s" else "Direct"}"
+        "${if (settings.crossfadeMs > 0) "Fondu ${settings.crossfadeMs / 1000}s (${settings.crossfadeCurve.label})" else "Gapless"} • ${if (settings.autoRewindSec > 0) "Rembobinage ${settings.autoRewindSec}s" else "Direct"}"
     SettingsSubMenu.CAR ->
         "${if (settings.carAddresses.isEmpty()) "Aucune voiture cochée" else "${settings.carAddresses.size} voiture(s)"} • ${if (settings.carOpenDriveMode) "Mode voiture auto" else "Mode voiture manuel"}"
     SettingsSubMenu.VOLUME ->
@@ -601,7 +601,7 @@ fun SettingsScreen(
                         group(0, "transitions", "Enchaînement") {
                             SliderSetting(
                                 title = "Fondu entre les morceaux",
-                                subtitle = "0 s = enchaînement sans blanc (gapless natif)",
+                                subtitle = "Le suivant démarre pendant que le courant s'éteint ; 0 s = enchaînement sans blanc (gapless natif)",
                                 icon = Icons.Rounded.LinearScale,
                                 value = settings.crossfadeMs / 1000f,
                                 valueRange = 0f..12f,
@@ -610,12 +610,24 @@ fun SettingsScreen(
                                 onChange = { settingsViewModel.setCrossfade((it * 1000).toInt()) }
                             )
                             GroupDivider()
+                            val curves = fr.synxio.player.playback.engine.CrossfadeCurve.entries
+                            SegmentedSetting(
+                                title = "Courbe du fondu",
+                                icon = Icons.Rounded.LinearScale,
+                                options = curves.map { it.label },
+                                descriptions = curves.map { it.description },
+                                selectedIndex = curves.indexOf(settings.crossfadeCurve),
+                                onSelect = { settingsViewModel.setCrossfadeCurve(curves[it]) },
+                            )
+                            GroupDivider()
+                            val hasTraits = settingsViewModel.hasAnalysedTraits()
                             SwitchSetting(
-                                title = "Enchaînement gapless",
-                                subtitle = "Aucun silence entre deux pistes d'un même album",
-                                icon = Icons.Rounded.Loop,
-                                checked = settings.gaplessEnabled,
-                                onCheckedChange = settingsViewModel::setGapless
+                                title = "Caler sur l'énergie",
+                                subtitle = if (hasTraits) "Le fondu finit où le son s'arrête vraiment et le suivant démarre après son silence d'intro"
+                                else "Disponible quand des titres ont été analysés (Lecture & Audio › Radio)",
+                                icon = Icons.Rounded.AutoAwesome,
+                                checked = settings.crossfadeEnergyAligned && hasTraits,
+                                onCheckedChange = { if (hasTraits) settingsViewModel.setCrossfadeEnergyAligned(it) }
                             )
                             GroupDivider()
                             SwitchSetting(
