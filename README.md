@@ -27,11 +27,18 @@
 
 ### 🎵 Expérience Audio Haute Qualité
 - **Moteur Media3 (ExoPlayer)** : Lecture continue et stable avec service d'avant-plan persistant.
-- **Lecture Gapless & Fondu Enchaîné** : Transitions fluides et personnalisables (0 à 12 s) pour vos albums live et conceptuels.
+- **Fondu réel à deux lecteurs** : Le titre suivant démarre sur un second lecteur pendant que le courant s'éteint (0 à 12 s, courbes Equal-power / Linéaire / Douce, calage sur la vraie fin du son) ; enchaînement gapless natif à 0 s.
 - **Contrôle Précis du Son** : Réglage indépendant de la **vitesse** (0.5× à 2.5×) et de la **tonalité** (pitch).
 - **Égaliseur & Effets** : Compatibilité avec l'égaliseur système, amplification des basses, spatialisation et gain audio.
 - **Minuterie de Veille (Sleep Timer)** : Extinction programmée avec fondu audio doux, ou option « Terminer le morceau en cours ».
 - **Gestion du Focus Audio** : Reprise intelligente au branchement Bluetooth et mise en pause automatique au débranchement.
+
+### 🧠 Synxio comprend ta musique
+- **Empreinte sonore** : BPM, tonalité (« la mineur », Camelot « 8A »), énergie et vrai début / vraie fin du son, calculés sur l'appareil, sans réseau ; visibles dans la fiche titre, utilisables dans les playlists à règles et les ambiances.
+- **Mode Flow** : La file se réordonne pour que chaque titre enchaîne sur le précédent (tempo à l'octave près, roue de Camelot, énergie voisine), avec « Pourquoi ce titre » et un « Flow du jour » à l'accueil.
+- **Course au tempo** : Le podomètre mesure ta cadence et la musique suit tes pas, titre d'avance au bon BPM, vitesse ajustée de 5 % au plus sans changer la hauteur.
+- **Playlists décrites en français** : « une heure de rock calme des années 90 » devient une playlist (chips de ce qui est compris, lecture directe ou en Flow, enregistrement en playlist à règles) ; même analyseur pour Android Auto et l'Assistant.
+- **Insights** : Heatmap de l'année en minutes écoutées, série de jours, horloge des heures, mois contre mois, tempo moyen et « premières fois ».
 
 ### 🎨 Design Moderne & Personnalisation
 - **Thèmes Dynamiques Material You** : Couleurs de l'interface extraites en direct de la pochette d'album via *Palette*.
@@ -49,7 +56,9 @@
 - **📊 Scrobbling Last.fm** : Synchronisation fluide de vos statistiques d'écoute sur Last.fm.
 
 ### 📚 Gestion Complète de la Bibliothèque
-- **Indexation Scoped Storage MediaStore** : Détection instantanée des nouveaux ajouts sans bloquer le téléphone.
+- **Bibliothèque instantanée** : Cache local des titres et synchronisation différentielle avec MediaStore (`GENERATION_MODIFIED`) : la bibliothèque s'affiche dès l'ouverture, même avec des milliers de titres, et les ajouts apparaissent sans rescan.
+- **Analyses de fond fiables** : Niveau sonore et empreintes calculés dans WorkManager, reprise après fermeture ou redémarrage, respect de la batterie (« Analyser seulement en charge »).
+- **Recherche dans les Réglages** : Un champ en tête des Réglages, accents et mots-clés compris, saut direct au groupe surligné.
 - **Éditeur de Tags ID3** : Modifiez titre, artiste, album et pochette directement dans l'application.
 - **Paroles Synchronisées (.LRC)** : Affichage automatique des paroles (fichiers `.lrc` locaux ou via l'API [LRCLIB](https://lrclib.net)).
 - **Playlists Intelligentes & Export M3U8** : Créez, triez, dupliquez et exportez vos listes d'écoute facilement.
